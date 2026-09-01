@@ -1,19 +1,24 @@
 import { useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { getCartItemCount, getCartTotalCents, useCartStore } from '../../store/cartStore'
+import { getRemovedIngredients } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
+import { ProductCustomizationSheet } from './ProductCustomizationSheet'
 
 type Props = { onCheckout: () => void }
 
 export function CartPanel({ onCheckout }: Props) {
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [customizingLineId, setCustomizingLineId] = useState<string | null>(null)
   const items = useCartStore((state) => state.items)
   const increment = useCartStore((state) => state.incrementItem)
   const decrement = useCartStore((state) => state.decrementItem)
   const remove = useCartStore((state) => state.removeItem)
+  const customize = useCartStore((state) => state.customizeItem)
   const clearCart = useCartStore((state) => state.clearCart)
   const total = getCartTotalCents(items)
   const count = getCartItemCount(items)
+  const customizingItem = items.find((item) => item.lineId === customizingLineId) ?? null
 
   const confirmCancellation = () => {
     clearCart()
@@ -43,9 +48,10 @@ export function CartPanel({ onCheckout }: Props) {
             </div>
           ) : (
             <div className="divide-y divide-stone-300">
-              {items.map((item) => (
-                <article key={item.lineId} className="py-4 first:pt-1">
-                  <div className="flex justify-between gap-3">
+              {items.map((item) => {
+                const removedIngredients = getRemovedIngredients(item)
+                const overview = (
+                  <div className="flex w-full justify-between gap-3 text-left">
                     <div className="min-w-0">
                       <div className="font-black leading-tight">{item.name}</div>
                       {item.variant ? (
@@ -62,6 +68,19 @@ export function CartPanel({ onCheckout }: Props) {
                           {option.optionName}
                         </div>
                       ))}
+                      {removedIngredients.map((ingredient) => (
+                        <div
+                          key={ingredient.id}
+                          className="mt-1 text-sm font-extrabold text-amber-800"
+                        >
+                          Sans {ingredient.name.toLocaleLowerCase('fr-FR')}
+                        </div>
+                      ))}
+                      {item.ingredients.length ? (
+                        <div className="mt-2 text-xs font-extrabold text-[#185b40] underline underline-offset-2">
+                          Modifier la composition
+                        </div>
+                      ) : null}
                       <div className="mt-2 text-xs font-semibold text-stone-500">
                         {formatMoney(item.unitPriceCents)} l’unité
                       </div>
@@ -70,43 +89,60 @@ export function CartPanel({ onCheckout }: Props) {
                       {formatMoney(item.unitPriceCents * item.quantity)}
                     </div>
                   </div>
-                  {item.dataConfidence === 'temporary' ? (
-                    <div className="mt-2 text-xs font-bold text-amber-800">
-                      Donnée métier temporaire
-                    </div>
-                  ) : null}
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1" aria-label={`Quantité ${item.name}`}>
+                )
+
+                return (
+                  <article key={item.lineId} className="py-4 first:pt-1">
+                    {item.ingredients.length ? (
                       <button
                         type="button"
-                        onClick={() => decrement(item.lineId)}
-                        aria-label={`Diminuer ${item.name}`}
-                        className="h-12 w-12 rounded-[8px] border border-stone-400 bg-white text-2xl font-black active:bg-stone-100 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
+                        className="w-full rounded-lg p-1 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
+                        aria-label={`Personnaliser ${item.name}`}
+                        onClick={() => setCustomizingLineId(item.lineId)}
                       >
-                        −
+                        {overview}
                       </button>
-                      <span className="min-w-10 text-center text-xl font-black tabular-nums">
-                        {item.quantity}
-                      </span>
+                    ) : (
+                      overview
+                    )}
+                    {item.dataConfidence === 'temporary' ? (
+                      <div className="mt-2 text-xs font-bold text-amber-800">
+                        Donnée métier temporaire
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1" aria-label={`Quantité ${item.name}`}>
+                        <button
+                          type="button"
+                          onClick={() => decrement(item.lineId)}
+                          aria-label={`Diminuer ${item.name}`}
+                          className="h-12 w-12 rounded-[8px] border border-stone-400 bg-white text-2xl font-black active:bg-stone-100 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
+                        >
+                          −
+                        </button>
+                        <span className="min-w-10 text-center text-xl font-black tabular-nums">
+                          {item.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => increment(item.lineId)}
+                          aria-label={`Augmenter ${item.name}`}
+                          className="h-12 w-12 rounded-[8px] border border-stone-400 bg-white text-2xl font-black active:bg-stone-100 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
+                        >
+                          +
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => increment(item.lineId)}
-                        aria-label={`Augmenter ${item.name}`}
-                        className="h-12 w-12 rounded-[8px] border border-stone-400 bg-white text-2xl font-black active:bg-stone-100 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
+                        onClick={() => remove(item.lineId)}
+                        className="min-h-12 px-2 text-sm font-extrabold text-red-800 underline decoration-red-300 underline-offset-4 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
                       >
-                        +
+                        Supprimer
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => remove(item.lineId)}
-                      className="min-h-12 px-2 text-sm font-extrabold text-red-800 underline decoration-red-300 underline-offset-4 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
-                    >
-                      Supprimer
-                    </button>
-                  </div>
-                </article>
-              ))}
+                  </article>
+                )
+              })}
             </div>
           )}
         </div>
@@ -163,6 +199,18 @@ export function CartPanel({ onCheckout }: Props) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {customizingItem ? (
+        <ProductCustomizationSheet
+          key={customizingItem.lineId}
+          item={customizingItem}
+          onCancel={() => setCustomizingLineId(null)}
+          onConfirm={(removedIngredientIds) => {
+            customize(customizingItem.lineId, removedIngredientIds)
+            setCustomizingLineId(null)
+          }}
+        />
       ) : null}
     </>
   )

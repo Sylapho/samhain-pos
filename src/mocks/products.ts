@@ -93,7 +93,15 @@ export const products: Product[] = [
     priceCents: 1600,
     vatRate: 10,
     availability: 'available',
-    description: 'Steak haché, cheddar, bacon · frites',
+    description: 'Steak haché, cheddar, bacon, salade, sauce · frites',
+    ingredients: [
+      { id: 'pain', name: 'Pain' },
+      { id: 'steak-hache', name: 'Steak haché' },
+      { id: 'cheddar', name: 'Cheddar' },
+      { id: 'bacon', name: 'Bacon' },
+      { id: 'salade', name: 'Salade' },
+      { id: 'sauce', name: 'Sauce' },
+    ],
   },
   {
     id: 'crepe-chocolat',

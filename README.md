@@ -4,6 +4,12 @@ Prototype React/TypeScript/Capacitor de caisse tactile pour le festival Samhain.
 
 Cette version reste volontairement simple : pas de backend, pas de SQLite, pas de synchronisation réelle et pas de gestion de stock avancée.
 
+## Personnalisation des produits
+
+Les produits possédant une composition configurable affichent **Modifier la composition** dans le panier. La ligne ouvre une sheet tactile où les ingrédients présents sont cochés par défaut. Décocher puis valider ajoute une mention `Sans …` à la ligne et `*** SANS … ***` au ticket de préparation, sans modifier le prix ni le ticket client.
+
+Si une ligne contient plusieurs unités, la modification s’applique à une seule unité et crée une ligne distincte. Deux configurations strictement identiques sont automatiquement regroupées.
+
 ## Prérequis
 
 - Node.js 22 recommandé

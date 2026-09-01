@@ -36,6 +36,41 @@ describe('cart store', () => {
     expect(useCartStore.getState().items).toHaveLength(2)
   })
 
+  it('fusionne uniquement les produits ayant la même personnalisation', () => {
+    const normal = createCartItemDraft(burger)
+    const withoutCheddar = { ...normal, removedIngredientIds: ['cheddar'] }
+
+    useCartStore.getState().addItem(normal)
+    useCartStore.getState().addItem(withoutCheddar)
+    useCartStore.getState().addItem(withoutCheddar)
+
+    expect(useCartStore.getState().items).toHaveLength(2)
+    expect(
+      useCartStore.getState().items.find((item) => item.removedIngredientIds.includes('cheddar'))
+        ?.quantity,
+    ).toBe(2)
+  })
+
+  it('sépare une seule unité personnalisée puis la fusionne si elle redevient identique', () => {
+    const normal = createCartItemDraft(burger)
+    useCartStore.getState().addItem(normal)
+    useCartStore.getState().addItem(normal)
+    const normalLineId = useCartStore.getState().items[0]!.lineId
+
+    useCartStore.getState().customizeItem(normalLineId, ['cheddar'])
+    expect(useCartStore.getState().items).toHaveLength(2)
+    expect(useCartStore.getState().items.map((item) => item.quantity)).toEqual([1, 1])
+    expect(getCartTotalCents(useCartStore.getState().items)).toBe(3200)
+
+    const customizedLineId = useCartStore
+      .getState()
+      .items.find((item) => item.removedIngredientIds.includes('cheddar'))!.lineId
+    useCartStore.getState().customizeItem(customizedLineId, [])
+    expect(useCartStore.getState().items).toHaveLength(1)
+    expect(useCartStore.getState().items[0]?.quantity).toBe(2)
+    expect(useCartStore.getState().items[0]?.removedIngredientIds).toEqual([])
+  })
+
   it('diminue, supprime à zéro et supprime explicitement', () => {
     useCartStore.getState().addItem(createCartItemDraft(burger))
     const lineId = useCartStore.getState().items[0]!.lineId
