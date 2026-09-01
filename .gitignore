@@ -1,0 +1,124 @@
+# Dependencies
+node_modules/
+
+# Frontend build outputs
+dist/
+build/
+.vite/
+
+# Test / coverage outputs
+coverage/
+.nyc_output/
+
+# TypeScript incremental build files
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files / local secrets
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Local-only config files
+*.local
+
+# ------------------------------------------------------------
+# Capacitor / Android
+# Keep the android/ project itself versioned.
+# Only ignore generated/local Android files below.
+# ------------------------------------------------------------
+
+android/.gradle/
+android/.idea/
+android/.settings/
+android/local.properties
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/
+
+# Gradle build outputs at any Android module level
+android/**/build/
+
+# Android Studio module files
+android/**/*.iml
+
+# Generated application packages
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Android native crash / profiling artifacts
+*.hprof
+
+# Signing keys and credentials
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+
+# ------------------------------------------------------------
+# IDE / editors
+# ------------------------------------------------------------
+
+.idea/
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Vim / swap files
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------
+# OS generated files
+# ------------------------------------------------------------
+
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# ------------------------------------------------------------
+# Temporary / cache files
+# ------------------------------------------------------------
+
+.cache/
+.tmp/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ------------------------------------------------------------
+# Misc tooling
+# ------------------------------------------------------------
+
+.eslintcache
+.stylelintcache
+
+# Optional local reports
+reports/
+
+# ------------------------------------------------------------
+# IMPORTANT: intentionally NOT ignored
+# ------------------------------------------------------------
+# pnpm-lock.yaml
+# capacitor.config.ts
+# android/gradlew
+# android/gradlew.bat
+# android/gradle/wrapper/gradle-wrapper.jar
+# android/gradle/wrapper/gradle-wrapper.properties
+# AndroidManifest.xml
+# native Android source files / Capacitor plugins
