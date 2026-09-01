@@ -1,5 +1,6 @@
 import { printerProfile, type PrinterProfile } from '../config/printer'
 import type { Order } from '../types/order'
+import { getRemovedIngredients } from '../utils/cart'
 import { EscPosBuilder } from './escPos'
 import { formatTicketDateTime } from './format'
 import { separator, wrapText } from './layout'
@@ -30,6 +31,11 @@ export function renderPreparationTicket(
     builder.bold(false)
     for (const option of item.options) {
       for (const line of wrapText(`  > ${option.optionName}`, profile.columns)) builder.line(line)
+    }
+    builder.bold(true)
+    for (const ingredient of getRemovedIngredients(item)) {
+      const warning = `  *** SANS ${ingredient.name.toLocaleUpperCase('fr-FR')} ***`
+      for (const line of wrapText(warning, profile.columns)) builder.line(line)
     }
     builder.bold(true).blank()
   }

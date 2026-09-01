@@ -49,6 +49,11 @@ export type ProductOptionGroup = {
   options: ProductOption[]
 }
 
+export type ProductIngredient = {
+  id: string
+  name: string
+}
+
 export type Product = {
   id: string
   name: string
@@ -58,6 +63,7 @@ export type Product = {
   description?: string
   variants?: ProductVariant[]
   optionGroups?: ProductOptionGroup[]
+  ingredients?: ProductIngredient[]
   dataConfidence?: DataConfidence
   note?: string
   vatRate: VatRate

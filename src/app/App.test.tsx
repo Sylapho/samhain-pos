@@ -28,6 +28,28 @@ describe('caisse', () => {
     expect(within(quantity).getByText('2')).toBeInTheDocument()
   })
 
+  it('annule puis valide une personnalisation et la retrouve à la réouverture', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Burger spécial Samhain, 16,00/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Burger spécial Samhain' }))
+    const cheddar = screen.getByRole('checkbox', { name: 'Cheddar' })
+    expect(cheddar).toBeChecked()
+    fireEvent.click(cheddar)
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByText('Sans cheddar')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Burger spécial Samhain' }))
+    expect(screen.getByRole('checkbox', { name: 'Cheddar' })).toBeChecked()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cheddar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    expect(screen.getByText('Sans cheddar')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Burger spécial Samhain' }))
+    expect(screen.getByRole('checkbox', { name: 'Cheddar' })).not.toBeChecked()
+  })
+
   it('compose un menu enfant puis ouvre l’encaissement', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))

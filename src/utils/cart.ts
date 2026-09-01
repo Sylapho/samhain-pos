@@ -70,8 +70,17 @@ export function createCartItemDraft(
       basePriceCents + options.reduce((sum, option) => sum + option.priceDeltaCents, 0),
     variant: variant ? { id: variant.id, name: variant.name, volume: variant.volume } : undefined,
     options,
+    ingredients: (product.ingredients ?? []).map((ingredient) => ({ ...ingredient })),
+    removedIngredientIds: [],
     dataConfidence: hasTemporaryData ? 'temporary' : 'confirmed',
     note: variant?.note ?? product.note,
     vatRate: product.vatRate,
   }
+}
+
+export function getRemovedIngredients(
+  item: Pick<CartItemDraft, 'ingredients' | 'removedIngredientIds'>,
+) {
+  const removedIds = new Set(item.removedIngredientIds)
+  return item.ingredients.filter((ingredient) => removedIds.has(ingredient.id))
 }

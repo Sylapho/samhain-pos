@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
+import { products } from '../mocks/products'
+import { createCartItemDraft } from '../utils/cart'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { encodeCp858 } from './escPos'
 import { wrapText } from './layout'
@@ -28,6 +30,29 @@ describe('rendus thermiques', () => {
     expect(ticket.preview).toContain('A001')
     expect(ticket.preview).toContain('2 X BURGER SPÉCIAL SAMHAIN')
     expect(ticket.preview).not.toMatch(/€|Paiement|TVA|41,50/)
+  })
+
+  it('met très visiblement en avant les ingrédients retirés uniquement en préparation', () => {
+    const burger = products.find((product) => product.id === 'burger-samhain')!
+    const draft = createCartItemDraft(burger)
+    const personalizedOrder = {
+      ...printPreviewOrder,
+      itemCount: 1,
+      totalCents: draft.unitPriceCents,
+      items: [
+        {
+          ...draft,
+          lineId: 'burger-sans-cheddar-salade',
+          quantity: 1,
+          removedIngredientIds: ['cheddar', 'salade'],
+        },
+      ],
+    }
+
+    const preparation = renderPreparationTicket(personalizedOrder).preview
+    expect(preparation).toContain('*** SANS CHEDDAR ***')
+    expect(preparation).toContain('*** SANS SALADE ***')
+    expect(renderCustomerReceipt(personalizedOrder).preview).not.toContain('SANS CHEDDAR')
   })
 
   it('limite toutes les lignes au nombre de colonnes demandé', () => {

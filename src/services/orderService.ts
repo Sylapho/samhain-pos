@@ -38,6 +38,8 @@ export function createMockOrder(
     items: items.map((item) => ({
       ...item,
       options: item.options.map((option) => ({ ...option })),
+      ingredients: item.ingredients.map((ingredient) => ({ ...ingredient })),
+      removedIngredientIds: [...item.removedIngredientIds],
       variant: item.variant ? { ...item.variant } : undefined,
     })),
     itemCount: getCartItemCount(items),
