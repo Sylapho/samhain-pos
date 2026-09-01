@@ -1,23 +1,67 @@
-export const productCategories = [
-  'Menus',
-  'Plats',
-  'Sucré',
-  'Boissons chaudes',
-  'Bières',
-  'Cidre',
-  'Softs',
+export const categoryIds = [
+  'menus',
+  'assiettes',
+  'desserts',
+  'boissons-chaudes',
+  'bieres',
+  'sans-alcool',
 ] as const
 
-export type ProductCategory = (typeof productCategories)[number]
+export type CategoryId = (typeof categoryIds)[number]
+
+export type Category = {
+  id: CategoryId
+  label: string
+}
+
+export const productCategories: Category[] = [
+  { id: 'menus', label: 'Menus' },
+  { id: 'assiettes', label: 'Assiettes' },
+  { id: 'desserts', label: 'Desserts' },
+  { id: 'boissons-chaudes', label: 'Boissons chaudes' },
+  { id: 'bieres', label: 'Bières' },
+  { id: 'sans-alcool', label: 'Sans alcool' },
+]
+
 export type ProductAvailability = 'available' | 'sold-out'
+export type DataConfidence = 'confirmed' | 'temporary'
+
+export type ProductVariant = {
+  id: string
+  name: string
+  volume?: string
+  priceCents: number
+  dataConfidence?: DataConfidence
+  note?: string
+}
+
+export type ProductOption = {
+  id: string
+  name: string
+  priceDeltaCents?: number
+}
+
+export type ProductOptionGroup = {
+  id: string
+  name: string
+  required: boolean
+  options: ProductOption[]
+}
 
 export type Product = {
   id: string
   name: string
-  category: ProductCategory
-  priceCents: number
+  categoryId: CategoryId
   availability: ProductAvailability
-  priceIsMock?: boolean
+  priceCents?: number
   description?: string
-  hasOptionsPrototype?: boolean
+  variants?: ProductVariant[]
+  optionGroups?: ProductOptionGroup[]
+  dataConfidence?: DataConfidence
+  note?: string
+}
+
+export type ProductSelection = {
+  variantId?: string
+  optionIds: Record<string, string>
 }
