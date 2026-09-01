@@ -7,10 +7,8 @@ import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { products } from '../mocks/products'
-import { createMockOrder } from '../services/orderService'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
-import type { Order } from '../types/order'
 import type { NetworkStatus, PrinterStatus } from '../types/system'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
 
@@ -18,7 +16,7 @@ export function App() {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
-  const [confirmedOrder, setConfirmedOrder] = useState<Order | null>(null)
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [network, setNetwork] = useState<NetworkStatus>('online')
   const [printer, setPrinter] = useState<PrinterStatus>('ready')
   const feedbackTimer = useRef<number | null>(null)
@@ -53,12 +51,12 @@ export function App() {
 
   const validateOrder = () => {
     if (!items.length) return
-    setConfirmedOrder(createMockOrder(items))
+    setCheckoutOpen(true)
   }
 
   const startNewOrder = () => {
     clearCart()
-    setConfirmedOrder(null)
+    setCheckoutOpen(false)
     setCategory('menus')
   }
 
@@ -80,7 +78,9 @@ export function App() {
         </div>
       ) : null}
 
-      {import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_PANEL === 'true' ? (
+      {import.meta.env.DEV ||
+      import.meta.env.MODE === 'android-test' ||
+      import.meta.env.VITE_ENABLE_DEV_PANEL === 'true' ? (
         <DevPanel
           network={network}
           printer={printer}
@@ -121,7 +121,13 @@ export function App() {
         />
       ) : null}
 
-      {confirmedOrder ? <CheckoutFlow order={confirmedOrder} onNewOrder={startNewOrder} /> : null}
+      {checkoutOpen ? (
+        <CheckoutFlow
+          items={items}
+          onCancel={() => setCheckoutOpen(false)}
+          onNewOrder={startNewOrder}
+        />
+      ) : null}
     </div>
   )
 }

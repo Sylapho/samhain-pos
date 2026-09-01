@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react'
 import { Button } from '../../components/ui/Button'
+import { printPreviewOrder } from '../../mocks/printOrder'
 import { epsonUsbPrinter, type UsbPrinterDevice } from '../../native/epsonUsbPrinter'
+import { buildOrderPrintJob, printOrderTickets } from '../../printing/orderPrintService'
 
 type Message = { kind: 'info' | 'success' | 'error'; text: string }
 
 function deviceLabel(device: UsbPrinterDevice) {
   const name = device.productName || device.manufacturerName
   if (name) return name
-  if (device.epson) return `Epson USB (${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')})`
+  if (device.epson)
+    return `Epson USB (${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')})`
   return `USB ${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}`
 }
 
@@ -16,6 +19,7 @@ export function UsbPrinterPanel() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
   const androidNative = epsonUsbPrinter.isAndroidNative()
 
   const selected = useMemo(
@@ -25,7 +29,10 @@ export function UsbPrinterPanel() {
 
   const refresh = async (keepMessage = false) => {
     if (!androidNative) {
-      setMessage({ kind: 'info', text: 'Le test USB est disponible uniquement dans l’application Android Capacitor.' })
+      setMessage({
+        kind: 'info',
+        text: 'Le test USB est disponible uniquement dans l’application Android Capacitor.',
+      })
       return
     }
 
@@ -34,17 +41,31 @@ export function UsbPrinterPanel() {
     try {
       const result = await epsonUsbPrinter.getDevices()
       setDevices(result.devices)
-      const preferred = result.devices.find((device) => device.epson && device.hasBulkOutEndpoint)
-        ?? result.devices.find((device) => device.hasBulkOutEndpoint)
-        ?? result.devices[0]
-      setSelectedId((current) => result.devices.some((device) => device.deviceId === current) ? current : preferred?.deviceId ?? null)
+      const preferred =
+        result.devices.find((device) => device.epson && device.hasBulkOutEndpoint) ??
+        result.devices.find((device) => device.hasBulkOutEndpoint) ??
+        result.devices[0]
+      setSelectedId((current) =>
+        result.devices.some((device) => device.deviceId === current)
+          ? current
+          : (preferred?.deviceId ?? null),
+      )
       if (!result.devices.length) {
-        setMessage({ kind: 'error', text: 'Aucun périphérique USB détecté. Vérifiez le câble USB-C ↔ USB-B et que l’imprimante est allumée.' })
+        setMessage({
+          kind: 'error',
+          text: 'Aucun périphérique USB détecté. Vérifiez le câble USB-C ↔ USB-B et que l’imprimante est allumée.',
+        })
       } else if (!keepMessage) {
-        setMessage({ kind: 'success', text: `${result.devices.length} périphérique(s) USB détecté(s).` })
+        setMessage({
+          kind: 'success',
+          text: `${result.devices.length} périphérique(s) USB détecté(s).`,
+        })
       }
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Impossible de lire les périphériques USB.' })
+      setMessage({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'Impossible de lire les périphériques USB.',
+      })
     } finally {
       setBusy(false)
     }
@@ -56,12 +77,17 @@ export function UsbPrinterPanel() {
     setMessage({ kind: 'info', text: 'Demande d’autorisation USB à Android…' })
     try {
       const result = await epsonUsbPrinter.requestPermission(selected.deviceId)
-      setMessage(result.granted
-        ? { kind: 'success', text: 'Accès USB autorisé. Vous pouvez lancer le ticket test.' }
-        : { kind: 'error', text: 'Autorisation USB refusée.' })
+      setMessage(
+        result.granted
+          ? { kind: 'success', text: 'Accès USB autorisé. Vous pouvez lancer le ticket test.' }
+          : { kind: 'error', text: 'Autorisation USB refusée.' },
+      )
       await refresh(true)
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'La demande d’autorisation USB a échoué.' })
+      setMessage({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'La demande d’autorisation USB a échoué.',
+      })
     } finally {
       setBusy(false)
     }
@@ -73,22 +99,62 @@ export function UsbPrinterPanel() {
     setMessage({ kind: 'info', text: 'Envoi du ticket ESC/POS à l’imprimante…' })
     try {
       const result = await epsonUsbPrinter.printTest(selected.deviceId)
-      setMessage({ kind: 'success', text: `Ticket envoyé (${result.bytesWritten} octets). La coupe papier est incluse.` })
+      setMessage({
+        kind: 'success',
+        text: `Ticket envoyé (${result.bytesWritten} octets). La coupe papier est incluse.`,
+      })
       await refresh(true)
     } catch (error) {
-      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Échec de l’impression USB.' })
+      setMessage({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'Échec de l’impression USB.',
+      })
     } finally {
       setBusy(false)
     }
   }
 
+  const printFullOrder = async () => {
+    if (!selected) return
+    setBusy(true)
+    setMessage({
+      kind: 'info',
+      text: 'Envoi du ticket client, coupe, préparation et seconde coupe…',
+    })
+    try {
+      const result = await printOrderTickets(printPreviewOrder, { deviceId: selected.deviceId })
+      setMessage({
+        kind: result.warnings.length ? 'info' : 'success',
+        text: result.warnings.length
+          ? `Deux tickets envoyés. ${result.warnings.join(' ')}`
+          : `Deux tickets envoyés en une séquence (${result.bytesWritten} octets).`,
+      })
+      await refresh(true)
+    } catch (error) {
+      setMessage({
+        kind: 'error',
+        text: error instanceof Error ? error.message : 'Échec de la séquence d’impression.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const previewDocuments = buildOrderPrintJob(printPreviewOrder).documents
+
   return (
-    <section className="mt-4 rounded-2xl border border-slate-300 bg-white p-4" aria-labelledby="usb-printer-title">
+    <section
+      className="mt-4 rounded-2xl border border-slate-300 bg-white p-4"
+      aria-labelledby="usb-printer-title"
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 id="usb-printer-title" className="text-base font-black">Imprimante USB — test réel</h3>
+          <h3 id="usb-printer-title" className="text-base font-black">
+            Imprimante USB — test réel
+          </h3>
           <p className="mt-1 max-w-2xl text-xs text-slate-600">
-            Test matériel temporaire via Android USB Host + ESC/POS. Il ne remplace pas encore l’intégration ePOS SDK prévue pour la version finale.
+            Test matériel temporaire via Android USB Host + ESC/POS. Il ne remplace pas encore
+            l’intégration ePOS SDK prévue pour la version finale.
           </p>
         </div>
         <Button className="min-h-10 py-2" disabled={busy} onClick={() => void refresh()}>
@@ -98,12 +164,13 @@ export function UsbPrinterPanel() {
 
       {!androidNative ? (
         <div className="mt-3 rounded-xl bg-sky-50 p-3 font-bold text-sky-950">
-          Ouvrez cette version dans l’application Android installée sur la tablette pour tester l’USB.
+          Ouvrez cette version dans l’application Android installée sur la tablette pour tester
+          l’USB.
         </div>
       ) : null}
 
       {devices.length ? (
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-end">
           <label className="font-bold">
             Périphérique
             <select
@@ -113,16 +180,35 @@ export function UsbPrinterPanel() {
             >
               {devices.map((device) => (
                 <option key={device.deviceId} value={device.deviceId}>
-                  {deviceLabel(device)}{device.epson ? ' · Epson' : ''}{device.hasPermission ? ' · autorisé' : ''}
+                  {deviceLabel(device)}
+                  {device.epson ? ' · Epson' : ''}
+                  {device.hasPermission ? ' · autorisé' : ''}
                 </option>
               ))}
             </select>
           </label>
-          <Button className="min-h-12" disabled={!selected || busy || selected.hasPermission} onClick={() => void authorize()}>
+          <Button
+            className="min-h-12"
+            disabled={!selected || busy || selected.hasPermission}
+            onClick={() => void authorize()}
+          >
             {selected?.hasPermission ? 'USB autorisé' : 'Autoriser USB'}
           </Button>
-          <Button variant="primary" className="min-h-12" disabled={!selected?.hasPermission || !selected.hasBulkOutEndpoint || busy} onClick={() => void printTest()}>
+          <Button
+            variant="primary"
+            className="min-h-12"
+            disabled={!selected?.hasPermission || !selected.hasBulkOutEndpoint || busy}
+            onClick={() => void printTest()}
+          >
             Imprimer ticket test
+          </Button>
+          <Button
+            variant="primary"
+            className="min-h-12"
+            disabled={!selected?.hasPermission || !selected.hasBulkOutEndpoint || busy}
+            onClick={() => void printFullOrder()}
+          >
+            Imprimer les 2 tickets
           </Button>
         </div>
       ) : null}
@@ -131,15 +217,44 @@ export function UsbPrinterPanel() {
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-600">
           <span>Vendor 0x{selected.vendorId.toString(16).padStart(4, '0').toUpperCase()}</span>
           <span>Product 0x{selected.productId.toString(16).padStart(4, '0').toUpperCase()}</span>
-          <span>{selected.hasBulkOutEndpoint ? 'Sortie USB compatible détectée' : 'Aucune sortie BULK détectée'}</span>
+          <span>
+            {selected.hasBulkOutEndpoint
+              ? 'Sortie USB compatible détectée'
+              : 'Aucune sortie BULK détectée'}
+          </span>
         </div>
       ) : null}
 
       {message ? (
-        <div className={`mt-3 rounded-xl p-3 font-bold ${message.kind === 'error' ? 'bg-rose-50 text-rose-900' : message.kind === 'success' ? 'bg-emerald-50 text-emerald-900' : 'bg-sky-50 text-sky-950'}`} role="status">
+        <div
+          className={`mt-3 rounded-xl p-3 font-bold ${message.kind === 'error' ? 'bg-rose-50 text-rose-900' : message.kind === 'success' ? 'bg-emerald-50 text-emerald-900' : 'bg-sky-50 text-sky-950'}`}
+          role="status"
+        >
           {message.text}
         </div>
       ) : null}
+
+      <div className="mt-3">
+        <Button
+          className="min-h-10 py-2"
+          disabled={busy}
+          onClick={() => setShowPreview((visible) => !visible)}
+        >
+          {showPreview ? 'Masquer les aperçus' : 'Prévisualiser sans imprimante'}
+        </Button>
+        {showPreview ? (
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            {previewDocuments.map((document) => (
+              <pre
+                key={document.type}
+                className="max-h-96 overflow-auto rounded-xl bg-stone-950 p-4 text-xs leading-5 text-stone-100"
+              >
+                {document.preview}
+              </pre>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

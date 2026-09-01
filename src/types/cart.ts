@@ -1,4 +1,4 @@
-import type { DataConfidence } from './catalog'
+import type { DataConfidence, VatRate } from './catalog'
 
 export type SelectedVariant = {
   id: string
@@ -22,6 +22,7 @@ export type CartItemDraft = {
   options: SelectedOption[]
   dataConfidence: DataConfidence
   note?: string
+  vatRate: VatRate
 }
 
 export type CartItem = CartItemDraft & {

@@ -25,6 +25,7 @@ export const productCategories: Category[] = [
 
 export type ProductAvailability = 'available' | 'sold-out'
 export type DataConfidence = 'confirmed' | 'temporary'
+export type VatRate = 10 | 20
 
 export type ProductVariant = {
   id: string
@@ -59,6 +60,7 @@ export type Product = {
   optionGroups?: ProductOptionGroup[]
   dataConfidence?: DataConfidence
   note?: string
+  vatRate: VatRate
 }
 
 export type ProductSelection = {

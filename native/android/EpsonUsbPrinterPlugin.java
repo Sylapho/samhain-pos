@@ -12,6 +12,8 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
+import android.util.Base64;
+import android.util.Log;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -24,10 +26,14 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+import org.json.JSONObject;
+
 @CapacitorPlugin(name = "EpsonUsbPrinter")
 public class EpsonUsbPrinterPlugin extends Plugin {
+    private static final String TAG = "EpsonUsbPrinter";
     private static final int EPSON_VENDOR_ID = 0x04B8;
     private static final int TRANSFER_TIMEOUT_MS = 4000;
+    private static final byte[] FULL_CUT_COMMAND = new byte[]{0x1D, 0x56, 0x00};
     private String permissionCallId;
     private BroadcastReceiver permissionReceiver;
 
@@ -178,6 +184,143 @@ public class EpsonUsbPrinterPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void printJob(PluginCall call) {
+        Integer deviceId = call.getInt("deviceId");
+        JSArray steps = call.getArray("steps");
+        if (deviceId == null) {
+            call.reject("deviceId manquant.", "USB_DEVICE_ID_REQUIRED");
+            return;
+        }
+        if (steps == null || steps.length() == 0) {
+            call.reject("La séquence d’impression est vide.", "USB_PRINT_JOB_INVALID");
+            return;
+        }
+
+        UsbManager manager = getUsbManager();
+        UsbDevice device = findDevice(manager, deviceId);
+        if (device == null) {
+            call.reject("Le périphérique USB n’est plus connecté.", "USB_DEVICE_NOT_FOUND");
+            return;
+        }
+        if (!manager.hasPermission(device)) {
+            call.reject("Autorisez d’abord l’accès USB à l’imprimante.", "USB_PERMISSION_REQUIRED");
+            return;
+        }
+
+        InterfaceEndpoint output = findBulkOutEndpoint(device);
+        if (output == null) {
+            call.reject("Aucune sortie USB BULK compatible n’a été trouvée sur ce périphérique.", "USB_BULK_OUT_NOT_FOUND");
+            return;
+        }
+
+        UsbDeviceConnection connection = manager.openDevice(device);
+        if (connection == null) {
+            call.reject("Android n’a pas pu ouvrir le périphérique USB.", "USB_OPEN_FAILED");
+            return;
+        }
+
+        boolean claimed = false;
+        boolean customerReceiptPrinted = false;
+        int bytesWritten = 0;
+        JSArray completedDocuments = new JSArray();
+        JSArray warnings = new JSArray();
+
+        try {
+            claimed = connection.claimInterface(output.usbInterface, true);
+            if (!claimed) {
+                call.reject("Impossible de prendre le contrôle de l’interface USB de l’imprimante.", "USB_CLAIM_FAILED");
+                return;
+            }
+
+            for (int index = 0; index < steps.length(); index++) {
+                JSONObject step = steps.getJSONObject(index);
+                String type = step.optString("type", "");
+
+                if ("document".equals(type)) {
+                    String documentType = step.optString("documentType", "");
+                    String encodedData = step.optString("dataBase64", "");
+                    if (encodedData.isEmpty()) {
+                        call.reject("Le document à imprimer est vide.", "USB_PRINT_JOB_INVALID");
+                        return;
+                    }
+
+                    byte[] data = Base64.decode(encodedData, Base64.DEFAULT);
+                    int written = connection.bulkTransfer(output.endpoint, data, data.length, TRANSFER_TIMEOUT_MS);
+                    if (written != data.length) {
+                        String code = "customerReceipt".equals(documentType)
+                            ? "USB_CUSTOMER_RECEIPT_WRITE_FAILED"
+                            : "USB_PREPARATION_WRITE_FAILED";
+                        String prefix;
+                        if ("customerReceipt".equals(documentType)) {
+                            prefix = "L’impression du ticket client a échoué. ";
+                        } else if (customerReceiptPrinted) {
+                            prefix = "Le ticket client a été imprimé, mais le ticket de préparation a échoué. ";
+                        } else {
+                            prefix = "L’impression du ticket de préparation a échoué. ";
+                        }
+                        call.reject(prefix + transferFailureMessage(written, data.length), code);
+                        return;
+                    }
+
+                    bytesWritten += written;
+                    completedDocuments.put(documentType);
+                    if ("customerReceipt".equals(documentType)) customerReceiptPrinted = true;
+                    continue;
+                }
+
+                if ("cut".equals(type)) {
+                    String afterDocument = step.optString("afterDocument", "");
+                    int feedLines = Math.max(0, step.optInt("feedLines", 4));
+                    byte[] feed = repeatedLineFeeds(feedLines);
+                    int feedWritten = connection.bulkTransfer(output.endpoint, feed, feed.length, TRANSFER_TIMEOUT_MS);
+                    int cutWritten = feedWritten == feed.length
+                        ? connection.bulkTransfer(output.endpoint, FULL_CUT_COMMAND, FULL_CUT_COMMAND.length, TRANSFER_TIMEOUT_MS)
+                        : -1;
+
+                    if (feedWritten == feed.length && cutWritten == FULL_CUT_COMMAND.length) {
+                        bytesWritten += feedWritten + cutWritten;
+                        continue;
+                    }
+
+                    byte[] fallback = buildCutFallback();
+                    int fallbackWritten = connection.bulkTransfer(output.endpoint, fallback, fallback.length, TRANSFER_TIMEOUT_MS);
+                    if (fallbackWritten != fallback.length) {
+                        String code = "customerReceipt".equals(afterDocument)
+                            ? "USB_CUSTOMER_CUT_FAILED"
+                            : "USB_PREPARATION_CUT_FAILED";
+                        call.reject("La coupe a échoué et la séparation visuelle de secours n’a pas pu être imprimée.", code);
+                        return;
+                    }
+
+                    bytesWritten += Math.max(feedWritten, 0) + Math.max(cutWritten, 0) + fallbackWritten;
+                    String warning = "Coupe indisponible après " + afterDocument + " : séparation visuelle imprimée.";
+                    warnings.put(warning);
+                    Log.w(TAG, warning);
+                    continue;
+                }
+
+                call.reject("Étape d’impression inconnue : " + type, "USB_PRINT_JOB_INVALID");
+                return;
+            }
+
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            result.put("bytesWritten", bytesWritten);
+            result.put("completedDocuments", completedDocuments);
+            result.put("warnings", warnings);
+            result.put("device", toJsDevice(manager, device));
+            call.resolve(result);
+        } catch (IllegalArgumentException error) {
+            call.reject("Le contenu ESC/POS reçu est invalide.", "USB_PRINT_JOB_INVALID", error);
+        } catch (Exception error) {
+            call.reject("Erreur pendant la séquence d’impression USB : " + error.getMessage(), "USB_PRINT_ERROR", error);
+        } finally {
+            if (claimed) connection.releaseInterface(output.usbInterface);
+            connection.close();
+        }
+    }
+
 
     @Override
     protected void handleOnDestroy() {
@@ -265,6 +408,21 @@ public class EpsonUsbPrinterPlugin extends Plugin {
 
     private void writeAscii(ByteArrayOutputStream bytes, String text) throws IOException {
         bytes.write(text.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    private byte[] repeatedLineFeeds(int count) {
+        byte[] feeds = new byte[count];
+        for (int index = 0; index < count; index++) feeds[index] = 0x0A;
+        return feeds;
+    }
+
+    private byte[] buildCutFallback() {
+        return "\n------------------------------------------\n\n\n\n".getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private String transferFailureMessage(int written, int expected) {
+        if (written < 0) return "Le transfert USB a échoué.";
+        return "Le transfert USB est incomplet (" + written + "/" + expected + " octets).";
     }
 
     private void resolvePermission(PluginCall call, UsbManager manager, UsbDevice device, boolean granted) {
