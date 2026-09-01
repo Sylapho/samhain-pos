@@ -6,6 +6,7 @@ export const products: Product[] = [
     name: 'Menu enfant',
     categoryId: 'menus',
     priceCents: 950,
+    vatRate: 10,
     availability: 'available',
     description: 'Un plat, un dessert et une boisson',
     optionGroups: [
@@ -43,6 +44,7 @@ export const products: Product[] = [
     name: 'Omelette',
     categoryId: 'assiettes',
     priceCents: 1000,
+    vatRate: 10,
     availability: 'available',
     description: 'Servie avec frites',
   },
@@ -51,6 +53,7 @@ export const products: Product[] = [
     name: 'Panini Bacon Cheddar',
     categoryId: 'assiettes',
     priceCents: 1200,
+    vatRate: 10,
     availability: 'available',
     description: 'Servi avec frites',
   },
@@ -59,6 +62,7 @@ export const products: Product[] = [
     name: 'Steak haché',
     categoryId: 'assiettes',
     priceCents: 1400,
+    vatRate: 10,
     availability: 'available',
     description: 'Servi avec frites',
     dataConfidence: 'temporary',
@@ -69,6 +73,7 @@ export const products: Product[] = [
     name: 'Chipolata x2',
     categoryId: 'assiettes',
     priceCents: 1400,
+    vatRate: 10,
     availability: 'available',
     description: 'Servies avec frites',
   },
@@ -77,6 +82,7 @@ export const products: Product[] = [
     name: 'Merguez x2',
     categoryId: 'assiettes',
     priceCents: 1400,
+    vatRate: 10,
     availability: 'available',
     description: 'Servies avec frites',
   },
@@ -85,6 +91,7 @@ export const products: Product[] = [
     name: 'Burger spécial Samhain',
     categoryId: 'assiettes',
     priceCents: 1600,
+    vatRate: 10,
     availability: 'available',
     description: 'Steak haché, cheddar, bacon · frites',
   },
@@ -93,6 +100,7 @@ export const products: Product[] = [
     name: 'Crêpe chocolat',
     categoryId: 'desserts',
     priceCents: 250,
+    vatRate: 10,
     availability: 'available',
   },
   {
@@ -100,6 +108,7 @@ export const products: Product[] = [
     name: 'Crêpe sucre',
     categoryId: 'desserts',
     priceCents: 200,
+    vatRate: 10,
     availability: 'available',
   },
   {
@@ -107,6 +116,7 @@ export const products: Product[] = [
     name: 'Café',
     categoryId: 'boissons-chaudes',
     priceCents: 150,
+    vatRate: 10,
     availability: 'available',
     description: 'Café en grains',
   },
@@ -115,6 +125,7 @@ export const products: Product[] = [
     name: 'Thé',
     categoryId: 'boissons-chaudes',
     priceCents: 200,
+    vatRate: 10,
     availability: 'available',
     optionGroups: [
       {
@@ -133,6 +144,7 @@ export const products: Product[] = [
     name: 'Chocolat chaud',
     categoryId: 'boissons-chaudes',
     priceCents: 250,
+    vatRate: 10,
     availability: 'available',
   },
   {
@@ -140,6 +152,7 @@ export const products: Product[] = [
     name: 'Vin chaud',
     categoryId: 'boissons-chaudes',
     priceCents: 300,
+    vatRate: 20,
     availability: 'available',
   },
   {
@@ -147,6 +160,7 @@ export const products: Product[] = [
     name: 'Bière classique',
     categoryId: 'bieres',
     availability: 'available',
+    vatRate: 20,
     variants: [
       { id: '25cl', name: 'Demi', volume: '25 cl', priceCents: 350 },
       // TODO métier : confirmer le prix de la pinte classique sur la carte source.
@@ -165,6 +179,7 @@ export const products: Product[] = [
     name: 'Bière Prestige',
     categoryId: 'bieres',
     availability: 'available',
+    vatRate: 20,
     variants: [
       { id: '25cl', name: 'Demi', volume: '25 cl', priceCents: 450 },
       { id: '50cl', name: 'Pinte', volume: '50 cl', priceCents: 800 },
@@ -175,6 +190,7 @@ export const products: Product[] = [
     name: 'Cidre fermier',
     categoryId: 'bieres',
     availability: 'available',
+    vatRate: 20,
     variants: [
       { id: '25cl', name: 'Demi', volume: '25 cl', priceCents: 300 },
       { id: '50cl', name: 'Pinte', volume: '50 cl', priceCents: 500 },
@@ -185,6 +201,7 @@ export const products: Product[] = [
     name: 'Eau',
     categoryId: 'sans-alcool',
     availability: 'available',
+    vatRate: 10,
     variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }],
     note: 'Marque à renseigner ultérieurement.',
   },
@@ -194,6 +211,7 @@ export const products: Product[] = [
     name: 'Cola',
     categoryId: 'sans-alcool',
     availability: 'available',
+    vatRate: 10,
     dataConfidence: 'temporary',
     note: 'Référence et tarifs temporaires.',
     variants: [
@@ -206,6 +224,7 @@ export const products: Product[] = [
     name: 'Limonade',
     categoryId: 'sans-alcool',
     availability: 'available',
+    vatRate: 10,
     dataConfidence: 'temporary',
     note: 'Référence et tarifs temporaires.',
     variants: [

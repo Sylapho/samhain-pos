@@ -1,0 +1,46 @@
+import type { Order } from '../types/order'
+
+export const printPreviewOrder: Order = {
+  id: 'preview-order-a001',
+  orderNumber: 'A001',
+  receiptNumber: 'R-20260901-0001',
+  registerName: 'Caisse 01',
+  paymentMethod: 'card',
+  createdAt: '2026-09-01T18:15:00.000Z',
+  status: 'confirmed',
+  itemCount: 5,
+  totalCents: 4150,
+  items: [
+    {
+      lineId: 'burger-samhain::',
+      productId: 'burger-samhain',
+      name: 'Burger spécial Samhain',
+      unitPriceCents: 1600,
+      quantity: 2,
+      options: [],
+      dataConfidence: 'confirmed',
+      vatRate: 10,
+    },
+    {
+      lineId: 'crepe-chocolat::',
+      productId: 'crepe-chocolat',
+      name: 'Crêpe chocolat',
+      unitPriceCents: 250,
+      quantity: 1,
+      options: [],
+      dataConfidence: 'confirmed',
+      vatRate: 10,
+    },
+    {
+      lineId: 'biere-classique::25cl',
+      productId: 'biere-classique',
+      name: 'Bière classique',
+      unitPriceCents: 350,
+      quantity: 2,
+      variant: { id: '25cl', name: 'Demi', volume: '25 cl' },
+      options: [],
+      dataConfidence: 'confirmed',
+      vatRate: 20,
+    },
+  ],
+}

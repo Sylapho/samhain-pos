@@ -1,4 +1,5 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
+import type { PrintJobResult, PrintJobStep } from '../printing/types'
 
 export type UsbPrinterDevice = {
   deviceId: number
@@ -31,6 +32,7 @@ interface EpsonUsbPrinterPlugin {
   getDevices(): Promise<DeviceListResult>
   requestPermission(options: { deviceId: number }): Promise<PermissionResult>
   printTest(options: { deviceId: number }): Promise<PrintResult>
+  printJob(options: { deviceId: number; steps: PrintJobStep[] }): Promise<PrintJobResult>
 }
 
 const nativePlugin = registerPlugin<EpsonUsbPrinterPlugin>('EpsonUsbPrinter')
@@ -47,5 +49,8 @@ export const epsonUsbPrinter = {
   },
   printTest(deviceId: number) {
     return nativePlugin.printTest({ deviceId })
+  },
+  printJob(deviceId: number, steps: PrintJobStep[]) {
+    return nativePlugin.printJob({ deviceId, steps })
   },
 }

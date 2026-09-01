@@ -72,5 +72,6 @@ export function createCartItemDraft(
     options,
     dataConfidence: hasTemporaryData ? 'temporary' : 'confirmed',
     note: variant?.note ?? product.note,
+    vatRate: product.vatRate,
   }
 }

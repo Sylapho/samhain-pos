@@ -31,16 +31,36 @@ pnpm lint
 pnpm build
 ```
 
+## Tickets client et préparation
+
+L’encaissement propose CB ou espèces et déclenche un seul job USB :
+
+```text
+ticket client → avance → coupe → ticket préparation → avance → coupe
+```
+
+Le ticket client peut être désactivé indépendamment ; le ticket de préparation reste imprimé. Après succès, les boutons de réimpression réutilisent la commande et le reçu existants.
+
+Les données administratives de démonstration sont centralisées dans `src/config/organization.ts`. Remplacer dans ce fichier l’adresse, le SIRET, la TVA intracommunautaire et le téléphone avant production. Une build de production bloque l’impression de ces placeholders, sauf autorisation explicite réservée au mode `android-test`.
+
+Le rendu est séparé du transport :
+
+- `src/printing/customerReceiptRenderer.ts` et `preparationTicketRenderer.ts` produisent les aperçus et les octets ESC/POS ;
+- `src/printing/orderPrintService.ts` orchestre les documents et coupes ;
+- `src/printing/capacitorReceiptPrinter.ts` sélectionne l’imprimante et gère la permission ;
+- le plugin Android conserve une seule connexion USB pendant tout le job.
+
 ## Test Android avec impression USB réelle
 
-Cette branche du prototype contient un test matériel Android natif :
+Cette branche du prototype contient une intégration Android native :
 
 - énumération des périphériques USB ;
 - sélection automatique préférentielle d'un périphérique Epson ;
 - demande de permission USB Android ;
 - détection d'une sortie USB BULK ;
-- envoi d'un ticket ESC/POS ;
-- coupe automatique via la commande ESC/POS `GS V`.
+- envoi de tickets ESC/POS structurés ;
+- deux coupes successives via la commande ESC/POS `GS V 0` ;
+- fallback avec séparation visuelle et log explicite si la coupe échoue.
 
 Ce test **n'utilise pas encore Epson ePOS SDK**. Il sert uniquement à valider rapidement le câble, la tablette, les permissions Android et la communication avec la TM-T88V. Le code est isolé pour pouvoir remplacer cette implémentation par ePOS SDK plus tard.
 
@@ -107,7 +127,9 @@ Une fois l'application installée sur la Samsung :
 6. sélectionne le périphérique Epson s'il y en a plusieurs ;
 7. appuie sur **Autoriser USB** ;
 8. accepte la fenêtre Android ;
-9. appuie sur **Imprimer ticket test**.
+9. appuie sur **Imprimer les 2 tickets** pour tester la commande réaliste complète.
+
+Le bouton **Imprimer ticket test** conserve le test matériel historique. Le bouton **Prévisualiser sans imprimante** affiche les deux rendus et fonctionne aussi dans le navigateur en développement.
 
 Le ticket attendu commence par :
 
@@ -122,6 +144,8 @@ TOTAL                     17,50 EUR
 ```
 
 et doit finir par une coupe automatique.
+
+Pour tester le flux réel de caisse, ajoute des articles, appuie sur **Valider la commande**, choisis CB ou espèces, garde **Imprimer le ticket client** coché, puis appuie sur **Encaisser et imprimer**.
 
 ### Synchroniser après une modification frontend
 
@@ -167,6 +191,10 @@ Le transfert USB a été accepté par Android mais l'interface sélectionnée n'
 
 ```text
 src/native/epsonUsbPrinter.ts
+src/printing/orderPrintService.ts
+src/printing/customerReceiptRenderer.ts
+src/printing/preparationTicketRenderer.ts
+src/printing/capacitorReceiptPrinter.ts
 src/features/dev/UsbPrinterPanel.tsx
 native/android/EpsonUsbPrinterPlugin.java
 scripts/install-android-usb-printer.mjs

@@ -22,8 +22,14 @@ describe('mock order service', () => {
         },
       }),
     )
-    const order = createMockOrder(useCartStore.getState().items)
-    expect(order.orderNumber).toBe('#042')
+    const order = createMockOrder(
+      useCartStore.getState().items,
+      'card',
+      new Date('2026-09-01T12:00:00Z'),
+    )
+    expect(order.orderNumber).toBe('A001')
+    expect(order.receiptNumber).toBe('R-20260901-0001')
+    expect(order.paymentMethod).toBe('card')
     expect(order.items).toHaveLength(1)
     expect(order.items[0]?.options.map((option) => option.optionName)).toEqual([
       'Steak haché + frites',
@@ -34,9 +40,9 @@ describe('mock order service', () => {
   })
 
   it('crée un nouveau numéro pour la commande suivante', () => {
-    const first = createMockOrder([])
-    const second = createMockOrder([])
-    expect(first.orderNumber).toBe('#042')
-    expect(second.orderNumber).toBe('#043')
+    const first = createMockOrder([], 'cash')
+    const second = createMockOrder([], 'card')
+    expect(first.orderNumber).toBe('A001')
+    expect(second.orderNumber).toBe('A002')
   })
 })

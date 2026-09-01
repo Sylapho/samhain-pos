@@ -28,7 +28,7 @@ describe('caisse', () => {
     expect(within(quantity).getByText('2')).toBeInTheDocument()
   })
 
-  it('compose un menu enfant, valide la commande et démarre la suivante', () => {
+  it('compose un menu enfant puis ouvre l’encaissement', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Steak haché + frites' }))
@@ -37,9 +37,14 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter Menu enfant' }))
     expect(screen.getByText('Glace vanille — 1 boule')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
-    expect(screen.getByText('#042')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Nouvelle commande' }))
-    expect(screen.getByText('Commande vide')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Carte bancaire' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
+    expect(screen.getByRole('button', { name: 'Espèces' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('checkbox', { name: /Imprimer le ticket client/ })).toBeChecked()
   })
 
   it('protège l’annulation de la commande par une confirmation', () => {
