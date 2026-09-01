@@ -1,45 +1,64 @@
 import type { Product } from '../../types/catalog'
+import { getProductStartingPriceCents, requiresProductConfiguration } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
 
 type ProductCardProps = {
   product: Product
   onSelect: (product: Product) => void
+  recentlyAdded: boolean
 }
 
-export function ProductCard({ product, onSelect }: ProductCardProps) {
+export function ProductCard({ product, onSelect, recentlyAdded }: ProductCardProps) {
   const soldOut = product.availability === 'sold-out'
+  const needsConfiguration = requiresProductConfiguration(product)
+  const startingPrice = getProductStartingPriceCents(product)
+  const hasTemporaryData =
+    product.dataConfidence === 'temporary' ||
+    product.variants?.some((variant) => variant.dataConfidence === 'temporary')
 
   return (
     <button
       type="button"
       disabled={soldOut}
       onClick={() => onSelect(product)}
-      aria-label={`${product.name}, ${formatMoney(product.priceCents)}${soldOut ? ', épuisé' : ''}`}
-      className={`relative flex min-h-32 w-full flex-col items-start justify-between rounded-2xl border p-4 text-left shadow-sm transition focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-sky-600 ${
+      aria-label={`${product.name}, ${product.variants?.length ? 'à partir de ' : ''}${formatMoney(startingPrice)}${needsConfiguration ? ', choix requis' : ''}${soldOut ? ', épuisé' : ''}`}
+      className={`product-card relative flex min-h-36 w-full flex-col items-start justify-between rounded-[10px] border-2 p-4 text-left transition-[border-color,background-color,transform] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#216a9a] ${
         soldOut
-          ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-500'
-          : 'border-slate-200 bg-white text-slate-950 hover:border-slate-400 hover:shadow-md active:scale-[0.985] active:bg-slate-50'
+          ? 'cursor-not-allowed border-stone-300 bg-stone-100 text-stone-500'
+          : recentlyAdded
+            ? 'product-card-added border-[#1f6a4b] bg-[#f0f8f3] text-stone-950'
+            : 'border-stone-300 bg-[#fffdf8] text-stone-950 active:scale-[0.985] active:bg-stone-100'
       }`}
     >
-      <div>
+      <div className="w-full">
         <div className="text-lg font-black leading-tight">{product.name}</div>
-        {product.hasOptionsPrototype && !soldOut ? (
-          <div className="mt-2 inline-flex rounded-full bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">
-            Choix requis
+        {product.description ? (
+          <div className="mt-2 text-sm font-medium leading-snug text-stone-600">
+            {product.description}
           </div>
         ) : null}
-        {soldOut ? (
-          <div className="mt-3 rounded-lg border border-slate-400 bg-white px-2 py-1 text-sm font-black uppercase tracking-wide text-slate-800">
-            Épuisé
+        {recentlyAdded ? (
+          <div className="mt-2 text-sm font-extrabold text-[#185b40]" role="status">
+            Ajouté à la commande
           </div>
         ) : null}
       </div>
-      <div className="mt-4 flex w-full items-end justify-between gap-2">
-        <span className="text-xl font-black tabular-nums">{formatMoney(product.priceCents)}</span>
-        {product.priceIsMock ? (
-          <span className="text-xs font-bold text-amber-800">Prix fictif</span>
+      <div className="mt-4 flex w-full items-end justify-between gap-3">
+        <span className="text-xl font-black tabular-nums">
+          {product.variants?.length ? (
+            <span className="mr-1 text-xs font-bold text-stone-500">Dès</span>
+          ) : null}
+          {formatMoney(startingPrice)}
+        </span>
+        {needsConfiguration ? (
+          <span className="text-sm font-extrabold text-[#234f3c]">Choisir</span>
+        ) : hasTemporaryData ? (
+          <span className="text-xs font-bold text-amber-800">À confirmer</span>
         ) : null}
       </div>
+      {hasTemporaryData && needsConfiguration ? (
+        <div className="mt-2 text-xs font-bold text-amber-800">Une donnée reste à confirmer</div>
+      ) : null}
     </button>
   )
 }

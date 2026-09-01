@@ -1,14 +1,21 @@
 import { create } from 'zustand'
-import type { CartItem } from '../types/cart'
-import type { Product } from '../types/catalog'
+import type { CartItem, CartItemDraft } from '../types/cart'
 
 export type CartState = {
   items: CartItem[]
-  addItem: (product: Product) => void
-  incrementItem: (productId: string) => void
-  decrementItem: (productId: string) => void
-  removeItem: (productId: string) => void
+  addItem: (item: CartItemDraft) => void
+  incrementItem: (lineId: string) => void
+  decrementItem: (lineId: string) => void
+  removeItem: (lineId: string) => void
   clearCart: () => void
+}
+
+export function getCartLineId(item: CartItemDraft): string {
+  const optionKey = [...item.options]
+    .sort((left, right) => left.groupId.localeCompare(right.groupId))
+    .map((option) => `${option.groupId}:${option.optionId}`)
+    .join('|')
+  return [item.productId, item.variant?.id ?? '', optionKey].join('::')
 }
 
 export function getCartTotalCents(items: CartItem[]): number {
@@ -21,48 +28,32 @@ export function getCartItemCount(items: CartItem[]): number {
 
 export const useCartStore = create<CartState>()((set) => ({
   items: [],
-  addItem: (product) => {
-    if (product.availability !== 'available') return
-
+  addItem: (draft) => {
+    const lineId = getCartLineId(draft)
     set((state) => {
-      const existing = state.items.find((item) => item.productId === product.id)
-      if (existing) {
+      if (state.items.some((item) => item.lineId === lineId)) {
         return {
           items: state.items.map((item) =>
-            item.productId === product.id ? { ...item, quantity: item.quantity + 1 } : item,
+            item.lineId === lineId ? { ...item, quantity: item.quantity + 1 } : item,
           ),
         }
       }
-
-      return {
-        items: [
-          ...state.items,
-          {
-            productId: product.id,
-            name: product.name,
-            unitPriceCents: product.priceCents,
-            quantity: 1,
-            priceIsMock: product.priceIsMock,
-          },
-        ],
-      }
+      return { items: [...state.items, { ...draft, lineId, quantity: 1 }] }
     })
   },
-  incrementItem: (productId) =>
+  incrementItem: (lineId) =>
     set((state) => ({
       items: state.items.map((item) =>
-        item.productId === productId ? { ...item, quantity: item.quantity + 1 } : item,
+        item.lineId === lineId ? { ...item, quantity: item.quantity + 1 } : item,
       ),
     })),
-  decrementItem: (productId) =>
+  decrementItem: (lineId) =>
     set((state) => ({
       items: state.items
-        .map((item) =>
-          item.productId === productId ? { ...item, quantity: item.quantity - 1 } : item,
-        )
+        .map((item) => (item.lineId === lineId ? { ...item, quantity: item.quantity - 1 } : item))
         .filter((item) => item.quantity > 0),
     })),
-  removeItem: (productId) =>
-    set((state) => ({ items: state.items.filter((item) => item.productId !== productId) })),
+  removeItem: (lineId) =>
+    set((state) => ({ items: state.items.filter((item) => item.lineId !== lineId) })),
   clearCart: () => set({ items: [] }),
 }))

@@ -1,35 +1,39 @@
-import { productCategories, type ProductCategory } from '../../types/catalog'
-
-export type CategoryFilter = 'Tout' | ProductCategory
+import { productCategories, type CategoryId } from '../../types/catalog'
 
 type CategoryTabsProps = {
-  activeCategory: CategoryFilter
-  onChange: (category: CategoryFilter) => void
+  activeCategory: CategoryId
+  onChange: (category: CategoryId) => void
 }
 
 export function CategoryTabs({ activeCategory, onChange }: CategoryTabsProps) {
-  const categories: CategoryFilter[] = ['Tout', ...productCategories]
-
   return (
-    <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Filtrer le catalogue">
-      {categories.map((category) => {
-        const active = activeCategory === category
+    <nav
+      className="flex gap-2 overflow-x-auto p-3 lg:flex-col lg:overflow-visible lg:p-4"
+      aria-label="Catégories de produits"
+    >
+      {productCategories.map((category) => {
+        const active = activeCategory === category.id
         return (
           <button
-            key={category}
+            key={category.id}
             type="button"
             aria-pressed={active}
-            onClick={() => onChange(category)}
-            className={`min-h-12 shrink-0 rounded-xl border px-4 py-2 text-sm font-extrabold transition focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-sky-600 ${
+            onClick={() => onChange(category.id)}
+            className={`min-h-14 shrink-0 rounded-[8px] border px-4 py-3 text-left text-base font-extrabold leading-tight transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#216a9a] lg:w-full ${
               active
-                ? 'border-slate-900 bg-slate-900 text-white'
-                : 'border-slate-300 bg-white text-slate-800 hover:bg-slate-50 active:bg-slate-100'
+                ? 'border-[#183f31] bg-[#234f3c] text-white'
+                : 'border-stone-300 bg-[#fffdf8] text-stone-800 active:bg-stone-100'
             }`}
           >
-            {category}
+            <span className="block">{category.label}</span>
+            {active ? (
+              <span className="mt-1 block text-xs font-semibold text-[#d8eadf]">
+                Catégorie active
+              </span>
+            ) : null}
           </button>
         )
       })}
-    </div>
+    </nav>
   )
 }
