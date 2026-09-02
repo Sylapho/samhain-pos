@@ -235,7 +235,7 @@ export const products: Product[] = [
         type: 'single',
         required: true,
         options: [
-          { id: '25cl', name: '25 cl' },
+          { id: '25cl', name: '25 cl', default: true },
           { id: '50cl', name: '50 cl', priceDeltaCents: 200 },
         ],
       },

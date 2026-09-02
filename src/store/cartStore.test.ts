@@ -122,11 +122,11 @@ describe('cart store', () => {
     expect(useCartStore.getState().items).toHaveLength(2)
     const defaultLine = useCartStore
       .getState()
-      .items.find((item) => item.options.some((option) => option.optionId === '33cl'))
+      .items.find((item) => item.options.some((option) => option.optionId === '25cl'))
     const largeLine = useCartStore
       .getState()
       .items.find((item) => item.options.some((option) => option.optionId === '50cl'))
-    expect(defaultLine).toMatchObject({ quantity: 1, unitPriceCents: 350 })
+    expect(defaultLine).toMatchObject({ quantity: 1, unitPriceCents: 250 })
     expect(largeLine).toMatchObject({ quantity: 2, unitPriceCents: 450 })
   })
 

@@ -65,6 +65,9 @@ export function CartPanel({ onCheckout, products }: Props) {
                     product.optionGroups?.length ||
                     product.ingredients?.length),
                 )
+                const hasProductChoices = Boolean(
+                  product && (product.variants?.length || product.optionGroups?.length),
+                )
                 const overview = (
                   <div className="flex w-full justify-between gap-3 text-left">
                     <div className="min-w-0">
@@ -93,7 +96,7 @@ export function CartPanel({ onCheckout, products }: Props) {
                       ))}
                       {configurable ? (
                         <div className="mt-2 text-xs font-extrabold text-[#185b40] underline underline-offset-2">
-                          Modifier la composition
+                          {hasProductChoices ? 'Modifier les choix' : 'Modifier la composition'}
                         </div>
                       ) : null}
                       <div className="mt-2 text-xs font-semibold text-stone-500">
