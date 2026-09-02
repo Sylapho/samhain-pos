@@ -40,11 +40,13 @@ export type ProductOption = {
   id: string
   name: string
   priceDeltaCents?: number
+  default?: boolean
 }
 
 export type ProductOptionGroup = {
   id: string
   name: string
+  type: 'single' | 'multiple'
   required: boolean
   options: ProductOption[]
 }
@@ -71,5 +73,5 @@ export type Product = {
 
 export type ProductSelection = {
   variantId?: string
-  optionIds: Record<string, string>
+  optionIdsByGroup: Record<string, string[]>
 }

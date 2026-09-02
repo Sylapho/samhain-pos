@@ -15,10 +15,10 @@ describe('mock order service', () => {
   it('conserve le menu enfant comme une seule ligne avec ses trois choix', () => {
     useCartStore.getState().addItem(
       createCartItemDraft(menu, {
-        optionIds: {
-          plat: 'steak-frites',
-          dessert: 'glace-vanille',
-          boisson: 'jus-fruit',
+        optionIdsByGroup: {
+          plat: ['nuggets'],
+          dessert: ['glace'],
+          boisson: ['jus-pomme'],
         },
       }),
     )
@@ -32,9 +32,9 @@ describe('mock order service', () => {
     expect(order.paymentMethod).toBe('card')
     expect(order.items).toHaveLength(1)
     expect(order.items[0]?.options.map((option) => option.optionName)).toEqual([
-      'Steak haché + frites',
-      'Glace vanille — 1 boule',
-      'Jus de fruit',
+      'Nuggets',
+      'Jus de pomme',
+      'Glace',
     ])
     expect(order.totalCents).toBe(950)
   })

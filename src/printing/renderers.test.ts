@@ -55,6 +55,28 @@ describe('rendus thermiques', () => {
     expect(renderCustomerReceipt(personalizedOrder).preview).not.toContain('SANS CHEDDAR')
   })
 
+  it('imprime les groupes et choix du menu de façon explicite en préparation', () => {
+    const menu = products.find((product) => product.id === 'menu-enfant')!
+    const draft = createCartItemDraft(menu, {
+      optionIdsByGroup: {
+        plat: ['nuggets'],
+        boisson: ['coca'],
+        dessert: ['compote'],
+      },
+    })
+    const menuOrder = {
+      ...printPreviewOrder,
+      itemCount: 1,
+      totalCents: draft.unitPriceCents,
+      items: [{ ...draft, lineId: 'menu-configure', quantity: 1 }],
+    }
+
+    const preparation = renderPreparationTicket(menuOrder).preview
+    expect(preparation).toContain('PLAT : NUGGETS')
+    expect(preparation).toContain('BOISSON : COCA-COLA')
+    expect(preparation).toContain('DESSERT : COMPOTE')
+  })
+
   it('limite toutes les lignes au nombre de colonnes demandé', () => {
     const lines = wrapText(
       'Bière pression Crêpe complète Café et produit exceptionnellement long avec beaucoup de détails',

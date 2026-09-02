@@ -35,8 +35,12 @@ export function App() {
     feedbackTimer.current = window.setTimeout(() => setLastAddedProductId(null), 650)
   }
 
-  const addConfiguredProduct = (product: Product, selection: ProductSelection) => {
-    addItem(createCartItemDraft(product, selection))
+  const addConfiguredProduct = (
+    product: Product,
+    selection: ProductSelection,
+    removedIngredientIds: string[] = [],
+  ) => {
+    addItem(createCartItemDraft(product, selection, removedIngredientIds))
     showAddedFeedback(product.id)
   }
 
@@ -46,7 +50,10 @@ export function App() {
       setOptionsProduct(product)
       return
     }
-    addConfiguredProduct(product, { variantId: product.variants?.[0]?.id, optionIds: {} })
+    addConfiguredProduct(product, {
+      variantId: product.variants?.[0]?.id,
+      optionIdsByGroup: {},
+    })
   }
 
   const validateOrder = () => {
@@ -107,15 +114,15 @@ export function App() {
             lastAddedProductId={lastAddedProductId}
           />
         </section>
-        <CartPanel onCheckout={validateOrder} />
+        <CartPanel onCheckout={validateOrder} products={products} />
       </main>
 
       {optionsProduct ? (
         <ProductOptionsSheet
           product={optionsProduct}
           onCancel={() => setOptionsProduct(null)}
-          onConfirm={(selection) => {
-            addConfiguredProduct(optionsProduct, selection)
+          onConfirm={(selection, removedIngredientIds) => {
+            addConfiguredProduct(optionsProduct, selection, removedIngredientIds)
             setOptionsProduct(null)
           }}
         />

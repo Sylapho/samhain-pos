@@ -30,7 +30,8 @@ export function renderPreparationTicket(
     for (const line of wrapText(name, profile.columns)) builder.line(line)
     builder.bold(false)
     for (const option of item.options) {
-      for (const line of wrapText(`  > ${option.optionName}`, profile.columns)) builder.line(line)
+      const choice = `  ${option.groupName.toLocaleUpperCase('fr-FR')} : ${option.optionName.toLocaleUpperCase('fr-FR')}`
+      for (const line of wrapText(choice, profile.columns)) builder.line(line)
     }
     builder.bold(true)
     for (const ingredient of getRemovedIngredients(item)) {

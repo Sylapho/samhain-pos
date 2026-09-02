@@ -10,6 +10,8 @@ Les produits possédant une composition configurable affichent **Modifier la com
 
 Si une ligne contient plusieurs unités, la modification s’applique à une seule unité et crée une ligne distincte. Deux configurations strictement identiques sont automatiquement regroupées.
 
+Les variantes et groupes d’options utilisent la même fiche tactile. Chaque groupe configuré dans `src/mocks/products.ts` précise son type (`single` ou `multiple`), son caractère obligatoire et ses options par défaut. Un choix peut appliquer un supplément en centimes via `priceDeltaCents`. Le Menu Enfant et le Coca-Cola illustrent ce modèle entièrement piloté par les données.
+
 ## Prérequis
 
 - Node.js 22 recommandé

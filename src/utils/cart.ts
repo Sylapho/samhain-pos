@@ -1,4 +1,4 @@
-import type { CartItemDraft } from '../types/cart'
+import type { CartItem, CartItemDraft } from '../types/cart'
 import type { Product, ProductSelection } from '../types/catalog'
 
 export function getProductStartingPriceCents(product: Product): number {
@@ -18,15 +18,21 @@ export function requiresProductConfiguration(product: Product): boolean {
 export function getDefaultProductSelection(product: Product): ProductSelection {
   return {
     variantId: product.variants?.[0]?.id,
-    optionIds: Object.fromEntries(
-      (product.optionGroups ?? []).map((group) => [group.id, group.options[0]?.id ?? '']),
+    optionIdsByGroup: Object.fromEntries(
+      (product.optionGroups ?? []).map((group) => {
+        const defaultIds = group.options
+          .filter((option) => option.default)
+          .map((option) => option.id)
+        return [group.id, group.type === 'single' ? defaultIds.slice(0, 1) : defaultIds]
+      }),
     ),
   }
 }
 
 export function createCartItemDraft(
   product: Product,
-  selection: ProductSelection = { optionIds: {} },
+  selection: ProductSelection = getDefaultProductSelection(product),
+  removedIngredientIds: string[] = [],
 ): CartItemDraft {
   const variant =
     product.variants?.find((candidate) => candidate.id === selection.variantId) ??
@@ -37,22 +43,29 @@ export function createCartItemDraft(
   }
 
   const options = (product.optionGroups ?? []).flatMap((group) => {
-    const selectedId = selection.optionIds[group.id]
-    const option = group.options.find((candidate) => candidate.id === selectedId)
-    if (!option && group.required) {
+    const selectedIds = [...new Set(selection.optionIdsByGroup[group.id] ?? [])]
+    if (group.type === 'single' && selectedIds.length > 1) {
+      throw new Error(`Un seul choix est autorisé pour « ${group.name} »`)
+    }
+    const unknownId = selectedIds.find(
+      (selectedId) => !group.options.some((option) => option.id === selectedId),
+    )
+    if (unknownId) {
+      throw new Error(`Option inconnue dans « ${group.name} » : ${unknownId}`)
+    }
+    if (!selectedIds.length && group.required) {
       throw new Error(`Le choix « ${group.name} » est requis pour ${product.name}`)
     }
-    return option
-      ? [
-          {
-            groupId: group.id,
-            groupName: group.name,
-            optionId: option.id,
-            optionName: option.name,
-            priceDeltaCents: option.priceDeltaCents ?? 0,
-          },
-        ]
-      : []
+    const selectedIdSet = new Set(selectedIds)
+    return group.options
+      .filter((option) => selectedIdSet.has(option.id))
+      .map((option) => ({
+        groupId: group.id,
+        groupName: group.name,
+        optionId: option.id,
+        optionName: option.name,
+        priceDeltaCents: option.priceDeltaCents ?? 0,
+      }))
   })
 
   const basePriceCents = variant?.priceCents ?? product.priceCents
@@ -63,6 +76,13 @@ export function createCartItemDraft(
   const hasTemporaryData =
     product.dataConfidence === 'temporary' || variant?.dataConfidence === 'temporary'
 
+  const availableIngredientIds = new Set(
+    (product.ingredients ?? []).map((ingredient) => ingredient.id),
+  )
+  const normalizedRemovedIngredientIds = [...new Set(removedIngredientIds)]
+    .filter((ingredientId) => availableIngredientIds.has(ingredientId))
+    .sort()
+
   return {
     productId: product.id,
     name: product.name,
@@ -71,11 +91,22 @@ export function createCartItemDraft(
     variant: variant ? { id: variant.id, name: variant.name, volume: variant.volume } : undefined,
     options,
     ingredients: (product.ingredients ?? []).map((ingredient) => ({ ...ingredient })),
-    removedIngredientIds: [],
+    removedIngredientIds: normalizedRemovedIngredientIds,
     dataConfidence: hasTemporaryData ? 'temporary' : 'confirmed',
     note: variant?.note ?? product.note,
     vatRate: product.vatRate,
   }
+}
+
+export function getCartItemProductSelection(item: CartItem): ProductSelection {
+  const optionIdsByGroup: Record<string, string[]> = {}
+  for (const option of item.options) {
+    optionIdsByGroup[option.groupId] = [
+      ...(optionIdsByGroup[option.groupId] ?? []),
+      option.optionId,
+    ]
+  }
+  return { variantId: item.variant?.id, optionIdsByGroup }
 }
 
 export function getRemovedIngredients(

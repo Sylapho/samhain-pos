@@ -12,6 +12,12 @@ export function ProductCard({ product, onSelect, recentlyAdded }: ProductCardPro
   const soldOut = product.availability === 'sold-out'
   const needsConfiguration = requiresProductConfiguration(product)
   const startingPrice = getProductStartingPriceCents(product)
+  const hasVariablePricing = Boolean(
+    product.variants?.length ||
+    product.optionGroups?.some((group) =>
+      group.options.some((option) => Boolean(option.priceDeltaCents)),
+    ),
+  )
   const hasTemporaryData =
     product.dataConfidence === 'temporary' ||
     product.variants?.some((variant) => variant.dataConfidence === 'temporary')
@@ -21,7 +27,7 @@ export function ProductCard({ product, onSelect, recentlyAdded }: ProductCardPro
       type="button"
       disabled={soldOut}
       onClick={() => onSelect(product)}
-      aria-label={`${product.name}, ${product.variants?.length ? 'à partir de ' : ''}${formatMoney(startingPrice)}${needsConfiguration ? ', choix requis' : ''}${soldOut ? ', épuisé' : ''}`}
+      aria-label={`${product.name}, ${hasVariablePricing ? 'à partir de ' : ''}${formatMoney(startingPrice)}${needsConfiguration ? ', choix requis' : ''}${soldOut ? ', épuisé' : ''}`}
       className={`product-card relative flex min-h-36 w-full flex-col items-start justify-between rounded-[10px] border-2 p-4 text-left transition-[border-color,background-color,transform] focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-[#216a9a] ${
         soldOut
           ? 'cursor-not-allowed border-stone-300 bg-stone-100 text-stone-500'
@@ -45,7 +51,7 @@ export function ProductCard({ product, onSelect, recentlyAdded }: ProductCardPro
       </div>
       <div className="mt-4 flex w-full items-end justify-between gap-3">
         <span className="text-xl font-black tabular-nums">
-          {product.variants?.length ? (
+          {hasVariablePricing ? (
             <span className="mr-1 text-xs font-bold text-stone-500">Dès</span>
           ) : null}
           {formatMoney(startingPrice)}

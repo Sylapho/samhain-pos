@@ -7,13 +7,16 @@ export type CartState = {
   incrementItem: (lineId: string) => void
   decrementItem: (lineId: string) => void
   removeItem: (lineId: string) => void
-  customizeItem: (lineId: string, removedIngredientIds: string[]) => void
+  configureItem: (lineId: string, configuredItem: CartItemDraft) => void
   clearCart: () => void
 }
 
 export function getCartLineId(item: CartItemDraft): string {
   const optionKey = [...item.options]
-    .sort((left, right) => left.groupId.localeCompare(right.groupId))
+    .sort(
+      (left, right) =>
+        left.groupId.localeCompare(right.groupId) || left.optionId.localeCompare(right.optionId),
+    )
     .map((option) => `${option.groupId}:${option.optionId}`)
     .join('|')
   const removedIngredientKey = [...item.removedIngredientIds].sort().join('|')
@@ -57,45 +60,31 @@ export const useCartStore = create<CartState>()((set) => ({
     })),
   removeItem: (lineId) =>
     set((state) => ({ items: state.items.filter((item) => item.lineId !== lineId) })),
-  customizeItem: (lineId, requestedRemovedIngredientIds) =>
+  configureItem: (lineId, configuredItem) =>
     set((state) => {
       const source = state.items.find((item) => item.lineId === lineId)
-      if (!source?.ingredients.length) return state
+      if (!source || source.productId !== configuredItem.productId) return state
 
-      const availableIds = new Set(source.ingredients.map((ingredient) => ingredient.id))
-      const removedIngredientIds = [...new Set(requestedRemovedIngredientIds)]
-        .filter((ingredientId) => availableIds.has(ingredientId))
-        .sort()
-      const customizedDraft: CartItemDraft = {
-        productId: source.productId,
-        name: source.name,
-        unitPriceCents: source.unitPriceCents,
-        variant: source.variant,
-        options: source.options,
-        ingredients: source.ingredients,
-        removedIngredientIds,
-        dataConfidence: source.dataConfidence,
-        note: source.note,
-        vatRate: source.vatRate,
+      const configuredLineId = getCartLineId(configuredItem)
+      if (configuredLineId === lineId && source.unitPriceCents === configuredItem.unitPriceCents) {
+        return state
       }
-      const customizedLineId = getCartLineId(customizedDraft)
-      if (customizedLineId === lineId) return state
 
       const remainingItems = state.items.flatMap((item) => {
         if (item.lineId !== lineId) return [item]
         return item.quantity > 1 ? [{ ...item, quantity: item.quantity - 1 }] : []
       })
-      const existingTarget = remainingItems.find((item) => item.lineId === customizedLineId)
+      const existingTarget = remainingItems.find((item) => item.lineId === configuredLineId)
       if (existingTarget) {
         return {
           items: remainingItems.map((item) =>
-            item.lineId === customizedLineId ? { ...item, quantity: item.quantity + 1 } : item,
+            item.lineId === configuredLineId ? { ...item, quantity: item.quantity + 1 } : item,
           ),
         }
       }
 
       return {
-        items: [...remainingItems, { ...customizedDraft, lineId: customizedLineId, quantity: 1 }],
+        items: [...remainingItems, { ...configuredItem, lineId: configuredLineId, quantity: 1 }],
       }
     }),
   clearCart: () => set({ items: [] }),

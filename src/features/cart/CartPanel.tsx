@@ -1,24 +1,32 @@
 import { useState } from 'react'
 import { Button } from '../../components/ui/Button'
+import { ProductOptionsSheet } from '../catalog/ProductOptionsSheet'
 import { getCartItemCount, getCartTotalCents, useCartStore } from '../../store/cartStore'
-import { getRemovedIngredients } from '../../utils/cart'
+import type { Product } from '../../types/catalog'
+import {
+  createCartItemDraft,
+  getCartItemProductSelection,
+  getRemovedIngredients,
+} from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
-import { ProductCustomizationSheet } from './ProductCustomizationSheet'
 
-type Props = { onCheckout: () => void }
+type Props = { onCheckout: () => void; products: Product[] }
 
-export function CartPanel({ onCheckout }: Props) {
+export function CartPanel({ onCheckout, products }: Props) {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [customizingLineId, setCustomizingLineId] = useState<string | null>(null)
   const items = useCartStore((state) => state.items)
   const increment = useCartStore((state) => state.incrementItem)
   const decrement = useCartStore((state) => state.decrementItem)
   const remove = useCartStore((state) => state.removeItem)
-  const customize = useCartStore((state) => state.customizeItem)
+  const configure = useCartStore((state) => state.configureItem)
   const clearCart = useCartStore((state) => state.clearCart)
   const total = getCartTotalCents(items)
   const count = getCartItemCount(items)
   const customizingItem = items.find((item) => item.lineId === customizingLineId) ?? null
+  const customizingProduct = customizingItem
+    ? (products.find((product) => product.id === customizingItem.productId) ?? null)
+    : null
 
   const confirmCancellation = () => {
     clearCart()
@@ -50,6 +58,13 @@ export function CartPanel({ onCheckout }: Props) {
             <div className="divide-y divide-stone-300">
               {items.map((item) => {
                 const removedIngredients = getRemovedIngredients(item)
+                const product = products.find((candidate) => candidate.id === item.productId)
+                const configurable = Boolean(
+                  product &&
+                  (product.variants?.length ||
+                    product.optionGroups?.length ||
+                    product.ingredients?.length),
+                )
                 const overview = (
                   <div className="flex w-full justify-between gap-3 text-left">
                     <div className="min-w-0">
@@ -65,7 +80,7 @@ export function CartPanel({ onCheckout }: Props) {
                           key={option.groupId}
                           className="mt-1 text-sm leading-snug text-stone-600"
                         >
-                          {option.optionName}
+                          {option.groupName} : {option.optionName}
                         </div>
                       ))}
                       {removedIngredients.map((ingredient) => (
@@ -76,7 +91,7 @@ export function CartPanel({ onCheckout }: Props) {
                           Sans {ingredient.name.toLocaleLowerCase('fr-FR')}
                         </div>
                       ))}
-                      {item.ingredients.length ? (
+                      {configurable ? (
                         <div className="mt-2 text-xs font-extrabold text-[#185b40] underline underline-offset-2">
                           Modifier la composition
                         </div>
@@ -93,7 +108,7 @@ export function CartPanel({ onCheckout }: Props) {
 
                 return (
                   <article key={item.lineId} className="py-4 first:pt-1">
-                    {item.ingredients.length ? (
+                    {configurable ? (
                       <button
                         type="button"
                         className="w-full rounded-lg p-1 focus-visible:outline-3 focus-visible:outline-[#216a9a]"
@@ -201,13 +216,20 @@ export function CartPanel({ onCheckout }: Props) {
         </div>
       ) : null}
 
-      {customizingItem ? (
-        <ProductCustomizationSheet
+      {customizingItem && customizingProduct ? (
+        <ProductOptionsSheet
           key={customizingItem.lineId}
-          item={customizingItem}
+          product={customizingProduct}
+          mode="edit"
+          quantity={customizingItem.quantity}
+          initialSelection={getCartItemProductSelection(customizingItem)}
+          initialRemovedIngredientIds={customizingItem.removedIngredientIds}
           onCancel={() => setCustomizingLineId(null)}
-          onConfirm={(removedIngredientIds) => {
-            customize(customizingItem.lineId, removedIngredientIds)
+          onConfirm={(selection, removedIngredientIds) => {
+            configure(
+              customizingItem.lineId,
+              createCartItemDraft(customizingProduct, selection, removedIngredientIds),
+            )
             setCustomizingLineId(null)
           }}
         />

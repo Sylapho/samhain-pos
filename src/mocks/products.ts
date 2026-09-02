@@ -13,28 +13,32 @@ export const products: Product[] = [
       {
         id: 'plat',
         name: 'Plat',
+        type: 'single',
         required: true,
         options: [
-          { id: 'saucisse-frites', name: 'Saucisse + frites' },
-          { id: 'steak-frites', name: 'Steak haché + frites' },
-        ],
-      },
-      {
-        id: 'dessert',
-        name: 'Dessert',
-        required: true,
-        options: [
-          { id: 'crepe-chocolat', name: 'Crêpe chocolat' },
-          { id: 'glace-vanille', name: 'Glace vanille — 1 boule' },
+          { id: 'burger', name: 'Burger', default: true },
+          { id: 'nuggets', name: 'Nuggets' },
         ],
       },
       {
         id: 'boisson',
         name: 'Boisson',
+        type: 'single',
         required: true,
         options: [
-          { id: 'eau', name: 'Eau' },
-          { id: 'jus-fruit', name: 'Jus de fruit' },
+          { id: 'eau', name: 'Eau', default: true },
+          { id: 'coca', name: 'Coca-Cola' },
+          { id: 'jus-pomme', name: 'Jus de pomme' },
+        ],
+      },
+      {
+        id: 'dessert',
+        name: 'Dessert',
+        type: 'single',
+        required: true,
+        options: [
+          { id: 'compote', name: 'Compote', default: true },
+          { id: 'glace', name: 'Glace' },
         ],
       },
     ],
@@ -139,9 +143,10 @@ export const products: Product[] = [
       {
         id: 'parfum',
         name: 'Parfum',
+        type: 'single',
         required: true,
         options: [
-          { id: 'menthe', name: 'Menthe' },
+          { id: 'menthe', name: 'Menthe', default: true },
           { id: 'fruits-rouges', name: 'Fruits rouges' },
         ],
       },
@@ -216,15 +221,24 @@ export const products: Product[] = [
   // TODO métier : remplacer ces références soft temporaires par la carte définitive.
   {
     id: 'cola-temporaire',
-    name: 'Cola',
+    name: 'Coca-Cola',
     categoryId: 'sans-alcool',
+    priceCents: 250,
     availability: 'available',
     vatRate: 10,
     dataConfidence: 'temporary',
     note: 'Référence et tarifs temporaires.',
-    variants: [
-      { id: '25cl', name: 'Verre', volume: '25 cl', priceCents: 250 },
-      { id: '40cl', name: 'Grand verre', volume: '40 cl', priceCents: 350 },
+    optionGroups: [
+      {
+        id: 'taille',
+        name: 'Taille',
+        type: 'single',
+        required: true,
+        options: [
+          { id: '25cl', name: '25 cl' },
+          { id: '50cl', name: '50 cl', priceDeltaCents: 200 },
+        ],
+      },
     ],
   },
   {

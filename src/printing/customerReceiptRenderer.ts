@@ -45,7 +45,9 @@ export function renderCustomerReceipt(
       builder.line(line)
     }
     builder.line(`  ${formatTicketMoney(item.unitPriceCents)} / unité  TVA ${item.vatRate} %`)
-    for (const option of item.options) builder.line(`  + ${option.optionName}`)
+    for (const option of item.options) {
+      builder.line(`  ${option.groupName} : ${option.optionName}`)
+    }
   }
 
   builder.blank().line(separator(profile.columns))

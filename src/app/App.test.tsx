@@ -50,14 +50,37 @@ describe('caisse', () => {
     expect(screen.getByRole('checkbox', { name: 'Cheddar' })).not.toBeChecked()
   })
 
+  it('applique la taille par défaut puis permet de la modifier depuis le panier', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Sans alcool/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Coca-Cola, à partir de 2,50/ }))
+    expect(screen.getByRole('button', { name: /33 cl/ })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Ajouter Coca-Cola' }))
+    expect(screen.getByText('Taille : 33 cl')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Coca-Cola' }))
+    fireEvent.click(screen.getByRole('button', { name: /50 cl/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(screen.getByText('Taille : 33 cl')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Coca-Cola' }))
+    expect(screen.getByRole('button', { name: /33 cl/ })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /50 cl/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Valider' }))
+    expect(screen.getByText('Taille : 50 cl')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Coca-Cola' }))
+    expect(screen.getByRole('button', { name: /50 cl/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('compose un menu enfant puis ouvre l’encaissement', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Steak haché + frites' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Glace vanille — 1 boule' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Jus de fruit' }))
+    fireEvent.click(screen.getByRole('button', { name: /Nuggets/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Glace/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Jus de pomme/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter Menu enfant' }))
-    expect(screen.getByText('Glace vanille — 1 boule')).toBeInTheDocument()
+    expect(screen.getByText('Dessert : Glace')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
     expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Carte bancaire' })).toHaveAttribute(
