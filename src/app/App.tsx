@@ -6,6 +6,7 @@ import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { SystemStatus } from '../features/status/SystemStatus'
+import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
@@ -85,9 +86,7 @@ export function App() {
         </div>
       ) : null}
 
-      {import.meta.env.DEV ||
-      import.meta.env.MODE === 'android-test' ||
-      import.meta.env.VITE_ENABLE_DEV_PANEL === 'true' ? (
+      {shouldEnableDevPanel(import.meta.env) ? (
         <DevPanel
           network={network}
           printer={printer}

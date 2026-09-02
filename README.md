@@ -36,8 +36,12 @@ Puis ouvrir l'adresse Vite affichée dans le terminal.
 ```bash
 pnpm test:run
 pnpm lint
-pnpm build
+pnpm build:android:test
 ```
+
+`pnpm build` est un build de production. Tant que les informations administratives de
+démonstration de `src/config/organization.ts` n'ont pas été remplacées, son échec est
+volontaire.
 
 ## Tickets client et préparation
 
@@ -49,7 +53,7 @@ ticket client → avance → coupe → ticket préparation → avance → coupe
 
 Le ticket client peut être désactivé indépendamment ; le ticket de préparation reste imprimé. Après succès, les boutons de réimpression réutilisent la commande et le reçu existants.
 
-Les données administratives de démonstration sont centralisées dans `src/config/organization.ts`. Remplacer dans ce fichier l’adresse, le SIRET, la TVA intracommunautaire et le téléphone avant production. Une build de production bloque l’impression de ces placeholders, sauf autorisation explicite réservée au mode `android-test`.
+Les données administratives de démonstration sont centralisées dans `src/config/organization.ts`. Remplacer dans ce fichier l’adresse, le SIRET, la TVA intracommunautaire et le téléphone, puis passer `usesDemoPlaceholders` à `false` avant production. Toute build Vite en mode `production` échoue avant génération tant que ces placeholders sont présents. Le mode explicite `android-test` les autorise uniquement pour les essais et conserve la protection au moment de l’impression dans les autres modes.
 
 Le rendu est séparé du transport :
 
@@ -79,10 +83,10 @@ corepack enable
 pnpm install
 ```
 
-### 2. Générer le projet Android + installer le plugin USB
+### 2. Générer le projet Android de test + installer le plugin USB
 
 ```bash
-pnpm android:add
+pnpm android:add:test
 ```
 
 Le script :
@@ -157,11 +161,37 @@ Pour tester le flux réel de caisse, ajoute des articles, appuie sur **Valider l
 
 ### Synchroniser après une modification frontend
 
+Pour poursuivre les essais sur tablette avec les données de démonstration et le panneau de développement :
+
 ```bash
-pnpm android:sync
+pnpm android:sync:test
 ```
 
-`android:sync` reconstruit avec le mode `android-test`, synchronise Capacitor puis réapplique le plugin USB de façon idempotente.
+`android:sync:test` construit explicitement le mode `android-test`, synchronise Capacitor puis réapplique le plugin USB de façon idempotente. Le panneau de développement et ses diagnostics USB restent disponibles dans ce mode.
+
+## Workflow Android de production
+
+La production utilise des commandes distinctes et sûres par défaut :
+
+```bash
+# Première génération du projet Android
+pnpm android:add:production
+
+# Synchronisations suivantes
+pnpm android:sync:production
+```
+
+Les alias non qualifiés `pnpm android:add` et `pnpm android:sync` pointent volontairement vers la production. Ils ne peuvent donc pas embarquer accidentellement le mode `android-test`.
+
+Le workflow de production :
+
+1. construit Vite avec le mode `production` ;
+2. refuse le build si `src/config/organization.ts` contient encore les informations de démonstration ;
+3. exclut toujours le panneau de développement, même si `VITE_ENABLE_DEV_PANEL=true` est défini localement ;
+4. synchronise les fichiers web avec Capacitor ;
+5. réapplique le plugin USB sans modifier son implémentation.
+
+La build web seule peut être vérifiée avec `pnpm build:android:production` (ou `pnpm build`). Elle doit actuellement échouer tant que les informations administratives réelles n'ont pas été renseignées.
 
 ### Réinstaller uniquement le plugin natif
 
