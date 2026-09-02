@@ -12,6 +12,14 @@ Si une ligne contient plusieurs unités, la modification s’applique à une seu
 
 Les variantes et groupes d’options utilisent la même fiche tactile. Chaque groupe configuré dans `src/mocks/products.ts` précise son type (`single` ou `multiple`), son caractère obligatoire et ses options par défaut. Un choix peut appliquer un supplément en centimes via `priceDeltaCents`. Le Menu Enfant et le Coca-Cola illustrent ce modèle entièrement piloté par les données.
 
+## Persistance locale des commandes
+
+Les commandes confirmées sont enregistrées dans IndexedDB sur la tablette avant le lancement de l'impression. Les commandes et les prochaines séquences de commande/reçu sont écrites dans une même transaction : une écriture interrompue ne peut donc pas consommer partiellement un numéro ni créer deux commandes avec la même séquence.
+
+Chaque commande possède également un UUID stable, prévu pour permettre une future synchronisation entre appareils sans rendre la caisse dépendante du réseau. La synchronisation n'est pas encore implémentée.
+
+Le panier Zustand reste un état temporaire de l'interface et n'est pas utilisé comme stockage métier. Les commandes persistées survivent à un redémarrage de l'application, mais sont supprimées si les données de l'application Android sont effacées ou si l'application est désinstallée. Aucun historique de commandes n'est encore affiché dans l'interface.
+
 ## Prérequis
 
 - Node.js 22 recommandé

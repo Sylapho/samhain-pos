@@ -1,13 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { resetMockOrderSequenceForTests } from '../services/orderService'
 import { useCartStore } from '../store/cartStore'
 import { App } from './App'
 
 describe('caisse', () => {
   beforeEach(() => {
     useCartStore.getState().clearCart()
-    resetMockOrderSequenceForTests()
   })
 
   it('désactive la validation et l’annulation lorsque la commande est vide', () => {

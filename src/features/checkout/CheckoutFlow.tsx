@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { printOrderTickets, type PrintOrderOptions } from '../../printing/orderPrintService'
 import type { PrintJobResult, PrintSelection } from '../../printing/types'
-import { createMockOrder } from '../../services/orderService'
+import { createOrder as persistOrder } from '../../services/orderService'
 import type { CartItem } from '../../types/cart'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
@@ -12,6 +12,7 @@ type Props = {
   onCancel: () => void
   onNewOrder: () => void
   printOrder?: (order: Order, options?: PrintOrderOptions) => Promise<PrintJobResult>
+  createOrder?: typeof persistOrder
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
@@ -21,6 +22,7 @@ export function CheckoutFlow({
   onCancel,
   onNewOrder,
   printOrder = printOrderTickets,
+  createOrder = persistOrder,
 }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
   const [printCustomerReceipt, setPrintCustomerReceipt] = useState(true)
@@ -31,30 +33,39 @@ export function CheckoutFlow({
   const printingRef = useRef(false)
   const totalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0)
 
+  const performPrint = async (targetOrder: Order, options: PrintOrderOptions) => {
+    const result = await printOrder(targetOrder, options)
+    setCompleted(true)
+    setFeedback(
+      result.warnings.length
+        ? { kind: 'warning', text: `Impression terminée. ${result.warnings.join(' ')}` }
+        : {
+            kind: 'success',
+            text: 'Impression terminée : tous les tickets demandés ont été envoyés.',
+          },
+    )
+  }
+
+  const reportPrintFailure = (targetOrder: Order, error: unknown) => {
+    const details =
+      error instanceof Error
+        ? error.message
+        : 'L’impression a échoué. Vérifiez l’imprimante puis réessayez.'
+    setFeedback({
+      kind: 'error',
+      text: `Commande ${targetOrder.orderNumber} enregistrée. ${details}`,
+    })
+  }
+
   const runPrint = async (targetOrder: Order, options: PrintOrderOptions) => {
     if (printingRef.current) return
     printingRef.current = true
     setBusy(true)
     setFeedback(null)
     try {
-      const result = await printOrder(targetOrder, options)
-      setCompleted(true)
-      setFeedback(
-        result.warnings.length
-          ? { kind: 'warning', text: `Impression terminée. ${result.warnings.join(' ')}` }
-          : {
-              kind: 'success',
-              text: 'Impression terminée : tous les tickets demandés ont été envoyés.',
-            },
-      )
+      await performPrint(targetOrder, options)
     } catch (error) {
-      setFeedback({
-        kind: 'error',
-        text:
-          error instanceof Error
-            ? error.message
-            : 'L’impression a échoué. Vérifiez l’imprimante puis réessayez.',
-      })
+      reportPrintFailure(targetOrder, error)
     } finally {
       printingRef.current = false
       setBusy(false)
@@ -62,9 +73,39 @@ export function CheckoutFlow({
   }
 
   const checkoutAndPrint = () => {
-    const targetOrder = order ?? createMockOrder(items, paymentMethod)
-    if (!order) setOrder(targetOrder)
-    void runPrint(targetOrder, { printCustomerReceipt })
+    if (order) {
+      void runPrint(order, { printCustomerReceipt })
+      return
+    }
+    if (printingRef.current) return
+
+    printingRef.current = true
+    setBusy(true)
+    setFeedback(null)
+    void (async () => {
+      try {
+        let persistedOrder: Order
+        try {
+          persistedOrder = await createOrder(items, paymentMethod)
+        } catch {
+          setFeedback({
+            kind: 'error',
+            text: 'La commande n’a pas été enregistrée. Aucun ticket n’a été imprimé. Réessayez.',
+          })
+          return
+        }
+
+        setOrder(persistedOrder)
+        try {
+          await performPrint(persistedOrder, { printCustomerReceipt })
+        } catch (error) {
+          reportPrintFailure(persistedOrder, error)
+        }
+      } finally {
+        printingRef.current = false
+        setBusy(false)
+      }
+    })()
   }
 
   const reprint = (selection: PrintSelection) => {
@@ -141,7 +182,7 @@ export function CheckoutFlow({
             {feedback ? <FeedbackBox feedback={feedback} /> : null}
 
             <div className="mt-6 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
-              <Button disabled={busy} onClick={onCancel}>
+              <Button disabled={busy || order !== null} onClick={onCancel}>
                 Retour
               </Button>
               <Button
