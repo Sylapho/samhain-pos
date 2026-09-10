@@ -215,8 +215,7 @@ export const products: Product[] = [
     categoryId: 'sans-alcool',
     availability: 'available',
     vatRate: 10,
-    variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }],
-    note: 'Marque à renseigner ultérieurement.',
+    variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }]
   },
   // TODO métier : remplacer ces références soft temporaires par la carte définitive.
   {
@@ -227,7 +226,6 @@ export const products: Product[] = [
     availability: 'available',
     vatRate: 10,
     dataConfidence: 'temporary',
-    note: 'Référence et tarifs temporaires.',
     optionGroups: [
       {
         id: 'taille',
@@ -251,7 +249,7 @@ export const products: Product[] = [
     note: 'Référence et tarifs temporaires.',
     variants: [
       { id: '25cl', name: 'Verre', volume: '25 cl', priceCents: 250 },
-      { id: '40cl', name: 'Grand verre', volume: '40 cl', priceCents: 350 },
+      { id: '40cl', name: 'Grand verre', volume: '50 cl', priceCents: 350 },
     ],
   },
 ]
