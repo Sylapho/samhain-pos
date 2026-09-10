@@ -86,13 +86,49 @@ describe('encaissement et impression', () => {
       screen.getByText('Sélectionnez Carte bancaire ou Espèces pour continuer.'),
     ).toBeInTheDocument()
 
+    fireEvent.click(card)
+    expect(checkout).toBeEnabled()
+    expect(screen.queryByRole('heading', { name: 'Paiement en espèces' })).not.toBeInTheDocument()
+
     fireEvent.click(cash)
 
     expect(cash).toHaveAttribute('aria-pressed', 'true')
     expect(card).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText('Paiement sélectionné : Espèces')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Paiement en espèces' })).toBeInTheDocument()
+    expect(checkout).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /^5$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^0$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^0$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^0$/ }))
+
+    expect(screen.getByText(/^8,50/)).toBeInTheDocument()
     expect(checkout).toBeEnabled()
     expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('affiche immédiatement la monnaie et empêche l’encaissement si le montant devient insuffisant', () => {
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
+    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+    fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
+
+    expect(screen.getByText(/^0,00/)).toBeInTheDocument()
+    expect(checkout).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le dernier chiffre' }))
+
+    expect(screen.getByText(/^Il manque/)).toBeInTheDocument()
+    expect(checkout).toBeDisabled()
   })
 
   it('persiste avant impression, bloque le double clic et réimprime la même commande', async () => {
@@ -124,6 +160,7 @@ describe('encaissement et impression', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
     fireEvent.click(checkout)
     fireEvent.click(checkout)
