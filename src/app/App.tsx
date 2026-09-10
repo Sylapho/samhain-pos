@@ -8,32 +8,69 @@ import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
 import { SystemStatus } from '../features/status/SystemStatus'
+import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
+import {
+  getTerminalConfiguration,
+  provisionTerminal,
+  renameTerminal,
+  reprovisionTerminal,
+} from '../services/terminalConfigurationService'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { Order } from '../types/order'
 import type { NetworkStatus, PrinterStatus } from '../types/system'
+import type { TerminalConfiguration, TerminalProvisioningInput } from '../types/terminal'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
 
 type Props = {
   loadRecoverableOrders?: typeof getRecoverableOrders
   loadOrders?: typeof getPersistedOrders
   probePrinterStatus?: PrinterStatusProbe
+  terminalManagement?: {
+    load: () => TerminalConfiguration | null
+    provision: (input: TerminalProvisioningInput) => TerminalConfiguration
+    rename: (displayName: string) => TerminalConfiguration
+    reprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
+  }
+}
+
+const defaultTerminalManagement = {
+  load: getTerminalConfiguration,
+  provision: provisionTerminal,
+  rename: renameTerminal,
+  reprovision: reprovisionTerminal,
 }
 
 export function App({
   loadRecoverableOrders = getRecoverableOrders,
   loadOrders = getPersistedOrders,
   probePrinterStatus,
+  terminalManagement = defaultTerminalManagement,
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [terminalState, setTerminalState] = useState<{
+    configuration: TerminalConfiguration | null
+    error: boolean
+  }>(() => {
+    try {
+      return { configuration: terminalManagement.load(), error: false }
+    } catch {
+      return { configuration: null, error: true }
+    }
+  })
+  const [terminalConfigurationOpen, setTerminalConfigurationOpen] = useState(false)
+  const terminalConfiguration = terminalState.configuration
+  const terminalConfigurationError = terminalState.error
+  const setTerminalConfiguration = (configuration: TerminalConfiguration) =>
+    setTerminalState({ configuration, error: false })
   const [recoveryOrders, setRecoveryOrders] = useState<Order[]>([])
   const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
   const [recoveryError, setRecoveryError] = useState(false)
@@ -48,6 +85,7 @@ export function App({
   const clearCart = useCartStore((state) => state.clearCart)
 
   useEffect(() => {
+    if (!terminalConfiguration) return
     let active = true
     void (async () => {
       try {
@@ -60,7 +98,7 @@ export function App({
     return () => {
       active = false
     }
-  }, [loadRecoverableOrders])
+  }, [loadRecoverableOrders, terminalConfiguration])
 
   const filteredProducts = useMemo(
     () => products.filter((product) => product.categoryId === category),
@@ -119,12 +157,48 @@ export function App({
     if (resumingOrder?.id === updatedOrder.id) setResumingOrder(updatedOrder)
   }
 
+  if (terminalConfigurationError) {
+    return (
+      <main className="flex h-dvh items-center justify-center bg-[#f2eee5] p-6">
+        <p
+          className="max-w-xl border border-rose-300 bg-rose-50 p-5 font-bold text-rose-950"
+          role="alert"
+        >
+          La configuration locale de cette tablette est inaccessible. Aucun encaissement n’est
+          possible tant que le stockage local n’est pas disponible.
+        </p>
+      </main>
+    )
+  }
+
+  if (terminalConfiguration === null) {
+    return (
+      <TerminalConfigurationDialog
+        configuration={null}
+        onProvision={terminalManagement.provision}
+        onRename={terminalManagement.rename}
+        onReprovision={terminalManagement.reprovision}
+        onConfigured={setTerminalConfiguration}
+      />
+    )
+  }
+
   return (
     <div className="flex h-dvh min-h-[600px] flex-col bg-[#f2eee5] text-stone-950">
       <header className="flex min-h-16 items-center justify-between gap-4 bg-[#18231e] px-5 py-2 text-white">
         <div className="flex items-baseline gap-3">
           <div className="text-xl font-black">Samhain POS</div>
-          <div className="text-sm font-bold text-stone-300">Caisse A</div>
+          <button
+            type="button"
+            className="min-h-11 border-l border-stone-600 pl-3 text-left text-sm font-bold text-stone-200 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white"
+            aria-label={`Configurer ${terminalConfiguration.displayName}`}
+            onClick={() => setTerminalConfigurationOpen(true)}
+          >
+            {terminalConfiguration.displayName}
+            <span className="block text-xs text-stone-400">
+              Code {terminalConfiguration.terminalCode}
+            </span>
+          </button>
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -228,6 +302,20 @@ export function App({
           onClose={() => setHistoryOpen(false)}
           loadOrders={loadOrders}
           onOrderUpdated={updateRecoveryOrder}
+        />
+      ) : null}
+
+      {terminalConfigurationOpen ? (
+        <TerminalConfigurationDialog
+          configuration={terminalConfiguration}
+          onProvision={terminalManagement.provision}
+          onRename={terminalManagement.rename}
+          onReprovision={terminalManagement.reprovision}
+          onConfigured={(configuration) => {
+            setTerminalConfiguration(configuration)
+            setTerminalConfigurationOpen(false)
+          }}
+          onClose={() => setTerminalConfigurationOpen(false)}
         />
       ) : null}
     </div>

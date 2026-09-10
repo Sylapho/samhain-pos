@@ -3,10 +3,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { useCartStore } from '../store/cartStore'
 import { App } from './App'
+import {
+  LocalStorageTerminalConfigurationRepository,
+  TerminalConfigurationService,
+} from '../services/terminalConfigurationService'
 
 describe('caisse', () => {
   beforeEach(() => {
     useCartStore.getState().clearCart()
+    localStorage.clear()
+    new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => 'terminal-a',
+    ).provision({ terminalCode: 'A', displayName: 'Caisse A' })
   })
 
   afterEach(() => {
@@ -15,8 +24,38 @@ describe('caisse', () => {
 
   it('désactive la validation et l’annulation lorsque la commande est vide', () => {
     render(<App />)
+    expect(screen.getByRole('button', { name: 'Configurer Caisse A' })).toHaveTextContent('Code A')
     expect(screen.getByRole('button', { name: 'Valider la commande' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Annuler la commande' })).toBeDisabled()
+  })
+
+  it('bloque la caisse sur le provisioning initial quand la tablette est vierge', () => {
+    const configured = {
+      terminalId: 'terminal-c',
+      terminalCode: 'C' as const,
+      displayName: 'Caisse C',
+      provisionedAt: '2026-09-10T10:00:00.000Z',
+    }
+    const provision = vi.fn().mockReturnValue(configured)
+
+    render(
+      <App
+        terminalManagement={{
+          load: () => null,
+          provision,
+          rename: vi.fn(),
+          reprovision: vi.fn(),
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('dialog', { name: 'Configurer cette tablette' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Valider la commande' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'C' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer la tablette' }))
+
+    expect(provision).toHaveBeenCalledWith({ terminalCode: 'C', displayName: 'Caisse C' })
+    expect(screen.getByRole('button', { name: 'Configurer Caisse C' })).toHaveTextContent('Code C')
   })
 
   it('n’annonce pas l’imprimante prête avant la fin de la vérification réelle', async () => {
@@ -196,7 +235,7 @@ describe('caisse', () => {
     render(<App loadRecoverableOrders={async () => [partialOrder]} />)
 
     expect(await screen.findByText('1 impression(s) à reprendre')).toBeInTheDocument()
-    expect(screen.getByText('Commande A001 payée et enregistrée')).toBeInTheDocument()
+    expect(screen.getByText('Commande A-0001 payée et enregistrée')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
 
     const checkout = screen.getByRole('dialog', { name: 'Encaissement' })
@@ -231,7 +270,7 @@ describe('caisse', () => {
     expect(
       await screen.findByRole('dialog', { name: 'Historique des commandes' }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Commande A001' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Commande A-0001' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
 
     expect(within(activeOrder).getByText('Omelette')).toBeInTheDocument()

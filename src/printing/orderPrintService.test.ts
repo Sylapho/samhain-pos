@@ -54,7 +54,7 @@ describe('orchestration d’impression', () => {
     expect(steps).toHaveLength(2)
     expect(
       buildOrderPrintJob(printPreviewOrder, { selection: 'preparation' }).documents[0]?.preview,
-    ).toContain('A001')
+    ).toContain('A-0001')
   })
 
   it('exclut une réussite persistée même si la sélection demande les deux tickets', async () => {

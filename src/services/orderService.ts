@@ -9,13 +9,19 @@ import type {
   PaymentMethod,
   ReceiptNumber,
 } from '../types/order'
+import type { TerminalCode, TerminalConfiguration } from '../types/terminal'
 import { IndexedDbOrderRepository, type OrderRepository } from './orderRepository'
+import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 
-export function formatOrderNumber(sequence: number): OrderNumber {
-  return `A${String(sequence).padStart(3, '0')}`
+export function formatOrderNumber(terminalCode: TerminalCode, sequence: number): OrderNumber {
+  return `${terminalCode}-${String(sequence).padStart(4, '0')}`
 }
 
-export function formatReceiptNumber(date: Date, sequence: number): ReceiptNumber {
+export function formatReceiptNumber(
+  terminalCode: TerminalCode,
+  date: Date,
+  sequence: number,
+): ReceiptNumber {
   const parts = new Intl.DateTimeFormat('fr-FR', {
     timeZone: posConfig.timeZone,
     year: 'numeric',
@@ -24,7 +30,7 @@ export function formatReceiptNumber(date: Date, sequence: number): ReceiptNumber
   }).formatToParts(date)
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? ''
-  return `R-${value('year')}${value('month')}${value('day')}-${String(sequence).padStart(4, '0')}`
+  return `R-${terminalCode}-${value('year')}${value('month')}${value('day')}-${String(sequence).padStart(4, '0')}`
 }
 
 function cloneCartItems(items: CartItem[]): CartItem[] {
@@ -75,6 +81,7 @@ export class OrderService {
   constructor(
     private readonly repository: OrderRepository,
     private readonly createId: () => string = () => globalThis.crypto.randomUUID(),
+    private readonly loadTerminalConfiguration: () => TerminalConfiguration = getRequiredTerminalConfiguration,
   ) {}
 
   createOrder(
@@ -87,12 +94,18 @@ export class OrderService {
     const itemCount = getCartItemCount(persistedItems)
     const totalCents = getCartTotalCents(persistedItems)
     const createdAtIso = createdAt.toISOString()
+    const terminalConfiguration = this.loadTerminalConfiguration()
+    const terminal = {
+      terminalId: terminalConfiguration.terminalId,
+      terminalCode: terminalConfiguration.terminalCode,
+      displayName: terminalConfiguration.displayName,
+    }
 
     return this.repository.createOrder(({ orderSequence, receiptSequence }) => ({
       id: this.createId(),
-      orderNumber: formatOrderNumber(orderSequence),
-      receiptNumber: formatReceiptNumber(createdAt, receiptSequence),
-      registerName: posConfig.registerName,
+      orderNumber: formatOrderNumber(terminal.terminalCode, orderSequence),
+      receiptNumber: formatReceiptNumber(terminal.terminalCode, createdAt, receiptSequence),
+      terminal,
       paymentMethod,
       paymentStatus: 'paid',
       paidAt: createdAtIso,

@@ -6,12 +6,24 @@ import { OrderPrintError, type PrintJobResult } from '../../printing/types'
 import { IndexedDbOrderRepository } from '../../services/orderRepository'
 import { OrderService } from '../../services/orderService'
 import { CheckoutFlow } from './CheckoutFlow'
+import type { TerminalConfiguration } from '../../types/terminal'
 
 const success: PrintJobResult = {
   ok: true,
   bytesWritten: 100,
   completedDocuments: ['customerReceipt', 'preparationTicket'],
   warnings: [],
+}
+
+const terminalA: TerminalConfiguration = {
+  terminalId: 'terminal-a',
+  terminalCode: 'A',
+  displayName: 'Caisse A',
+  provisionedAt: '2026-08-01T10:00:00.000Z',
+}
+
+function createOrderService(repository: IndexedDbOrderRepository) {
+  return new OrderService(repository, undefined, () => terminalA)
 }
 
 function createLifecycle(initialOrder = printPreviewOrder) {
@@ -175,7 +187,7 @@ describe('encaissement et impression', () => {
     await act(async () => finishFirstPrint?.(success))
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
     expect(lifecycle.completePrinting).toHaveBeenCalledOnce()
-    expect(screen.getByText('A001')).toBeInTheDocument()
+    expect(screen.getByText('A-0001')).toBeInTheDocument()
     expect(printOrder.mock.calls[0]?.[0].paymentMethod).toBe('cash')
 
     fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
@@ -241,7 +253,7 @@ describe('encaissement et impression', () => {
 
     expect(
       await screen.findByText(
-        'Commande A001 enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.',
+        'Commande A-0001 enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.',
       ),
     ).toBeInTheDocument()
     expect(printOrder).not.toHaveBeenCalled()
@@ -271,10 +283,10 @@ describe('encaissement et impression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(
       await screen.findByText(
-        'Commande A001 enregistrée. Imprimante déconnectée. Vérifiez le câble puis réessayez.',
+        'Commande A-0001 enregistrée. Imprimante déconnectée. Vérifiez le câble puis réessayez.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('Commande A001 · reçu R-20260901-0001')).toBeInTheDocument()
+    expect(screen.getByText('Commande A-0001 · reçu R-A-20260901-0001')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retour' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Réessayer l’impression' }))
@@ -363,13 +375,13 @@ describe('encaissement et impression', () => {
   it('reprend la préparation après réouverture et plusieurs échecs sans réimprimer le client', async () => {
     const indexedDb = new IDBFactory()
     const repository = new IndexedDbOrderRepository(indexedDb)
-    const service = new OrderService(repository)
+    const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card')
     await service.beginPrinting(order.id, 'both')
     await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation interrompue')
     await repository.close()
     const reopenedRepository = new IndexedDbOrderRepository(indexedDb)
-    const reopened = new OrderService(reopenedRepository)
+    const reopened = createOrderService(reopenedRepository)
     const [recovered] = await reopened.getRecoverableOrders()
     const printOrder = vi
       .fn()
@@ -412,7 +424,7 @@ describe('encaissement et impression', () => {
     'ne réimprime pas les documents terminés après %s',
     async (stage, documents, status) => {
       const repository = new IndexedDbOrderRepository(new IDBFactory())
-      const service = new OrderService(repository)
+      const service = createOrderService(repository)
       const order = await service.createOrder(printPreviewOrder.items, 'card')
       const printOrder = vi
         .fn()
@@ -444,7 +456,7 @@ describe('encaissement et impression', () => {
 
   it('exige une vérification si la sauvegarde finale échoue après le transfert', async () => {
     const repository = new IndexedDbOrderRepository(new IDBFactory())
-    const service = new OrderService(repository)
+    const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card')
     vi.spyOn(service, 'completePrinting').mockRejectedValueOnce(new Error('Stockage indisponible'))
     const printOrder = vi.fn().mockResolvedValue(success)
@@ -470,13 +482,13 @@ describe('encaissement et impression', () => {
   it('enregistre la reprise explicite d’un ticket incertain sans relancer le client déjà imprimé', async () => {
     const indexedDb = new IDBFactory()
     const repository = new IndexedDbOrderRepository(indexedDb)
-    const service = new OrderService(repository)
+    const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card')
     await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
     await service.beginPrinting(order.id, 'preparation')
     await repository.close()
     const restartedRepository = new IndexedDbOrderRepository(indexedDb)
-    const restarted = new OrderService(restartedRepository)
+    const restarted = createOrderService(restartedRepository)
     const [recovered] = await restarted.getRecoverableOrders()
     const printOrder = vi
       .fn()

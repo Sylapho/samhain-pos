@@ -1,4 +1,5 @@
 import type { CartItem } from './cart'
+import type { TerminalIdentity } from './terminal'
 
 export type PaymentMethod = 'card' | 'cash'
 export type OrderNumber = string
@@ -20,7 +21,10 @@ export type Order = {
   id: string
   orderNumber: OrderNumber
   receiptNumber: ReceiptNumber
-  registerName: string
+  /** Absent only on orders created before terminal provisioning was introduced. */
+  terminal?: TerminalIdentity
+  /** Legacy display name retained only while reading pre-provisioning orders. */
+  registerName?: string
   paymentMethod: PaymentMethod
   paymentStatus: PaymentStatus
   paidAt: string

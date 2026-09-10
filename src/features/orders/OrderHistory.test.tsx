@@ -26,8 +26,8 @@ describe('historique des commandes', () => {
     const cashOrder = {
       ...printedOrder,
       id: 'order-a002',
-      orderNumber: 'A002',
-      receiptNumber: 'R-20260901-0002',
+      orderNumber: 'A-0002',
+      receiptNumber: 'R-A-20260901-0002',
       paymentMethod: 'cash' as const,
       totalCents: 950,
       itemCount: 1,
@@ -53,11 +53,12 @@ describe('historique des commandes', () => {
 
     render(<OrderHistory onClose={vi.fn()} loadOrders={async () => [cashOrder, printedOrder]} />)
 
-    expect(await screen.findByRole('button', { name: /Commande A002/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Commande A001/ })).toBeInTheDocument()
-    const detail = screen.getByRole('article', { name: 'Commande A002' })
+    expect(await screen.findByRole('button', { name: /Commande A-0002/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Commande A-0001/ })).toBeInTheDocument()
+    const detail = screen.getByRole('article', { name: 'Commande A-0002' })
     expect(within(detail).getByText(/Espèces/)).toBeInTheDocument()
-    expect(within(detail).getByText('Reçu R-20260901-0002')).toBeInTheDocument()
+    expect(within(detail).getByText('Reçu R-A-20260901-0002')).toBeInTheDocument()
+    expect(within(detail).getByText('Caisse : Caisse A')).toBeInTheDocument()
     expect(within(detail).getByText('Menu test historique')).toBeInTheDocument()
     expect(within(detail).getByText('Plat : Nuggets')).toBeInTheDocument()
     expect(within(detail).getByText('Impression : Imprimée')).toBeInTheDocument()
@@ -80,10 +81,10 @@ describe('historique des commandes', () => {
         />,
       )
 
-      await screen.findByRole('heading', { name: 'Commande A001' })
+      await screen.findByRole('heading', { name: 'Commande A-0001' })
       fireEvent.click(screen.getByRole('button', { name: buttonName }))
 
-      await screen.findByText('Réimpression terminée pour la commande A001.')
+      await screen.findByText('Réimpression terminée pour la commande A-0001.')
       expect(printOrder).toHaveBeenCalledOnce()
       expect(printOrder).toHaveBeenCalledWith(printedOrder, {
         selection,
@@ -140,10 +141,10 @@ describe('historique des commandes', () => {
       />,
     )
 
-    await screen.findByRole('heading', { name: 'Commande A001' })
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
     fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
 
-    await screen.findByText('Réimpression terminée pour la commande A001.')
+    await screen.findByText('Réimpression terminée pour la commande A-0001.')
     expect(lifecycle.beginPrinting).toHaveBeenCalledWith(partialOrder.id, 'preparation')
     expect(printOrder).toHaveBeenCalledWith(startedOrder, {
       selection: 'preparation',
@@ -155,7 +156,7 @@ describe('historique des commandes', () => {
     ])
     expect(onOrderUpdated).toHaveBeenLastCalledWith(completedOrder)
     await waitFor(() => {
-      const detail = screen.getByRole('article', { name: 'Commande A001' })
+      const detail = screen.getByRole('article', { name: 'Commande A-0001' })
       expect(within(detail).getByText('Impression : Imprimée')).toBeInTheDocument()
     })
   })
@@ -178,7 +179,7 @@ describe('historique des commandes', () => {
       />,
     )
 
-    await screen.findByRole('heading', { name: 'Commande A001' })
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
     const reprintButton = screen.getByRole('button', { name: 'Les deux tickets' })
     fireEvent.click(reprintButton)
     fireEvent.click(reprintButton)
@@ -186,13 +187,13 @@ describe('historique des commandes', () => {
     expect(printOrder).toHaveBeenCalledOnce()
     const closeButton = screen.getByRole('button', { name: 'Fermer' })
     expect(closeButton).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Commande A001,/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Commande A-0001,/ })).toBeDisabled()
     fireEvent.click(closeButton)
     expect(onClose).not.toHaveBeenCalled()
 
     await act(async () => finishPrint?.({ ...success, completedDocuments: [] }))
     expect(
-      await screen.findByText('Réimpression terminée pour la commande A001.'),
+      await screen.findByText('Réimpression terminée pour la commande A-0001.'),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Fermer' })).toBeEnabled()
   })
@@ -222,7 +223,7 @@ describe('historique des commandes', () => {
       />,
     )
 
-    await screen.findByRole('heading', { name: 'Commande A001' })
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
     fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
 
     expect(
