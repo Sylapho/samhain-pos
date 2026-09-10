@@ -24,10 +24,36 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 
+internal enum class UsbPermissionResult {
+    GRANTED,
+    DENIED,
+    DEVICE_DISCONNECTED,
+    INCOMPLETE,
+}
+
+internal fun <T> resolvePermissionDevice(
+    broadcastDevice: T?,
+    requestedDeviceId: Int?,
+    connectedDevicesById: Map<Int, T>,
+): T? = broadcastDevice ?: requestedDeviceId?.let(connectedDevicesById::get)
+
+internal fun classifyUsbPermissionResult(
+    deviceAvailable: Boolean,
+    hasPermission: Boolean,
+    androidReportedGranted: Boolean,
+): UsbPermissionResult =
+    when {
+        !deviceAvailable -> UsbPermissionResult.DEVICE_DISCONNECTED
+        hasPermission -> UsbPermissionResult.GRANTED
+        !androidReportedGranted -> UsbPermissionResult.DENIED
+        else -> UsbPermissionResult.INCOMPLETE
+    }
+
 @CapacitorPlugin(name = "EpsonUsbPrinter")
 class EpsonUsbPrinterPlugin : Plugin() {
     private var permissionCallId: String? = null
     private var permissionReceiver: BroadcastReceiver? = null
+    private var permissionDeviceId: Int? = null
 
     @PluginMethod
     fun getDevices(call: PluginCall) {
@@ -117,6 +143,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
     }
 
     @PluginMethod
+    @Synchronized
     fun requestPermission(call: PluginCall) {
         val deviceId = call.getInt("deviceId")
         if (deviceId == null) {
@@ -152,6 +179,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
             )
 
         permissionCallId = call.callbackId
+        permissionDeviceId = deviceId
         call.setKeepAlive(true)
         bridge.saveCall(call)
 
@@ -161,36 +189,70 @@ class EpsonUsbPrinterPlugin : Plugin() {
                     if (intent.action != permissionAction) return
 
                     val pendingCall = permissionCallId?.let(bridge::getSavedCall)
-                    val grantedDevice = getUsbDeviceExtra(intent)
-                    val granted =
+                    val requestedDeviceId = permissionDeviceId
+                    val broadcastDevice = getUsbDeviceExtra(intent)
+                    val androidReportedGranted =
                         intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    val resolvedDevice =
+                        resolvePermissionDevice(
+                            broadcastDevice,
+                            requestedDeviceId,
+                            manager.deviceList.values.associateBy { it.deviceId },
+                        )
+                    val permissionResult =
+                        classifyUsbPermissionResult(
+                            deviceAvailable = resolvedDevice != null,
+                            hasPermission =
+                                resolvedDevice?.let(manager::hasPermission) ?: false,
+                            androidReportedGranted = androidReportedGranted,
+                        )
 
-                    unregisterPermissionReceiver()
-                    permissionCallId = null
+                    clearPermissionRequestState()
 
                     if (pendingCall == null) return
-                    if (grantedDevice == null) {
-                        pendingCall.reject(
-                            "Android n’a pas retourné le périphérique USB.",
-                            "USB_PERMISSION_NO_DEVICE",
-                        )
-                    } else {
-                        resolvePermission(pendingCall, manager, grantedDevice, granted)
+                    try {
+                        when (permissionResult) {
+                            UsbPermissionResult.GRANTED ->
+                                resolvePermission(pendingCall, manager, resolvedDevice!!, true)
+                            UsbPermissionResult.DENIED ->
+                                resolvePermission(pendingCall, manager, resolvedDevice!!, false)
+                            UsbPermissionResult.DEVICE_DISCONNECTED ->
+                                pendingCall.reject(
+                                    "L’imprimante a été débranchée pendant la demande d’autorisation USB. Rebranchez-la puis réessayez.",
+                                    "USB_PERMISSION_DEVICE_DISCONNECTED",
+                                )
+                            UsbPermissionResult.INCOMPLETE ->
+                                pendingCall.reject(
+                                    "Android a indiqué que l’autorisation USB était accordée, mais elle n’est pas disponible. Réessayez après avoir rebranché l’imprimante.",
+                                    "USB_PERMISSION_INCOMPLETE",
+                                )
+                        }
+                    } finally {
+                        pendingCall.release(bridge)
                     }
-                    pendingCall.release(bridge)
                 }
             }
         permissionReceiver = receiver
 
-        val filter = IntentFilter(permissionAction)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            context.registerReceiver(receiver, filter)
-        }
+        try {
+            val filter = IntentFilter(permissionAction)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                context.registerReceiver(receiver, filter)
+            }
 
-        manager.requestPermission(device, pendingIntent)
+            manager.requestPermission(device, pendingIntent)
+        } catch (error: Exception) {
+            clearPermissionRequestState()
+            call.reject(
+                "La demande d’autorisation USB n’a pas pu être lancée. Vérifiez la connexion de l’imprimante puis réessayez.",
+                "USB_PERMISSION_REQUEST_FAILED",
+                error,
+            )
+            call.release(bridge)
+        }
     }
 
     @PluginMethod
@@ -557,8 +619,8 @@ class EpsonUsbPrinterPlugin : Plugin() {
     }
 
     override fun handleOnDestroy() {
-        unregisterPermissionReceiver()
         val callId = permissionCallId
+        clearPermissionRequestState()
         if (callId != null) {
             bridge.getSavedCall(callId)?.let { pendingCall ->
                 pendingCall.reject(
@@ -567,7 +629,6 @@ class EpsonUsbPrinterPlugin : Plugin() {
                 )
                 pendingCall.release(bridge)
             }
-            permissionCallId = null
         }
         super.handleOnDestroy()
     }
@@ -812,6 +873,12 @@ class EpsonUsbPrinterPlugin : Plugin() {
             // Déjà désenregistré.
         }
         permissionReceiver = null
+    }
+
+    private fun clearPermissionRequestState() {
+        unregisterPermissionReceiver()
+        permissionCallId = null
+        permissionDeviceId = null
     }
 
     private data class PrinterUsbInterface(
