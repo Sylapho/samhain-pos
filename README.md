@@ -18,7 +18,9 @@ Les commandes confirmées sont enregistrées dans IndexedDB sur la tablette avan
 
 Chaque commande possède également un UUID stable, prévu pour permettre une future synchronisation entre appareils sans rendre la caisse dépendante du réseau. La synchronisation n'est pas encore implémentée.
 
-Le panier Zustand reste un état temporaire de l'interface et n'est pas utilisé comme stockage métier. Les commandes persistées survivent à un redémarrage de l'application, mais sont supprimées si les données de l'application Android sont effacées ou si l'application est désinstallée. Aucun historique de commandes n'est encore affiché dans l'interface.
+Le paiement et l'impression ont des états distincts. Au moment de l'encaissement, la commande et son paiement sont d'abord enregistrés, puis chaque ticket passe indépendamment par `pending`, `printed` ou `failed`. Une erreur imprimante ne supprime donc jamais la vente confirmée. Si le ticket client est sorti avant l'échec du ticket de préparation, seule la préparation est proposée à la reprise.
+
+Le panier Zustand reste un état temporaire de l'interface et n'est pas utilisé comme stockage métier. Les commandes et leurs états d'impression survivent à un redémarrage de l'application. Une alerte en haut de la caisse permet de reprendre la plus ancienne impression incomplète avec les mêmes numéros de commande et de reçu. Les données sont toutefois supprimées si les données de l'application Android sont effacées ou si l'application est désinstallée. Aucun historique complet des commandes n'est encore affiché dans l'interface.
 
 ## Prérequis
 

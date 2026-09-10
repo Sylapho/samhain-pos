@@ -1,8 +1,15 @@
 import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
-import { printOrderTickets, type PrintOrderOptions } from '../../printing/orderPrintService'
+import {
+  getCompletedDocumentsFromPrintError,
+  printOrderTickets,
+  type PrintOrderOptions,
+} from '../../printing/orderPrintService'
 import type { PrintJobResult, PrintSelection } from '../../printing/types'
-import { createOrder as persistOrder } from '../../services/orderService'
+import {
+  createOrder as persistOrder,
+  orderLifecycle as persistedOrderLifecycle,
+} from '../../services/orderService'
 import type { CartItem } from '../../types/cart'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
@@ -13,9 +20,18 @@ type Props = {
   onNewOrder: () => void
   printOrder?: (order: Order, options?: PrintOrderOptions) => Promise<PrintJobResult>
   createOrder?: typeof persistOrder
+  lifecycle?: typeof persistedOrderLifecycle
+  initialOrder?: Order
+  onOrderUpdated?: (order: Order) => void
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
+
+class PrintStatePersistenceError extends Error {
+  constructor(public readonly printMayHaveStarted: boolean) {
+    super('L’état de l’impression n’a pas pu être sauvegardé.')
+  }
+}
 
 export function CheckoutFlow({
   items,
@@ -23,19 +39,90 @@ export function CheckoutFlow({
   onNewOrder,
   printOrder = printOrderTickets,
   createOrder = persistOrder,
+  lifecycle = persistedOrderLifecycle,
+  initialOrder,
+  onOrderUpdated,
 }: Props) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
-  const [printCustomerReceipt, setPrintCustomerReceipt] = useState(true)
-  const [order, setOrder] = useState<Order | null>(null)
-  const [completed, setCompleted] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    initialOrder?.paymentMethod ?? 'card',
+  )
+  const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
+    initialOrder?.printing.customerReceipt !== 'not_requested',
+  )
+  const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
+  const [completed, setCompleted] = useState(initialOrder?.printing.status === 'printed')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const printingRef = useRef(false)
-  const totalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0)
+  const displayedItems = order?.items ?? items
+  const totalCents = displayedItems.reduce(
+    (total, item) => total + item.unitPriceCents * item.quantity,
+    0,
+  )
 
-  const performPrint = async (targetOrder: Order, options: PrintOrderOptions) => {
-    const result = await printOrder(targetOrder, options)
-    setCompleted(true)
+  const storeUpdatedOrder = (updatedOrder: Order) => {
+    setOrder(updatedOrder)
+    onOrderUpdated?.(updatedOrder)
+    return updatedOrder
+  }
+
+  const performPrint = async (
+    targetOrder: Order,
+    options: PrintOrderOptions,
+    trackLifecycle: boolean,
+  ) => {
+    const selection = options.selection ?? 'both'
+    let printingOrder = targetOrder
+    if (trackLifecycle) {
+      try {
+        printingOrder = storeUpdatedOrder(await lifecycle.beginPrinting(targetOrder.id, selection))
+      } catch {
+        throw new PrintStatePersistenceError(false)
+      }
+    }
+
+    let result: PrintJobResult
+    try {
+      result = await printOrder(printingOrder, options)
+    } catch (error) {
+      if (trackLifecycle) {
+        const message =
+          error instanceof Error ? error.message : 'L’impression a échoué sans détail.'
+        try {
+          const failedOrder = storeUpdatedOrder(
+            await lifecycle.failPrinting(
+              targetOrder.id,
+              selection,
+              getCompletedDocumentsFromPrintError(error, options),
+              message,
+            ),
+          )
+          if (failedOrder.printing.status === 'printed') {
+            setCompleted(true)
+            setFeedback({
+              kind: 'warning',
+              text: `Tickets imprimés, mais la coupe a échoué. Détachez-les manuellement. ${message}`,
+            })
+            return
+          }
+        } catch {
+          throw new PrintStatePersistenceError(true)
+        }
+      }
+      throw error
+    }
+
+    let updatedOrder = printingOrder
+    if (trackLifecycle) {
+      try {
+        updatedOrder = storeUpdatedOrder(
+          await lifecycle.completePrinting(targetOrder.id, selection, result.completedDocuments),
+        )
+      } catch {
+        throw new PrintStatePersistenceError(true)
+      }
+    }
+    setCompleted(!trackLifecycle || updatedOrder.printing.status === 'printed')
     setFeedback(
       result.warnings.length
         ? { kind: 'warning', text: `Impression terminée. ${result.warnings.join(' ')}` }
@@ -57,14 +144,27 @@ export function CheckoutFlow({
     })
   }
 
-  const runPrint = async (targetOrder: Order, options: PrintOrderOptions) => {
+  const runPrint = async (
+    targetOrder: Order,
+    options: PrintOrderOptions,
+    trackLifecycle = true,
+  ) => {
     if (printingRef.current) return
     printingRef.current = true
     setBusy(true)
     setFeedback(null)
     try {
-      await performPrint(targetOrder, options)
+      await performPrint(targetOrder, options, trackLifecycle)
     } catch (error) {
+      if (error instanceof PrintStatePersistenceError) {
+        setFeedback({
+          kind: 'error',
+          text: error.printMayHaveStarted
+            ? `Commande ${targetOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+            : `Commande ${targetOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+        })
+        return
+      }
       reportPrintFailure(targetOrder, error)
     } finally {
       printingRef.current = false
@@ -74,7 +174,20 @@ export function CheckoutFlow({
 
   const checkoutAndPrint = () => {
     if (order) {
-      void runPrint(order, { printCustomerReceipt })
+      if (order.printing.status === 'unknown') {
+        setCompleted(true)
+        setFeedback({
+          kind: 'warning',
+          text: 'L’état des anciens tickets est inconnu. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
+        })
+        return
+      }
+      const selection = getPendingSelection(order)
+      if (!selection) {
+        setCompleted(true)
+        return
+      }
+      void runPrint(order, { printCustomerReceipt, selection })
       return
     }
     if (printingRef.current) return
@@ -86,7 +199,7 @@ export function CheckoutFlow({
       try {
         let persistedOrder: Order
         try {
-          persistedOrder = await createOrder(items, paymentMethod)
+          persistedOrder = await createOrder(items, paymentMethod, new Date(), printCustomerReceipt)
         } catch {
           setFeedback({
             kind: 'error',
@@ -95,11 +208,20 @@ export function CheckoutFlow({
           return
         }
 
-        setOrder(persistedOrder)
+        storeUpdatedOrder(persistedOrder)
         try {
-          await performPrint(persistedOrder, { printCustomerReceipt })
+          await performPrint(persistedOrder, { printCustomerReceipt }, true)
         } catch (error) {
-          reportPrintFailure(persistedOrder, error)
+          if (error instanceof PrintStatePersistenceError) {
+            setFeedback({
+              kind: 'error',
+              text: error.printMayHaveStarted
+                ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+            })
+          } else {
+            reportPrintFailure(persistedOrder, error)
+          }
         }
       } finally {
         printingRef.current = false
@@ -110,7 +232,7 @@ export function CheckoutFlow({
 
   const reprint = (selection: PrintSelection) => {
     if (!order) return
-    void runPrint(order, { selection, printCustomerReceipt: true })
+    void runPrint(order, { selection, printCustomerReceipt: true }, false)
   }
 
   return (
@@ -129,7 +251,7 @@ export function CheckoutFlow({
                   Encaissement
                 </h2>
                 <p className="mt-1 font-bold text-stone-600">
-                  {items.reduce((count, item) => count + item.quantity, 0)} article(s)
+                  {displayedItems.reduce((count, item) => count + item.quantity, 0)} article(s)
                 </p>
               </div>
               <div className="text-4xl font-black tabular-nums">{formatMoney(totalCents)}</div>
@@ -174,9 +296,12 @@ export function CheckoutFlow({
             </label>
 
             {order ? (
-              <p className="mt-4 font-black text-[#1f6a4b]">
-                Commande {order.orderNumber} · reçu {order.receiptNumber}
-              </p>
+              <div className="mt-4 font-bold text-[#1f6a4b]">
+                <p className="font-black">
+                  Commande {order.orderNumber} · reçu {order.receiptNumber}
+                </p>
+                <p className="mt-1 text-sm">Paiement enregistré · {printStatusLabel(order)}</p>
+              </div>
             ) : null}
 
             {feedback ? <FeedbackBox feedback={feedback} /> : null}
@@ -194,7 +319,11 @@ export function CheckoutFlow({
                 {busy
                   ? 'Impression en cours…'
                   : order
-                    ? 'Réessayer l’impression'
+                    ? order.printing.status === 'unknown'
+                      ? 'Vérifier les tickets'
+                      : initialOrder
+                        ? 'Reprendre l’impression'
+                        : 'Réessayer l’impression'
                     : 'Encaisser et imprimer'}
               </Button>
             </div>
@@ -243,6 +372,23 @@ export function CheckoutFlow({
       </section>
     </div>
   )
+}
+
+function getPendingSelection(order: Order): PrintSelection | null {
+  const needsCustomer = !['not_requested', 'printed'].includes(order.printing.customerReceipt)
+  const needsPreparation = !['not_requested', 'printed'].includes(order.printing.preparationTicket)
+  if (needsCustomer && needsPreparation) return 'both'
+  if (needsCustomer) return 'customer'
+  if (needsPreparation) return 'preparation'
+  return null
+}
+
+function printStatusLabel(order: Order): string {
+  if (order.printing.status === 'partial') return 'impression partielle à reprendre'
+  if (order.printing.status === 'failed') return 'impression échouée à reprendre'
+  if (order.printing.status === 'unknown') return 'état d’impression à vérifier'
+  if (order.printing.status === 'printed') return 'impression terminée'
+  return 'impression en attente'
 }
 
 function FeedbackBox({ feedback }: { feedback: Feedback }) {

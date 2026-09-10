@@ -6,8 +6,17 @@ export const printPreviewOrder: Order = {
   receiptNumber: 'R-20260901-0001',
   registerName: 'Caisse 01',
   paymentMethod: 'card',
+  paymentStatus: 'paid',
+  paidAt: '2026-09-01T18:15:00.000Z',
   createdAt: '2026-09-01T18:15:00.000Z',
   status: 'confirmed',
+  printing: {
+    status: 'pending',
+    customerReceipt: 'pending',
+    preparationTicket: 'pending',
+    attempts: 0,
+    updatedAt: '2026-09-01T18:15:00.000Z',
+  },
   itemCount: 5,
   totalCents: 4150,
   items: [
