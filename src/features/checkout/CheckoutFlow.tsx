@@ -46,6 +46,7 @@ export function CheckoutFlow({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(
     initialOrder?.paymentMethod ?? null,
   )
+  const [cashReceivedCents, setCashReceivedCents] = useState<number | null>(null)
   const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
     initialOrder?.printing.customerReceipt !== 'not_requested',
   )
@@ -59,6 +60,7 @@ export function CheckoutFlow({
     (total, item) => total + item.unitPriceCents * item.quantity,
     0,
   )
+  const hasSufficientCash = cashReceivedCents !== null && cashReceivedCents >= totalCents
 
   const storeUpdatedOrder = (updatedOrder: Order) => {
     setOrder(updatedOrder)
@@ -302,6 +304,27 @@ export function CheckoutFlow({
               </p>
             </fieldset>
 
+            {paymentMethod === 'cash' && order === null ? (
+              <CashPayment
+                totalCents={totalCents}
+                receivedCents={cashReceivedCents}
+                disabled={busy}
+                onAppendDigit={(digit) => {
+                  setCashReceivedCents((current) => (current ?? 0) * 10 + digit)
+                }}
+                onAppendDoubleZero={() => {
+                  setCashReceivedCents((current) => (current ?? 0) * 100)
+                }}
+                onDeleteLastDigit={() => {
+                  setCashReceivedCents((current) => {
+                    if (current === null || current < 10) return null
+                    return Math.floor(current / 10)
+                  })
+                }}
+                onSetExactAmount={() => setCashReceivedCents(totalCents)}
+              />
+            ) : null}
+
             <label className="mt-5 flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border border-stone-300 bg-white px-4 font-bold">
               <input
                 type="checkbox"
@@ -335,7 +358,11 @@ export function CheckoutFlow({
               <Button
                 variant="primary"
                 className="min-h-16 text-xl"
-                disabled={busy || (order === null && paymentMethod === null)}
+                disabled={
+                  busy ||
+                  (order === null &&
+                    (paymentMethod === null || (paymentMethod === 'cash' && !hasSufficientCash)))
+                }
                 onClick={checkoutAndPrint}
               >
                 {busy
@@ -394,6 +421,102 @@ export function CheckoutFlow({
         )}
       </section>
     </div>
+  )
+}
+
+type CashPaymentProps = {
+  totalCents: number
+  receivedCents: number | null
+  disabled: boolean
+  onAppendDigit: (digit: number) => void
+  onAppendDoubleZero: () => void
+  onDeleteLastDigit: () => void
+  onSetExactAmount: () => void
+}
+
+function CashPayment({
+  totalCents,
+  receivedCents,
+  disabled,
+  onAppendDigit,
+  onAppendDoubleZero,
+  onDeleteLastDigit,
+  onSetExactAmount,
+}: CashPaymentProps) {
+  const isSufficient = receivedCents !== null && receivedCents >= totalCents
+  const changeCents = isSufficient && receivedCents !== null ? receivedCents - totalCents : null
+  const missingCents = receivedCents === null ? null : Math.max(totalCents - receivedCents, 0)
+
+  return (
+    <section className="mt-5 border-t border-stone-300 pt-5" aria-labelledby="cash-payment-title">
+      <div className="flex items-baseline justify-between gap-4">
+        <h3 id="cash-payment-title" className="text-lg font-black">
+          Paiement en espèces
+        </h3>
+        <Button
+          className="min-h-12 px-4"
+          disabled={disabled}
+          onClick={onSetExactAmount}
+        >
+          Montant exact — {formatMoney(totalCents)}
+        </Button>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-[10px] border border-stone-300 bg-white p-4">
+          <p className="text-sm font-bold text-stone-700">Montant reçu</p>
+          <output className="mt-1 block text-3xl font-black tabular-nums" aria-live="polite">
+            {receivedCents === null ? '—' : formatMoney(receivedCents)}
+          </output>
+        </div>
+        <div
+          className={`rounded-[10px] border p-4 ${
+            isSufficient
+              ? 'border-[#1f6a4b] bg-emerald-50 text-emerald-950'
+              : 'border-stone-300 bg-stone-100 text-stone-800'
+          }`}
+          aria-live="polite"
+        >
+          <p className="text-sm font-bold">Monnaie à rendre</p>
+          <p className="mt-1 text-3xl font-black tabular-nums">
+            {changeCents === null ? '—' : formatMoney(changeCents)}
+          </p>
+          {!isSufficient ? (
+            <p className="mt-1 text-sm font-bold">
+              {missingCents === null
+                ? 'Saisissez le montant reçu.'
+                : `Il manque ${formatMoney(missingCents)}.`}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Pavé numérique du montant reçu">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+          <Button
+            key={digit}
+            className="min-h-16 text-2xl"
+            disabled={disabled}
+            onClick={() => onAppendDigit(digit)}
+          >
+            {digit}
+          </Button>
+        ))}
+        <Button className="min-h-16 text-xl" disabled={disabled} onClick={() => onAppendDigit(0)}>
+          0
+        </Button>
+        <Button className="min-h-16 text-xl" disabled={disabled} onClick={onAppendDoubleZero}>
+          00
+        </Button>
+        <Button
+          className="min-h-16 px-3 text-sm"
+          disabled={disabled || receivedCents === null}
+          onClick={onDeleteLastDigit}
+        >
+          Effacer le dernier chiffre
+        </Button>
+      </div>
+    </section>
   )
 }
 
