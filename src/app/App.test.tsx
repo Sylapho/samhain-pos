@@ -127,4 +127,33 @@ describe('caisse', () => {
       within(checkout).getByRole('button', { name: 'Reprendre l’impression' }),
     ).toBeInTheDocument()
   })
+
+  it('consulte une ancienne commande sans modifier la commande active', async () => {
+    const historicalOrder = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'printed' as const,
+      },
+    }
+    render(
+      <App loadRecoverableOrders={async () => []} loadOrders={async () => [historicalOrder]} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+
+    const activeOrder = screen.getByLabelText('Commande en cours')
+    expect(within(activeOrder).getByText('Omelette')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Historique' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Historique des commandes' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Commande A001' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+
+    expect(within(activeOrder).getByText('Omelette')).toBeInTheDocument()
+    expect(within(activeOrder).getAllByText(/10,00/)).toHaveLength(3)
+  })
 })

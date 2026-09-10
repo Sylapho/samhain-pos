@@ -70,6 +70,19 @@ describe('service de commandes persistantes', () => {
     await restarted.repository.close()
   })
 
+  it('retourne les commandes les plus récentes en premier', async () => {
+    const indexedDb = new IDBFactory()
+    const repository = new IndexedDbOrderRepository(indexedDb, 'recent-orders')
+    let idSequence = 0
+    const service = new OrderService(repository, () => `order-${++idSequence}`)
+
+    await service.createOrder([], 'cash', new Date('2026-09-01T10:00:00Z'))
+    await service.createOrder([], 'card', new Date('2026-09-01T12:00:00Z'))
+
+    expect((await service.getOrders()).map((order) => order.orderNumber)).toEqual(['A002', 'A001'])
+    await repository.close()
+  })
+
   it('alloue des numéros uniques lors de créations concurrentes', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'concurrent', 'order-1')

@@ -113,10 +113,12 @@ export class OrderService {
 
   getOrders(): Promise<Order[]> {
     return this.repository.getOrders().then((orders) =>
-      orders.map((storedOrder) => {
-        const order = normalizeOrder(storedOrder)
-        return { ...order, items: cloneCartItems(order.items) }
-      }),
+      orders
+        .map((storedOrder) => {
+          const order = normalizeOrder(storedOrder)
+          return { ...order, items: cloneCartItems(order.items) }
+        })
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     )
   }
 
