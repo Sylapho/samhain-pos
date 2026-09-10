@@ -6,10 +6,11 @@ import { ProductGrid } from '../features/catalog/ProductGrid'
 import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
+import { OrderHistory } from '../features/orders/OrderHistory'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
-import { getRecoverableOrders } from '../services/orderService'
+import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { Order } from '../types/order'
@@ -18,13 +19,18 @@ import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart
 
 type Props = {
   loadRecoverableOrders?: typeof getRecoverableOrders
+  loadOrders?: typeof getPersistedOrders
 }
 
-export function App({ loadRecoverableOrders = getRecoverableOrders }: Props = {}) {
+export function App({
+  loadRecoverableOrders = getRecoverableOrders,
+  loadOrders = getPersistedOrders,
+}: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [recoveryOrders, setRecoveryOrders] = useState<Order[]>([])
   const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
   const [recoveryError, setRecoveryError] = useState(false)
@@ -114,7 +120,15 @@ export function App({ loadRecoverableOrders = getRecoverableOrders }: Props = {}
           <div className="text-xl font-black">Samhain POS</div>
           <div className="text-sm font-bold text-stone-300">Caisse A</div>
         </div>
-        <SystemStatus network={network} printer={printer} />
+        <div className="flex items-center gap-3">
+          <Button
+            className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
+            onClick={() => setHistoryOpen(true)}
+          >
+            Historique
+          </Button>
+          <SystemStatus network={network} printer={printer} />
+        </div>
       </header>
 
       {network !== 'online' ? (
@@ -199,6 +213,14 @@ export function App({ loadRecoverableOrders = getRecoverableOrders }: Props = {}
           onCancel={() => setCheckoutOpen(false)}
           onNewOrder={startNewOrder}
           initialOrder={resumingOrder ?? undefined}
+          onOrderUpdated={updateRecoveryOrder}
+        />
+      ) : null}
+
+      {historyOpen ? (
+        <OrderHistory
+          onClose={() => setHistoryOpen(false)}
+          loadOrders={loadOrders}
           onOrderUpdated={updateRecoveryOrder}
         />
       ) : null}
