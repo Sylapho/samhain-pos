@@ -229,7 +229,7 @@ public class EpsonUsbPrinterPlugin extends Plugin {
         try {
             claimed = connection.claimInterface(output.usbInterface, true);
             if (!claimed) {
-                call.reject("Impossible de prendre le contrôle de l’interface USB de l’imprimante.", "USB_CLAIM_FAILED");
+                rejectPrintJob(call, completedDocuments, "Impossible de prendre le contrôle de l’interface USB de l’imprimante.", "USB_CLAIM_FAILED");
                 return;
             }
 
@@ -241,7 +241,7 @@ public class EpsonUsbPrinterPlugin extends Plugin {
                     String documentType = step.optString("documentType", "");
                     String encodedData = step.optString("dataBase64", "");
                     if (encodedData.isEmpty()) {
-                        call.reject("Le document à imprimer est vide.", "USB_PRINT_JOB_INVALID");
+                        rejectPrintJob(call, completedDocuments, "Le document à imprimer est vide.", "USB_PRINT_JOB_INVALID");
                         return;
                     }
 
@@ -259,7 +259,7 @@ public class EpsonUsbPrinterPlugin extends Plugin {
                         } else {
                             prefix = "L’impression du ticket de préparation a échoué. ";
                         }
-                        call.reject(prefix + transferFailureMessage(written, data.length), code);
+                        rejectPrintJob(call, completedDocuments, prefix + transferFailureMessage(written, data.length), code);
                         return;
                     }
 
@@ -289,7 +289,7 @@ public class EpsonUsbPrinterPlugin extends Plugin {
                         String code = "customerReceipt".equals(afterDocument)
                             ? "USB_CUSTOMER_CUT_FAILED"
                             : "USB_PREPARATION_CUT_FAILED";
-                        call.reject("La coupe a échoué et la séparation visuelle de secours n’a pas pu être imprimée.", code);
+                        rejectPrintJob(call, completedDocuments, "La coupe a échoué et la séparation visuelle de secours n’a pas pu être imprimée.", code);
                         return;
                     }
 
@@ -300,7 +300,7 @@ public class EpsonUsbPrinterPlugin extends Plugin {
                     continue;
                 }
 
-                call.reject("Étape d’impression inconnue : " + type, "USB_PRINT_JOB_INVALID");
+                rejectPrintJob(call, completedDocuments, "Étape d’impression inconnue : " + type, "USB_PRINT_JOB_INVALID");
                 return;
             }
 
@@ -312,9 +312,9 @@ public class EpsonUsbPrinterPlugin extends Plugin {
             result.put("device", toJsDevice(manager, device));
             call.resolve(result);
         } catch (IllegalArgumentException error) {
-            call.reject("Le contenu ESC/POS reçu est invalide.", "USB_PRINT_JOB_INVALID", error);
+            rejectPrintJob(call, completedDocuments, "Le contenu ESC/POS reçu est invalide.", "USB_PRINT_JOB_INVALID");
         } catch (Exception error) {
-            call.reject("Erreur pendant la séquence d’impression USB : " + error.getMessage(), "USB_PRINT_ERROR", error);
+            rejectPrintJob(call, completedDocuments, "Erreur pendant la séquence d’impression USB : " + error.getMessage(), "USB_PRINT_ERROR");
         } finally {
             if (claimed) connection.releaseInterface(output.usbInterface);
             connection.close();
@@ -322,6 +322,11 @@ public class EpsonUsbPrinterPlugin extends Plugin {
     }
 
 
+    private void rejectPrintJob(PluginCall call, JSArray completedDocuments, String message, String code) {
+        JSObject progress = new JSObject();
+        progress.put("completedDocuments", completedDocuments);
+        call.reject(message, code, null, progress);
+    }
     @Override
     protected void handleOnDestroy() {
         unregisterPermissionReceiver();

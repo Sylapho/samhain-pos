@@ -166,4 +166,45 @@ describe('service de commandes persistantes', () => {
     expect(printed.printing.status).toBe('printed')
     await repository.close()
   })
+
+  it('conserve les réussites après plusieurs échecs et une interruption de reprise', async () => {
+    const indexedDb = new IDBFactory()
+    const first = createService(indexedDb, 'interrupted-retry', 'order-1')
+    const order = await first.service.createOrder([], 'cash', createdAt)
+    await first.service.beginPrinting(order.id, 'both')
+    await first.service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
+    await first.service.beginPrinting(order.id, 'preparation')
+    const failed = await first.service.failPrinting(order.id, 'preparation', [], 'Déconnexion')
+    expect(failed.printing).toMatchObject({
+      status: 'partial',
+      customerReceipt: 'printed',
+      preparationTicket: 'failed',
+    })
+    await first.service.beginPrinting(order.id, 'preparation')
+    await first.repository.close()
+
+    const restarted = createService(indexedDb, 'interrupted-retry', 'order-2')
+    const [recovered] = await restarted.service.getRecoverableOrders()
+    expect(recovered?.printing).toMatchObject({
+      status: 'unknown',
+      customerReceipt: 'printed',
+      preparationTicket: 'unknown',
+      attempts: 3,
+    })
+    expect(recovered?.paymentStatus).toBe('paid')
+    await restarted.repository.close()
+  })
+
+  it('ne perd pas une réussite connue si une sélection inclut à nouveau le document', async () => {
+    const { repository, service } = createService(new IDBFactory(), 'preserve-success', 'order-1')
+    const order = await service.createOrder([], 'card', createdAt)
+    await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
+    const started = await service.beginPrinting(order.id, 'both')
+    expect(started.printing.customerReceipt).toBe('printed')
+    const failed = await service.failPrinting(order.id, 'both', [], 'Déconnexion')
+    expect(failed.printing.customerReceipt).toBe('printed')
+    const completed = await service.completePrinting(order.id, 'both', ['preparationTicket'])
+    expect(completed.printing.status).toBe('printed')
+    await repository.close()
+  })
 })

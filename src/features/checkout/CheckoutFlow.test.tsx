@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
 import { printPreviewOrder } from '../../mocks/printOrder'
 import { OrderPrintError, type PrintJobResult } from '../../printing/types'
+import { IndexedDbOrderRepository } from '../../services/orderRepository'
+import { OrderService } from '../../services/orderService'
 import { CheckoutFlow } from './CheckoutFlow'
 
 const success: PrintJobResult = {
@@ -235,6 +238,8 @@ describe('encaissement et impression', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(await screen.findByText(/impression partielle à reprendre/)).toBeInTheDocument()
+    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
     expect(lifecycle.failPrinting).toHaveBeenCalledWith(
       printPreviewOrder.id,
       'both',
@@ -275,10 +280,152 @@ describe('encaissement et impression', () => {
     expect(printOrder).not.toHaveBeenCalled()
     expect(
       screen.getByText(
-        'L’état des anciens tickets est inconnu. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
+        'L’état de certains tickets est incertain. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ticket client' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Préparation' })).toBeInTheDocument()
+  })
+
+  it('reprend la préparation après réouverture et plusieurs échecs sans réimprimer le client', async () => {
+    const indexedDb = new IDBFactory()
+    const repository = new IndexedDbOrderRepository(indexedDb)
+    const service = new OrderService(repository)
+    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    await service.beginPrinting(order.id, 'both')
+    await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation interrompue')
+    await repository.close()
+    const reopenedRepository = new IndexedDbOrderRepository(indexedDb)
+    const reopened = new OrderService(reopenedRepository)
+    const [recovered] = await reopened.getRecoverableOrders()
+    const printOrder = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new OrderPrintError('Déconnexion', 'connection', 'USB_PRINT_ERROR', []),
+      )
+      .mockResolvedValue({ ...success, completedDocuments: ['preparationTicket'] })
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={recovered}
+        lifecycle={reopened}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+      />,
+    )
+    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    const retry = screen.getByRole('button', { name: 'Reprendre l’impression' })
+    fireEvent.click(retry)
+    fireEvent.click(retry)
+    await screen.findByText(/Commande .* enregistrée. Déconnexion/)
+    expect(printOrder).toHaveBeenCalledOnce()
+    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+    await screen.findByRole('heading', { name: 'Commande validée' })
+    expect(printOrder).toHaveBeenCalledTimes(2)
+    for (const [printedOrder, options] of printOrder.mock.calls) {
+      expect(printedOrder.id).toBe(order.id)
+      expect(options.selection).toBe('preparation')
+    }
+    expect(await reopened.getRecoverableOrders()).toEqual([])
+    await reopenedRepository.close()
+  })
+
+  it.each([
+    ['customerCut', ['customerReceipt'], 'partial'],
+    ['preparationCut', ['customerReceipt', 'preparationTicket'], 'printed'],
+  ] as const)(
+    'ne réimprime pas les documents terminés après %s',
+    async (stage, documents, status) => {
+      const repository = new IndexedDbOrderRepository(new IDBFactory())
+      const service = new OrderService(repository)
+      const order = await service.createOrder(printPreviewOrder.items, 'card')
+      const printOrder = vi
+        .fn()
+        .mockRejectedValue(new OrderPrintError('Coupe échouée', stage, undefined, [...documents]))
+      render(
+        <CheckoutFlow
+          items={[]}
+          initialOrder={order}
+          lifecycle={service}
+          onCancel={vi.fn()}
+          onNewOrder={vi.fn()}
+          printOrder={printOrder}
+        />,
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+      await screen.findByText(/Coupe échouée/)
+      expect((await service.getOrders())[0]?.printing.status).toBe(status)
+      expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+      if (status === 'printed') {
+        expect(screen.getByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Reprendre l’impression' }),
+        ).not.toBeInTheDocument()
+      }
+      expect(printOrder).toHaveBeenCalledOnce()
+      await repository.close()
+    },
+  )
+
+  it('exige une vérification si la sauvegarde finale échoue après le transfert', async () => {
+    const repository = new IndexedDbOrderRepository(new IDBFactory())
+    const service = new OrderService(repository)
+    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    vi.spyOn(service, 'completePrinting').mockRejectedValueOnce(new Error('Stockage indisponible'))
+    const printOrder = vi.fn().mockResolvedValue(success)
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={order}
+        lifecycle={service}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+    await screen.findByText(/L’état final de l’impression n’a pas pu être sauvegardé/)
+    expect((await service.getRecoverableOrders())[0]?.printing.status).toBe('unknown')
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
+    expect(printOrder).toHaveBeenCalledOnce()
+    expect(screen.getByText(/L’état de certains tickets est incertain/)).toBeInTheDocument()
+    await repository.close()
+  })
+
+  it('enregistre la reprise explicite d’un ticket incertain sans relancer le client déjà imprimé', async () => {
+    const indexedDb = new IDBFactory()
+    const repository = new IndexedDbOrderRepository(indexedDb)
+    const service = new OrderService(repository)
+    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
+    await service.beginPrinting(order.id, 'preparation')
+    await repository.close()
+    const restartedRepository = new IndexedDbOrderRepository(indexedDb)
+    const restarted = new OrderService(restartedRepository)
+    const [recovered] = await restarted.getRecoverableOrders()
+    const printOrder = vi
+      .fn()
+      .mockResolvedValue({ ...success, completedDocuments: ['preparationTicket'] })
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={recovered}
+        lifecycle={restarted}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
+    expect(printOrder).not.toHaveBeenCalled()
+    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
+    await screen.findByText('Impression terminée : tous les tickets demandés ont été envoyés.')
+    expect(printOrder).toHaveBeenCalledOnce()
+    expect(printOrder.mock.calls[0]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(await restarted.getRecoverableOrders()).toEqual([])
+    await restartedRepository.close()
   })
 })

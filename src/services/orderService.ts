@@ -140,7 +140,8 @@ export class OrderService {
         updatedAt: updatedAt.toISOString(),
       }
       for (const document of selectedDocuments(selection)) {
-        if (next[document] !== 'not_requested') next[document] = 'pending'
+        // A process termination after USB transfer must require checking the paper output.
+        if (!['not_requested', 'printed'].includes(next[document])) next[document] = 'unknown'
       }
       next.status = derivePrintStatus(next)
       delete next.lastError
@@ -157,7 +158,7 @@ export class OrderService {
     return this.updatePrinting(orderId, (printing) => {
       const next = { ...printing, updatedAt: updatedAt.toISOString() }
       for (const document of selectedDocuments(selection)) {
-        if (next[document] === 'not_requested') continue
+        if (['not_requested', 'printed'].includes(next[document])) continue
         next[document] = completedDocuments.includes(document) ? 'printed' : 'failed'
       }
       next.status = derivePrintStatus(next)
@@ -176,7 +177,7 @@ export class OrderService {
     return this.updatePrinting(orderId, (printing) => {
       const next = { ...printing, updatedAt: updatedAt.toISOString(), lastError: message }
       for (const document of selectedDocuments(selection)) {
-        if (next[document] === 'not_requested') continue
+        if (['not_requested', 'printed'].includes(next[document])) continue
         next[document] = completedDocuments.includes(document) ? 'printed' : 'failed'
       }
       next.status = derivePrintStatus(next)

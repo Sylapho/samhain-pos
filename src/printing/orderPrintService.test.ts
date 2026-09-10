@@ -56,4 +56,51 @@ describe('orchestration d’impression', () => {
       buildOrderPrintJob(printPreviewOrder, { selection: 'preparation' }).documents[0]?.preview,
     ).toContain('A001')
   })
+
+  it('exclut une réussite persistée même si la sélection demande les deux tickets', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>().mockResolvedValue({
+      ok: true,
+      bytesWritten: 50,
+      completedDocuments: ['preparationTicket'],
+      warnings: [],
+    })
+    const service = new OrderPrintService({ printJob })
+    await service.printOrder(
+      {
+        ...printPreviewOrder,
+        printing: { ...printPreviewOrder.printing, customerReceipt: 'printed', status: 'partial' },
+      },
+      { selection: 'both' },
+    )
+    expect(
+      printJob.mock.calls[0]?.[0].map((step) =>
+        step.type === 'document' ? step.documentType : `cut:${step.afterDocument}`,
+      ),
+    ).toEqual(['preparationTicket', 'cut:preparationTicket'])
+  })
+
+  it('ne transfère aucun ticket terminé sans demande explicite de réimpression', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>().mockResolvedValue({
+      ok: true,
+      bytesWritten: 50,
+      completedDocuments: ['customerReceipt'],
+      warnings: [],
+    })
+    const service = new OrderPrintService({ printJob })
+    const order = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'printed' as const,
+        status: 'printed' as const,
+      },
+    }
+    await service.printOrder(order)
+    expect(printJob).not.toHaveBeenCalled()
+    await service.printOrder(order, { selection: 'customer', reprint: true })
+    expect(printJob).toHaveBeenCalledOnce()
+    expect(printJob.mock.calls[0]?.[0]).toHaveLength(2)
+    expect(printJob.mock.calls[0]?.[0][0]).toMatchObject({ documentType: 'customerReceipt' })
+  })
 })

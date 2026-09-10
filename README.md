@@ -20,6 +20,10 @@ Chaque commande possède également un UUID stable, prévu pour permettre une fu
 
 Le paiement et l'impression ont des états distincts. Au moment de l'encaissement, la commande et son paiement sont d'abord enregistrés, puis chaque ticket passe indépendamment par `pending`, `printed` ou `failed`. Une erreur imprimante ne supprime donc jamais la vente confirmée. Si le ticket client est sorti avant l'échec du ticket de préparation, seule la préparation est proposée à la reprise.
 
+Le plugin Android transmet aussi la liste des documents terminés en cas d'échec, y compris si la coupe ou une étape ultérieure échoue. L'écran affiche séparément l'état du ticket client et celui du ticket de préparation ; les réussites restent enregistrées lors des tentatives suivantes. Une coupe échouée ne remet pas un document terminé dans la liste des tickets à imprimer.
+
+Avant tout transfert, les documents concernés sont durablement marqués `unknown`. Si l'application s'arrête pendant le transfert ou si l'enregistrement du résultat échoue, la reprise exige de vérifier les tickets sortis puis de choisir explicitement une réimpression. Un transfert USB terminé ne garantit pas la sortie physique du papier : cette intégration ESC/POS n'obtient pas d'accusé de réception physique par document. Après une écriture partielle, vérifier également le fragment éventuellement sorti avant de reprendre le document manquant.
+
 Le panier Zustand reste un état temporaire de l'interface et n'est pas utilisé comme stockage métier. Les commandes et leurs états d'impression survivent à un redémarrage de l'application. Une alerte en haut de la caisse permet de reprendre la plus ancienne impression incomplète avec les mêmes numéros de commande et de reçu. Les données sont toutefois supprimées si les données de l'application Android sont effacées ou si l'application est désinstallée. Aucun historique complet des commandes n'est encore affiché dans l'interface.
 
 ## Prérequis
