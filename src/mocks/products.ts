@@ -56,7 +56,7 @@ export const products: Product[] = [
     id: 'panini-bacon-cheddar',
     name: 'Panini Bacon Cheddar',
     categoryId: 'assiettes',
-    priceCents: 1200,
+    priceCents: 1400,
     vatRate: 10,
     availability: 'available',
     description: 'Servi avec frites',
@@ -65,7 +65,7 @@ export const products: Product[] = [
     id: 'steak-hache',
     name: 'Steak haché',
     categoryId: 'assiettes',
-    priceCents: 1400,
+    priceCents: 1200,
     vatRate: 10,
     availability: 'available',
     description: 'Servi avec frites',
@@ -76,7 +76,7 @@ export const products: Product[] = [
     id: 'chipolata-x2',
     name: 'Chipolata x2',
     categoryId: 'assiettes',
-    priceCents: 1400,
+    priceCents: 1200,
     vatRate: 10,
     availability: 'available',
     description: 'Servies avec frites',
@@ -85,7 +85,7 @@ export const products: Product[] = [
     id: 'merguez-x2',
     name: 'Merguez x2',
     categoryId: 'assiettes',
-    priceCents: 1400,
+    priceCents: 1200,
     vatRate: 10,
     availability: 'available',
     description: 'Servies avec frites',
@@ -176,14 +176,11 @@ export const products: Product[] = [
     vatRate: 20,
     variants: [
       { id: '25cl', name: 'Demi', volume: '25 cl', priceCents: 350 },
-      // TODO métier : confirmer le prix de la pinte classique sur la carte source.
       {
         id: '50cl',
         name: 'Pinte',
         volume: '50 cl',
-        priceCents: 650,
-        dataConfidence: 'temporary',
-        note: 'Prix de la pinte à confirmer.',
+        priceCents: 600,
       },
     ],
   },
@@ -217,7 +214,6 @@ export const products: Product[] = [
     vatRate: 10,
     variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }]
   },
-  // TODO métier : remplacer ces références soft temporaires par la carte définitive.
   {
     id: 'cola-temporaire',
     name: 'Coca-Cola',
@@ -225,7 +221,6 @@ export const products: Product[] = [
     priceCents: 250,
     availability: 'available',
     vatRate: 10,
-    dataConfidence: 'temporary',
     optionGroups: [
       {
         id: 'taille',
@@ -238,18 +233,5 @@ export const products: Product[] = [
         ],
       },
     ],
-  },
-  {
-    id: 'limonade-temporaire',
-    name: 'Limonade',
-    categoryId: 'sans-alcool',
-    availability: 'available',
-    vatRate: 10,
-    dataConfidence: 'temporary',
-    note: 'Référence et tarifs temporaires.',
-    variants: [
-      { id: '25cl', name: 'Verre', volume: '25 cl', priceCents: 250 },
-      { id: '40cl', name: 'Grand verre', volume: '50 cl', priceCents: 350 },
-    ],
-  },
+  }
 ]
