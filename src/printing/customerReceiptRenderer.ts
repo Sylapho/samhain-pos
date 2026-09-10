@@ -2,6 +2,7 @@ import { receiptBusinessInfo, type ReceiptBusinessInfo } from '../config/organiz
 import { printerProfile, type PrinterProfile } from '../config/printer'
 import type { Order } from '../types/order'
 import { calculateVatSummary } from '../utils/vat'
+import { getOrderTerminalDisplayName } from '../utils/order'
 import { EscPosBuilder } from './escPos'
 import { formatTicketDateTime, formatTicketMoney, paymentMethodLabels } from './format'
 import { fitColumns, separator } from './layout'
@@ -27,7 +28,7 @@ export function renderCustomerReceipt(
   builder.align('left')
   for (const line of fitColumns(date, time, profile.columns)) builder.line(line)
   builder.line(`Reçu : ${order.receiptNumber}`)
-  builder.line(`Caisse : ${order.registerName}`)
+  builder.line(`Caisse : ${getOrderTerminalDisplayName(order)}`)
   builder.line(`Paiement : ${paymentMethodLabels[order.paymentMethod]}`)
   builder.blank()
 

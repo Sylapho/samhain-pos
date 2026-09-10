@@ -12,8 +12,9 @@ describe('rendus thermiques', () => {
     const ticket = renderCustomerReceipt(printPreviewOrder)
     expect(ticket.preview).toContain('SAMHAIN')
     expect(ticket.preview).toContain('Association Les Trouble-fêtes')
-    expect(ticket.preview).toContain('A001')
-    expect(ticket.preview).toContain('R-20260901-0001')
+    expect(ticket.preview).toContain('A-0001')
+    expect(ticket.preview).toContain('R-A-20260901-0001')
+    expect(ticket.preview).toContain('Caisse : Caisse A')
     expect(ticket.preview).toContain('01/09/2026')
     expect(ticket.preview).toContain('20:15')
     expect(ticket.preview).toContain('Burger spécial Samhain')
@@ -27,7 +28,8 @@ describe('rendus thermiques', () => {
 
   it('rend une préparation lisible sans prix, paiement ni TVA', () => {
     const ticket = renderPreparationTicket(printPreviewOrder)
-    expect(ticket.preview).toContain('A001')
+    expect(ticket.preview).toContain('A-0001')
+    expect(ticket.preview).toContain('Caisse A')
     expect(ticket.preview).toContain('2 X BURGER SPÉCIAL SAMHAIN')
     expect(ticket.preview).not.toMatch(/€|Paiement|TVA|41,50/)
   })

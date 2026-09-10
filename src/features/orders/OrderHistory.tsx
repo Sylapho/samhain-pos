@@ -15,6 +15,7 @@ import type { CartItem } from '../../types/cart'
 import type { Order, OrderPrintStatus, PrintDocumentStatus } from '../../types/order'
 import { getRemovedIngredients } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
+import { getOrderTerminalDisplayName } from '../../utils/order'
 
 type Props = {
   onClose: () => void
@@ -285,6 +286,9 @@ function OrderListItem({
       <span className="mt-1 block text-sm font-black text-stone-800">
         Impression : {printStatusLabels[order.printing.status]}
       </span>
+      <span className="mt-1 block text-sm font-bold text-stone-700">
+        {getOrderTerminalDisplayName(order)}
+      </span>
     </button>
   )
 }
@@ -312,6 +316,9 @@ function OrderDetails({
             {date} à {time} · {paymentMethodLabels[order.paymentMethod]}
           </p>
           <p className="text-sm font-bold text-stone-600">Reçu {order.receiptNumber}</p>
+          <p className="text-sm font-bold text-stone-600">
+            Caisse : {getOrderTerminalDisplayName(order)}
+          </p>
         </div>
         <div className="text-3xl font-black tabular-nums">{formatMoney(order.totalCents)}</div>
       </div>

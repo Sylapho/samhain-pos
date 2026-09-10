@@ -2,9 +2,13 @@ import type { Order } from '../types/order'
 
 export const printPreviewOrder: Order = {
   id: 'preview-order-a001',
-  orderNumber: 'A001',
-  receiptNumber: 'R-20260901-0001',
-  registerName: 'Caisse 01',
+  orderNumber: 'A-0001',
+  receiptNumber: 'R-A-20260901-0001',
+  terminal: {
+    terminalId: '11111111-1111-4111-8111-111111111111',
+    terminalCode: 'A',
+    displayName: 'Caisse A',
+  },
   paymentMethod: 'card',
   paymentStatus: 'paid',
   paidAt: '2026-09-01T18:15:00.000Z',
