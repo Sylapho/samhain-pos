@@ -7,11 +7,14 @@ const networkLabels: Record<NetworkStatus, string> = {
   'sync-error': 'Sync en attente',
 }
 const printerLabels: Record<PrinterStatus, string> = {
-  ready: 'Imprimante prête',
-  printing: 'Impression',
-  disconnected: 'Imprimante déconnectée',
+  unknown: 'Vérification…',
+  unavailable: 'Indisponible sur cet appareil',
+  'permission-required': 'Autorisation requise',
+  ready: 'Prête',
+  printing: 'Impression en cours',
+  disconnected: 'Déconnectée',
   'paper-out': 'Plus de papier',
-  error: 'Erreur imprimante',
+  error: 'Vérification impossible',
 }
 
 export function SystemStatus({
@@ -24,7 +27,9 @@ export function SystemStatus({
   return (
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-sm font-bold">
       <span>Réseau : {networkLabels[network]}</span>
-      <span className="text-stone-300">Imprimante : {printerLabels[printer]}</span>
+      <span className="text-stone-300" aria-live="polite">
+        Imprimante : {printerLabels[printer]}
+      </span>
     </div>
   )
 }

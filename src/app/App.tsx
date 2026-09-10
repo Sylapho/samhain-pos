@@ -8,6 +8,7 @@ import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
 import { SystemStatus } from '../features/status/SystemStatus'
+import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
@@ -20,11 +21,13 @@ import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart
 type Props = {
   loadRecoverableOrders?: typeof getRecoverableOrders
   loadOrders?: typeof getPersistedOrders
+  probePrinterStatus?: PrinterStatusProbe
 }
 
 export function App({
   loadRecoverableOrders = getRecoverableOrders,
   loadOrders = getPersistedOrders,
+  probePrinterStatus,
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
@@ -35,7 +38,10 @@ export function App({
   const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
   const [recoveryError, setRecoveryError] = useState(false)
   const [network, setNetwork] = useState<NetworkStatus>('online')
-  const [printer, setPrinter] = useState<PrinterStatus>('ready')
+  const [printerOverride, setPrinterOverride] = useState<PrinterStatus | null>(null)
+  const realPrinterStatus = usePrinterStatus(probePrinterStatus)
+  const devPanelEnabled = shouldEnableDevPanel(import.meta.env)
+  const printer = devPanelEnabled && printerOverride ? printerOverride : realPrinterStatus
   const feedbackTimer = useRef<number | null>(null)
   const items = useCartStore((state) => state.items)
   const addItem = useCartStore((state) => state.addItem)
@@ -166,12 +172,12 @@ export function App({
         </div>
       ) : null}
 
-      {shouldEnableDevPanel(import.meta.env) ? (
+      {devPanelEnabled ? (
         <DevPanel
           network={network}
-          printer={printer}
+          printerOverride={printerOverride}
           onNetwork={setNetwork}
-          onPrinter={setPrinter}
+          onPrinterOverride={setPrinterOverride}
         />
       ) : null}
 

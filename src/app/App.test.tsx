@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { useCartStore } from '../store/cartStore'
 import { App } from './App'
@@ -13,6 +13,46 @@ describe('caisse', () => {
     render(<App />)
     expect(screen.getByRole('button', { name: 'Valider la commande' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Annuler la commande' })).toBeDisabled()
+  })
+
+  it('n’annonce pas l’imprimante prête avant la fin de la vérification réelle', async () => {
+    let finishProbe: ((status: 'ready') => void) | undefined
+    const probePrinterStatus = vi.fn(
+      () =>
+        new Promise<'ready'>((resolve) => {
+          finishProbe = resolve
+        }),
+    )
+
+    render(<App probePrinterStatus={probePrinterStatus} />)
+
+    expect(screen.getByText('Imprimante : Vérification…')).toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
+
+    finishProbe?.('ready')
+    expect(await screen.findByText('Imprimante : Prête')).toBeInTheDocument()
+  })
+
+  it('reflète une déconnexion détectée lors de la vérification suivante', async () => {
+    vi.useFakeTimers()
+    const probePrinterStatus = vi
+      .fn<() => Promise<'ready' | 'disconnected'>>()
+      .mockResolvedValueOnce('ready')
+      .mockResolvedValue('disconnected')
+
+    render(<App probePrinterStatus={probePrinterStatus} />)
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Déconnectée')).toBeInTheDocument())
+    vi.useRealTimers()
+  })
+
+  it('affiche une erreur si la vérification matérielle échoue', async () => {
+    render(<App probePrinterStatus={async () => Promise.reject(new Error('USB indisponible'))} />)
+
+    expect(await screen.findByText('Imprimante : Vérification impossible')).toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
   })
 
   it('ajoute un produit simple en un appui puis modifie sa quantité', () => {

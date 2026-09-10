@@ -7,12 +7,12 @@ import { UsbPrinterPanel } from './UsbPrinterPanel'
 
 type Props = {
   network: NetworkStatus
-  printer: PrinterStatus
+  printerOverride: PrinterStatus | null
   onNetwork: (value: NetworkStatus) => void
-  onPrinter: (value: PrinterStatus) => void
+  onPrinterOverride: (value: PrinterStatus | null) => void
 }
 
-export function DevPanel({ network, printer, onNetwork, onPrinter }: Props) {
+export function DevPanel({ network, printerOverride, onNetwork, onPrinterOverride }: Props) {
   const clear = useCartStore((state) => state.clearCart)
   const add = useCartStore((state) => state.addItem)
   const loadBusyCart = () => {
@@ -49,9 +49,17 @@ export function DevPanel({ network, printer, onNetwork, onPrinter }: Props) {
           Imprimante
           <select
             className="ml-2 min-h-10 rounded-[8px] border bg-white px-2"
-            value={printer}
-            onChange={(event) => onPrinter(event.target.value as PrinterStatus)}
+            value={printerOverride ?? 'real'}
+            onChange={(event) =>
+              onPrinterOverride(
+                event.target.value === 'real' ? null : (event.target.value as PrinterStatus),
+              )
+            }
           >
+            <option value="real">Statut réel</option>
+            <option value="unknown">Vérification</option>
+            <option value="unavailable">Indisponible</option>
+            <option value="permission-required">Autorisation requise</option>
             <option value="ready">Prête</option>
             <option value="printing">Impression</option>
             <option value="disconnected">Déconnectée</option>
