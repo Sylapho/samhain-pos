@@ -1,2 +1,12 @@
 export type NetworkStatus = 'online' | 'offline' | 'syncing' | 'sync-error'
-export type PrinterStatus = 'ready' | 'printing' | 'disconnected' | 'paper-out' | 'error'
+export type PrinterStatus =
+  | 'unknown'
+  | 'unavailable'
+  | 'permission-required'
+  | 'ready'
+  | 'printing'
+  | 'disconnected'
+  | 'paper-out'
+  | 'cover-open'
+  | 'status-unavailable'
+  | 'error'

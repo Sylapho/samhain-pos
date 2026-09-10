@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { printPreviewOrder } from '../../mocks/printOrder'
-import { epsonUsbPrinter, type UsbPrinterDevice } from '../../native/epsonUsbPrinter'
+import {
+  epsonUsbPrinter,
+  type EpsonPrinterHardwareStatus,
+  type UsbPrinterDevice,
+} from '../../native/epsonUsbPrinter'
 import { buildOrderPrintJob, printOrderTickets } from '../../printing/orderPrintService'
 
 type Message = { kind: 'info' | 'success' | 'error'; text: string }
@@ -14,11 +18,16 @@ function deviceLabel(device: UsbPrinterDevice) {
   return `USB ${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}`
 }
 
+function hexByte(value: number) {
+  return `0x${value.toString(16).padStart(2, '0').toUpperCase()}`
+}
+
 export function UsbPrinterPanel() {
   const [devices, setDevices] = useState<UsbPrinterDevice[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<Message | null>(null)
+  const [hardwareStatus, setHardwareStatus] = useState<EpsonPrinterHardwareStatus | null>(null)
   const [showPreview, setShowPreview] = useState(false)
   const androidNative = epsonUsbPrinter.isAndroidNative()
 
@@ -37,6 +46,7 @@ export function UsbPrinterPanel() {
     }
 
     setBusy(true)
+    setHardwareStatus(null)
     if (!keepMessage) setMessage(null)
     try {
       const result = await epsonUsbPrinter.getDevices()
@@ -65,6 +75,33 @@ export function UsbPrinterPanel() {
       setMessage({
         kind: 'error',
         text: error instanceof Error ? error.message : 'Impossible de lire les périphériques USB.',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const readStatus = async () => {
+    if (!selected) return
+    setBusy(true)
+    setHardwareStatus(null)
+    setMessage({ kind: 'info', text: 'Lecture DLE EOT 2, 3 et 4 en cours…' })
+    try {
+      const status = await epsonUsbPrinter.getStatus(selected.deviceId)
+      setHardwareStatus(status)
+      setMessage({
+        kind: status.online ? 'success' : 'error',
+        text: status.online
+          ? 'La TM-T88V a répondu et ne signale aucune anomalie bloquante.'
+          : 'La TM-T88V a répondu avec un état bloquant.',
+      })
+    } catch (error) {
+      setMessage({
+        kind: 'error',
+        text:
+          error instanceof Error
+            ? error.message
+            : 'Impossible de lire le statut matériel de l’imprimante.',
       })
     } finally {
       setBusy(false)
@@ -153,8 +190,7 @@ export function UsbPrinterPanel() {
             Imprimante USB — test réel
           </h3>
           <p className="mt-1 max-w-2xl text-xs text-slate-600">
-            Test matériel temporaire via Android USB Host + ESC/POS. Il ne remplace pas encore
-            l’intégration ePOS SDK prévue pour la version finale.
+            Diagnostic direct via Android USB Host et statut temps réel ESC/POS de la TM-T88V.
           </p>
         </div>
         <Button className="min-h-10 py-2" disabled={busy} onClick={() => void refresh()}>
@@ -170,13 +206,16 @@ export function UsbPrinterPanel() {
       ) : null}
 
       {devices.length ? (
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-end">
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] lg:items-end">
           <label className="font-bold">
             Périphérique
             <select
               className="mt-1 block min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3"
               value={selectedId ?? ''}
-              onChange={(event) => setSelectedId(Number(event.target.value))}
+              onChange={(event) => {
+                setSelectedId(Number(event.target.value))
+                setHardwareStatus(null)
+              }}
             >
               {devices.map((device) => (
                 <option key={device.deviceId} value={device.deviceId}>
@@ -193,6 +232,18 @@ export function UsbPrinterPanel() {
             onClick={() => void authorize()}
           >
             {selected?.hasPermission ? 'USB autorisé' : 'Autoriser USB'}
+          </Button>
+          <Button
+            className="min-h-12"
+            disabled={
+              !selected?.hasPermission ||
+              !selected.hasBulkOutEndpoint ||
+              !selected.hasBulkInEndpoint ||
+              busy
+            }
+            onClick={() => void readStatus()}
+          >
+            Lire le statut
           </Button>
           <Button
             variant="primary"
@@ -215,6 +266,8 @@ export function UsbPrinterPanel() {
 
       {selected ? (
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-slate-600">
+          <span>USB : connecté</span>
+          <span>Permission : {selected.hasPermission ? 'oui' : 'non'}</span>
           <span>Vendor 0x{selected.vendorId.toString(16).padStart(4, '0').toUpperCase()}</span>
           <span>Product 0x{selected.productId.toString(16).padStart(4, '0').toUpperCase()}</span>
           <span>
@@ -222,6 +275,32 @@ export function UsbPrinterPanel() {
               ? 'Sortie USB compatible détectée'
               : 'Aucune sortie BULK détectée'}
           </span>
+          <span>
+            {selected.hasBulkInEndpoint
+              ? 'Entrée USB BULK détectée sur la même interface'
+              : 'Aucune entrée BULK sur cette interface'}
+          </span>
+        </div>
+      ) : null}
+
+      {hardwareStatus ? (
+        <div className="mt-3 border-y border-slate-200 py-3 text-sm" aria-label="Statut matériel">
+          <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
+            <span>Online : {hardwareStatus.online ? 'oui' : 'non'}</span>
+            <span>Capot : {hardwareStatus.coverOpen ? 'ouvert' : 'fermé'}</span>
+            <span>Papier : {hardwareStatus.paperOut ? 'absent' : 'présent'}</span>
+            <span>Fin proche : {hardwareStatus.paperNearEnd ? 'oui' : 'non'}</span>
+            <span>Erreur : {hardwareStatus.error ? 'oui' : 'non'}</span>
+            <span>Cutter : {hardwareStatus.cutterError ? 'erreur' : 'normal'}</span>
+            <span>Récupérable : {hardwareStatus.recoverableError ? 'oui' : 'non'}</span>
+            <span>Irrécupérable : {hardwareStatus.unrecoverableError ? 'oui' : 'non'}</span>
+            <span>Auto-récupérable : {hardwareStatus.autoRecoverableError ? 'oui' : 'non'}</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 font-mono text-xs text-slate-600">
+            <span>DLE EOT 2 : {hexByte(hardwareStatus.raw.offline)}</span>
+            <span>DLE EOT 3 : {hexByte(hardwareStatus.raw.error)}</span>
+            <span>DLE EOT 4 : {hexByte(hardwareStatus.raw.paper)}</span>
+          </div>
         </div>
       ) : null}
 

@@ -76,6 +76,11 @@ Le rendu est séparé du transport :
 - `src/printing/capacitorReceiptPrinter.ts` sélectionne l’imprimante et gère la permission ;
 - le plugin Android conserve une seule connexion USB pendant tout le job.
 
+Avant chaque job, le plugin interroge maintenant l’état matériel récent de la TM-T88V. Un
+périphérique Epson présent sur le bus USB n’est pas nécessairement prêt : la permission Android,
+une sortie et une entrée USB BULK sur la même interface, puis une réponse ESC/POS valide sont
+toutes requises avant l’envoi du ticket.
+
 ## Test Android avec impression USB réelle
 
 Cette branche du prototype contient une intégration Android native :
@@ -83,7 +88,9 @@ Cette branche du prototype contient une intégration Android native :
 - énumération des périphériques USB ;
 - sélection automatique préférentielle d'un périphérique Epson ;
 - demande de permission USB Android ;
-- détection d'une sortie USB BULK ;
+- détection des endpoints USB BULK OUT et BULK IN sur une même interface ;
+- interrogation du statut temps réel ESC/POS avec `DLE EOT 2`, `DLE EOT 3` et `DLE EOT 4` ;
+- blocage avant impression si le capot est ouvert, le papier absent ou une erreur signalée ;
 - envoi de tickets ESC/POS structurés ;
 - deux coupes successives via la commande ESC/POS `GS V 0` ;
 - fallback avec séparation visuelle et log explicite si la coupe échoue.
@@ -156,6 +163,19 @@ Une fois l'application installée sur la Samsung :
 9. appuie sur **Imprimer les 2 tickets** pour tester la commande réaliste complète.
 
 Le bouton **Imprimer ticket test** conserve le test matériel historique. Le bouton **Prévisualiser sans imprimante** affiche les deux rendus et fonctionne aussi dans le navigateur en développement.
+
+Le bouton **Lire le statut** affiche le diagnostic interprété et les trois octets bruts reçus. Il
+permet de vérifier séparément la détection USB et la disponibilité matérielle :
+
+```text
+USB détecté + permission accordée
+≠
+imprimante matériellement prête
+```
+
+La caisse n’affiche **Imprimante : Prête** qu’après une réponse récente de la TM-T88V ne signalant
+aucune anomalie bloquante. Sans réponse, avec une réponse incomplète ou inattendue, le statut reste
+en erreur et aucun job ne démarre.
 
 Le ticket attendu commence par :
 
@@ -235,9 +255,41 @@ Débrancher/rebrancher l'imprimante puis relancer l'application. Android accorde
 
 Le périphérique USB exposé à Android ne présente pas l'interface attendue pour ce test direct. Dans ce cas, on passera à l'intégration ePOS SDK Epson plutôt que d'ajouter des contournements au prototype.
 
+### « Aucune entrée BULK » ou aucune réponse de statut
+
+La lecture temps réel exige un endpoint BULK IN sur la même interface USB que le BULK OUT. Une
+absence d’endpoint, un timeout, une réponse partielle ou un octet qui ne respecte pas le format
+ESC/POS attendu est traité comme une impossibilité de vérifier le matériel, jamais comme un état
+prêt. Vérifier le câble, la configuration de l’interface USB de la TM-T88V et l’absence d’un autre
+logiciel utilisant l’imprimante.
+
 ### Ticket envoyé mais rien ne sort
 
 Le transfert USB a été accepté par Android mais l'interface sélectionnée n'interprète peut-être pas les données ESC/POS brutes. Vérifier la configuration/interface USB de la TM-T88V ; si nécessaire, l'étape suivante est l'intégration ePOS SDK.
+
+## Statut matériel ESC/POS
+
+Le plugin envoie les trois commandes temps réel dans l’ordre, puis attend exactement trois octets :
+
+```text
+DLE EOT 2 (10 04 02) → causes offline
+DLE EOT 3 (10 04 03) → causes d’erreur
+DLE EOT 4 (10 04 04) → capteurs du rouleau
+```
+
+Selon la [référence ESC/POS officielle Epson](https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/dle_eot.html), le plugin interprète :
+
+- `DLE EOT 2` : bit 2 capot ouvert, bit 5 arrêt par fin de papier, bit 6 erreur ;
+- `DLE EOT 3` : bit 2 erreur récupérable, bit 3 cutter, bit 5 erreur irrécupérable, bit 6 erreur auto-récupérable ;
+- `DLE EOT 4` : bits 2–3 fin de rouleau proche, bits 5–6 papier absent.
+
+Le capot ouvert est évalué avant le capteur papier, car Epson précise que certaines imprimantes
+conservent la dernière valeur du capteur de fin de papier pendant l’ouverture du capot.
+
+Cette lecture confirme un état matériel au moment de la requête, mais ne constitue pas un accusé de
+réception physique pour chaque ticket. Une écriture USB complète signifie toujours seulement que
+les octets ont été remis au transport USB. Les états persistants `unknown`, `printed` et `failed`,
+ainsi que la reprise prudente des impressions, restent donc nécessaires.
 
 ## Fichiers liés au test imprimante
 
