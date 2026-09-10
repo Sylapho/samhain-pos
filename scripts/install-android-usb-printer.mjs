@@ -5,8 +5,10 @@ import process from 'node:process'
 const root = process.cwd()
 const androidRoot = path.join(root, 'android')
 const manifestPath = path.join(androidRoot, 'app', 'src', 'main', 'AndroidManifest.xml')
+const projectBuildGradlePath = path.join(androidRoot, 'build.gradle')
+const appBuildGradlePath = path.join(androidRoot, 'app', 'build.gradle')
 const capacitorConfigPath = path.join(root, 'capacitor.config.ts')
-const pluginTemplatePath = path.join(root, 'native', 'android', 'EpsonUsbPrinterPlugin.java')
+const pluginTemplatePath = path.join(root, 'native', 'android', 'EpsonUsbPrinterPlugin.kt')
 
 if (!fs.existsSync(androidRoot) || !fs.existsSync(manifestPath)) {
   console.error('Projet Android introuvable. Lancez d’abord: pnpm android:add')
@@ -22,44 +24,117 @@ if (!appIdMatch) {
 
 const appId = appIdMatch[1]
 const packageDir = path.join(androidRoot, 'app', 'src', 'main', 'java', ...appId.split('.'))
-const mainActivityPath = path.join(packageDir, 'MainActivity.java')
-const pluginPath = path.join(packageDir, 'EpsonUsbPrinterPlugin.java')
+const mainActivityKotlinPath = path.join(packageDir, 'MainActivity.kt')
+const mainActivityJavaPath = path.join(packageDir, 'MainActivity.java')
+const pluginKotlinPath = path.join(packageDir, 'EpsonUsbPrinterPlugin.kt')
+const pluginJavaPath = path.join(packageDir, 'EpsonUsbPrinterPlugin.java')
 
 fs.mkdirSync(packageDir, { recursive: true })
 
-const pluginTemplate = fs.readFileSync(pluginTemplatePath, 'utf8')
-fs.writeFileSync(pluginPath, pluginTemplate.replaceAll('__APP_PACKAGE__', appId))
+let projectBuildGradle = fs.readFileSync(projectBuildGradlePath, 'utf8')
+projectBuildGradle = projectBuildGradle.replace(
+  "classpath 'com.android.tools.build:gradle:8.13.0'",
+  "classpath 'com.android.tools.build:gradle:8.13.2'",
+)
+projectBuildGradle = projectBuildGradle.replace(
+  /classpath ['"]org\.jetbrains\.kotlin:kotlin-gradle-plugin:[^'"]+['"]/,
+  'classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"',
+)
+if (!projectBuildGradle.includes('ext.kotlinVersion')) {
+  projectBuildGradle = projectBuildGradle.replace(
+    'buildscript {',
+    "buildscript {\n    ext.kotlinVersion = '2.3.21'",
+  )
+}
+if (!projectBuildGradle.includes('org.jetbrains.kotlin:kotlin-gradle-plugin')) {
+  projectBuildGradle = projectBuildGradle.replace(
+    /(^[ \t]*classpath ['"]com\.google\.gms:google-services:[^'"]+['"])/m,
+    '$1\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"',
+  )
+}
+fs.writeFileSync(projectBuildGradlePath, projectBuildGradle)
 
-if (!fs.existsSync(mainActivityPath)) {
-  console.error(`MainActivity.java introuvable: ${mainActivityPath}`)
+let appBuildGradle = fs.readFileSync(appBuildGradlePath, 'utf8')
+appBuildGradle = appBuildGradle.replace(
+  /^[ \t]*kotlinOptions\s*\{\r?\n[ \t]*jvmTarget\s*=\s*['"]21['"]\r?\n[ \t]*\}\r?\n?/gm,
+  '',
+)
+if (!appBuildGradle.includes("apply plugin: 'org.jetbrains.kotlin.android'")) {
+  appBuildGradle = appBuildGradle.replace(
+    "apply plugin: 'com.android.application'",
+    "apply plugin: 'com.android.application'\napply plugin: 'org.jetbrains.kotlin.android'",
+  )
+}
+if (!appBuildGradle.includes('org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21')) {
+  appBuildGradle = appBuildGradle.replace(
+    /\nrepositories\s*\{/,
+    '\n\nkotlin {\n    compilerOptions {\n        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21\n    }\n}\n\nrepositories {',
+  )
+}
+fs.writeFileSync(appBuildGradlePath, appBuildGradle)
+
+const pluginTemplate = fs.readFileSync(pluginTemplatePath, 'utf8')
+fs.writeFileSync(pluginKotlinPath, pluginTemplate.replaceAll('__APP_PACKAGE__', appId))
+if (fs.existsSync(pluginJavaPath)) fs.rmSync(pluginJavaPath)
+
+if (!fs.existsSync(mainActivityKotlinPath)) {
+  if (!fs.existsSync(mainActivityJavaPath)) {
+    console.error(`MainActivity introuvable dans: ${packageDir}`)
+    process.exit(1)
+  }
+
+  const generatedJavaActivity = fs.readFileSync(mainActivityJavaPath, 'utf8')
+  if (
+    !/public\s+class\s+MainActivity\s+extends\s+BridgeActivity\s*\{\s*\}/s.test(
+      generatedJavaActivity,
+    )
+  ) {
+    console.error(
+      'MainActivity.java contient du code personnalisé. Migrez-le manuellement vers MainActivity.kt avant de relancer le script.',
+    )
+    process.exit(1)
+  }
+
+  fs.writeFileSync(
+    mainActivityKotlinPath,
+    `package ${appId}\n\nimport android.os.Bundle\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}\n`,
+  )
+  fs.rmSync(mainActivityJavaPath)
+}
+
+if (fs.existsSync(mainActivityJavaPath)) {
+  console.error(
+    'MainActivity.java et MainActivity.kt existent simultanément. Supprimez ou migrez explicitement la version Java.',
+  )
   process.exit(1)
 }
 
-let mainActivity = fs.readFileSync(mainActivityPath, 'utf8')
+let mainActivity = fs.readFileSync(mainActivityKotlinPath, 'utf8')
 
-if (!mainActivity.includes('import android.os.Bundle;')) {
-  mainActivity = mainActivity.replace(/(package\s+[^;]+;\s*)/, '$1\nimport android.os.Bundle;\n')
-}
-
-if (/public\s+class\s+MainActivity\s+extends\s+BridgeActivity\s*\{\s*\}/s.test(mainActivity)) {
+if (/class\s+MainActivity\s*:\s*BridgeActivity\(\)\s*\{\s*\}/s.test(mainActivity)) {
   mainActivity = mainActivity.replace(
-    /public\s+class\s+MainActivity\s+extends\s+BridgeActivity\s*\{\s*\}/s,
-    `public class MainActivity extends BridgeActivity {\n    @Override\n    public void onCreate(Bundle savedInstanceState) {\n        registerPlugin(EpsonUsbPrinterPlugin.class);\n        super.onCreate(savedInstanceState);\n    }\n}`,
+    /class\s+MainActivity\s*:\s*BridgeActivity\(\)\s*\{\s*\}/s,
+    `class MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}`,
   )
-} else if (mainActivity.includes('super.onCreate(savedInstanceState);')) {
+} else if (mainActivity.includes('super.onCreate(savedInstanceState)')) {
   // Capacitor construit et charge le Bridge pendant super.onCreate().
   // Un plugin local doit donc être enregistré AVANT cet appel.
-  mainActivity = mainActivity.replace(/\s*registerPlugin\(EpsonUsbPrinterPlugin\.class\);/g, '')
   mainActivity = mainActivity.replace(
-    /(^[ \t]*)super\.onCreate\(savedInstanceState\);/m,
-    '$1registerPlugin(EpsonUsbPrinterPlugin.class);\n$1super.onCreate(savedInstanceState);',
+    /^[ \t]*registerPlugin\(EpsonUsbPrinterPlugin::class\.java\)\r?\n/gm,
+    '',
+  )
+  mainActivity = mainActivity.replace(
+    /(^[ \t]*)super\.onCreate\(savedInstanceState\)/m,
+    '$1registerPlugin(EpsonUsbPrinterPlugin::class.java)\n$1super.onCreate(savedInstanceState)',
   )
 } else {
-  console.error('MainActivity.java a une structure inattendue. Enregistrez EpsonUsbPrinterPlugin.class avant super.onCreate().')
+  console.error(
+    'MainActivity.kt a une structure inattendue. Enregistrez EpsonUsbPrinterPlugin::class.java avant super.onCreate().',
+  )
   process.exit(1)
 }
 
-fs.writeFileSync(mainActivityPath, mainActivity)
+fs.writeFileSync(mainActivityKotlinPath, mainActivity)
 
 let manifest = fs.readFileSync(manifestPath, 'utf8')
 if (!manifest.includes('android.hardware.usb.host')) {
@@ -70,7 +145,8 @@ if (!manifest.includes('android.hardware.usb.host')) {
   fs.writeFileSync(manifestPath, manifest)
 }
 
-console.log('✓ Plugin EpsonUsbPrinter installé dans le projet Android')
-console.log(`  ${pluginPath}`)
-console.log('✓ MainActivity enregistre le plugin')
+console.log('✓ Plugin EpsonUsbPrinter Kotlin installé dans le projet Android')
+console.log(`  ${pluginKotlinPath}`)
+console.log('✓ Gradle compile les sources Kotlin en bytecode JVM 21')
+console.log('✓ MainActivity Kotlin enregistre le plugin')
 console.log('✓ AndroidManifest déclare USB host')

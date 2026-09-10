@@ -114,21 +114,21 @@ Le script :
 
 1. crée un build Android de test où le panneau développeur reste visible ;
 2. exécute `cap add android` ;
-3. copie `EpsonUsbPrinterPlugin.java` dans l'application Android ;
-4. enregistre le plugin dans `MainActivity` ;
-5. déclare la fonctionnalité `android.hardware.usb.host` dans le manifeste.
+3. active Kotlin et la cible JVM 21 dans Gradle ;
+4. copie `EpsonUsbPrinterPlugin.kt` dans l'application Android ;
+5. convertit au besoin l'activité Capacitor générée, puis enregistre le plugin dans `MainActivity` ;
+6. déclare la fonctionnalité `android.hardware.usb.host` dans le manifeste.
 
 ### Important : enregistrement du plugin Capacitor
 
-Le plugin local est enregistré **avant** `super.onCreate(savedInstanceState)` dans `MainActivity.java`. Capacitor construit le Bridge pendant `super.onCreate`, donc un enregistrement effectué après serait trop tard et provoquerait `EpsonUsbPrinter plugin is not implemented on android`.
+Le plugin local est enregistré **avant** `super.onCreate(savedInstanceState)` dans `MainActivity.kt`. Capacitor construit le Bridge pendant `super.onCreate`, donc un enregistrement effectué après serait trop tard et provoquerait `EpsonUsbPrinter plugin is not implemented on android`.
 
 La forme attendue est :
 
-```java
-@Override
-public void onCreate(Bundle savedInstanceState) {
-    registerPlugin(EpsonUsbPrinterPlugin.class);
-    super.onCreate(savedInstanceState);
+```kotlin
+override fun onCreate(savedInstanceState: Bundle?) {
+    registerPlugin(EpsonUsbPrinterPlugin::class.java)
+    super.onCreate(savedInstanceState)
 }
 ```
 
@@ -229,7 +229,7 @@ La build web seule peut être vérifiée avec `pnpm build:android:production` (o
 
 ### Réinstaller uniquement le plugin natif
 
-Si `MainActivity.java` ou le manifeste Android ont été régénérés :
+Si `MainActivity.kt` ou le manifeste Android ont été régénérés :
 
 ```bash
 pnpm android:install-usb-printer
@@ -300,9 +300,9 @@ src/printing/customerReceiptRenderer.ts
 src/printing/preparationTicketRenderer.ts
 src/printing/capacitorReceiptPrinter.ts
 src/features/dev/UsbPrinterPanel.tsx
-native/android/EpsonUsbPrinterPlugin.java
+native/android/EpsonUsbPrinterPlugin.kt
 scripts/install-android-usb-printer.mjs
 .env.android-test
 ```
 
-Le dossier `android/` n'est pas versionné dans cette archive : il est généré localement avec `pnpm android:add` afin de rester aligné avec la version de Capacitor installée.
+Le dossier `android/` est versionné. Les commandes `pnpm android:sync:test` et `pnpm android:sync:production` le resynchronisent avec la version de Capacitor installée puis réappliquent le plugin Kotlin local.
