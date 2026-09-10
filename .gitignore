@@ -42,6 +42,7 @@ android/local.properties
 android/captures/
 android/.externalNativeBuild/
 android/.cxx/
+android/.kotlin/
 
 # Gradle build outputs at any Android module level
 android/**/build/
