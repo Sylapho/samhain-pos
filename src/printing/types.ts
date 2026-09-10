@@ -43,6 +43,7 @@ export class OrderPrintError extends Error {
       | 'preparationTicket'
       | 'preparationCut',
     public readonly causeCode?: string,
+    public readonly completedDocuments?: PrintDocumentType[],
   ) {
     super(message)
     this.name = 'OrderPrintError'

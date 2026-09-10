@@ -1,7 +1,12 @@
 import { epsonUsbPrinter, type UsbPrinterDevice } from '../native/epsonUsbPrinter'
-import { OrderPrintError, type PrintJobStep, type ReceiptPrinter } from './types'
+import {
+  OrderPrintError,
+  type PrintDocumentType,
+  type PrintJobStep,
+  type ReceiptPrinter,
+} from './types'
 
-type NativeError = Error & { code?: string }
+type NativeError = Error & { code?: string; data?: { completedDocuments?: unknown } }
 
 function selectPrinter(devices: UsbPrinterDevice[]): UsbPrinterDevice | undefined {
   return (
@@ -16,12 +21,20 @@ function mapNativeError(error: unknown): OrderPrintError {
   const nativeError = error as NativeError
   const code = nativeError?.code ?? 'USB_PRINT_ERROR'
   const nativeMessage = nativeError?.message ?? 'Erreur USB inconnue.'
+  const reportedDocuments = nativeError?.data?.completedDocuments
+  const completedDocuments = Array.isArray(reportedDocuments)
+    ? reportedDocuments.filter(
+        (document): document is PrintDocumentType =>
+          document === 'customerReceipt' || document === 'preparationTicket',
+      )
+    : undefined
 
   if (code.startsWith('USB_CUSTOMER_RECEIPT')) {
     return new OrderPrintError(
       `Le ticket client n’a pas pu être imprimé. ${nativeMessage}`,
       'customerReceipt',
       code,
+      completedDocuments,
     )
   }
   if (code.startsWith('USB_CUSTOMER_CUT')) {
@@ -29,6 +42,7 @@ function mapNativeError(error: unknown): OrderPrintError {
       `Le ticket client est imprimé, mais sa coupe a échoué. ${nativeMessage}`,
       'customerCut',
       code,
+      completedDocuments,
     )
   }
   if (code.startsWith('USB_PREPARATION_WRITE')) {
@@ -36,6 +50,7 @@ function mapNativeError(error: unknown): OrderPrintError {
       `Le ticket de préparation n’a pas pu être imprimé. ${nativeMessage}`,
       'preparationTicket',
       code,
+      completedDocuments,
     )
   }
   if (code.startsWith('USB_PREPARATION_CUT')) {
@@ -43,13 +58,14 @@ function mapNativeError(error: unknown): OrderPrintError {
       `La coupe du ticket de préparation a échoué. ${nativeMessage}`,
       'preparationCut',
       code,
+      completedDocuments,
     )
   }
   if (code.startsWith('USB_PERMISSION')) {
-    return new OrderPrintError(nativeMessage, 'permission', code)
+    return new OrderPrintError(nativeMessage, 'permission', code, completedDocuments)
   }
 
-  return new OrderPrintError(nativeMessage, 'connection', code)
+  return new OrderPrintError(nativeMessage, 'connection', code, completedDocuments)
 }
 
 export class CapacitorReceiptPrinter implements ReceiptPrinter {

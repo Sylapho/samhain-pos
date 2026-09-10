@@ -19,6 +19,7 @@ export type PrintOrderOptions = {
   printCustomerReceipt?: boolean
   selection?: PrintSelection
   deviceId?: number
+  reprint?: boolean
 }
 
 export type BuiltOrderPrintJob = {
@@ -31,6 +32,7 @@ export function getCompletedDocumentsFromPrintError(
   options: PrintOrderOptions = {},
 ): PrintDocumentType[] {
   if (!(error instanceof OrderPrintError)) return []
+  if (error.completedDocuments !== undefined) return error.completedDocuments
   const selection = options.selection ?? 'both'
   const customerRequested =
     (options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')
@@ -107,7 +109,25 @@ export class OrderPrintService {
   constructor(private readonly printer: ReceiptPrinter) {}
 
   async printOrder(order: Order, options: PrintOrderOptions = {}): Promise<PrintJobResult> {
-    const job = buildOrderPrintJob(order, options)
+    let selectedOptions = options
+    if (!options.reprint) {
+      const selection = options.selection ?? 'both'
+      const needsCustomer =
+        (options.printCustomerReceipt ?? true) &&
+        includesDocument(selection, 'customerReceipt') &&
+        !['printed', 'not_requested'].includes(order.printing.customerReceipt)
+      const needsPreparation =
+        includesDocument(selection, 'preparationTicket') &&
+        !['printed', 'not_requested'].includes(order.printing.preparationTicket)
+      if (!needsCustomer && !needsPreparation) {
+        return { ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] }
+      }
+      selectedOptions = {
+        ...options,
+        selection: needsCustomer ? (needsPreparation ? 'both' : 'customer') : 'preparation',
+      }
+    }
+    const job = buildOrderPrintJob(order, selectedOptions)
     return this.printer.printJob(job.steps, options.deviceId)
   }
 }

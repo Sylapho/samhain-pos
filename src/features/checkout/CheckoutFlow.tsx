@@ -123,6 +123,13 @@ export function CheckoutFlow({
       }
     }
     setCompleted(!trackLifecycle || updatedOrder.printing.status === 'printed')
+    if (trackLifecycle && updatedOrder.printing.status !== 'printed') {
+      setFeedback({
+        kind: 'warning',
+        text: 'Certains tickets restent à imprimer ou à vérifier. Consultez leur état avant de poursuivre.',
+      })
+      return
+    }
     setFeedback(
       result.warnings.length
         ? { kind: 'warning', text: `Impression terminée. ${result.warnings.join(' ')}` }
@@ -178,7 +185,7 @@ export function CheckoutFlow({
         setCompleted(true)
         setFeedback({
           kind: 'warning',
-          text: 'L’état des anciens tickets est inconnu. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
+          text: 'L’état de certains tickets est incertain. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
         })
         return
       }
@@ -232,7 +239,11 @@ export function CheckoutFlow({
 
   const reprint = (selection: PrintSelection) => {
     if (!order) return
-    void runPrint(order, { selection, printCustomerReceipt: true }, false)
+    void runPrint(
+      order,
+      { selection, printCustomerReceipt: true, reprint: true },
+      order.printing.status !== 'printed',
+    )
   }
 
   return (
@@ -301,6 +312,7 @@ export function CheckoutFlow({
                   Commande {order.orderNumber} · reçu {order.receiptNumber}
                 </p>
                 <p className="mt-1 text-sm">Paiement enregistré · {printStatusLabel(order)}</p>
+                <DocumentStatuses order={order} />
               </div>
             ) : null}
 
@@ -342,6 +354,7 @@ export function CheckoutFlow({
             {feedback ? <FeedbackBox feedback={feedback} /> : null}
 
             <div className="mt-6 border-t border-stone-300 pt-5 text-left">
+              {order ? <DocumentStatuses order={order} /> : null}
               <p className="mb-3 text-sm font-black text-stone-600">
                 Réimpression — conserve les mêmes numéros
               </p>
@@ -389,6 +402,22 @@ function printStatusLabel(order: Order): string {
   if (order.printing.status === 'unknown') return 'état d’impression à vérifier'
   if (order.printing.status === 'printed') return 'impression terminée'
   return 'impression en attente'
+}
+
+function DocumentStatuses({ order }: { order: Order }) {
+  const labels = {
+    not_requested: 'non demandé',
+    pending: 'à imprimer',
+    printed: 'imprimé',
+    failed: 'échec — à reprendre',
+    unknown: 'à vérifier avant réimpression',
+  }
+  return (
+    <div className="mt-2 text-sm text-stone-800" aria-live="polite">
+      <p>Ticket client : {labels[order.printing.customerReceipt]}</p>
+      <p>Ticket de préparation : {labels[order.printing.preparationTicket]}</p>
+    </div>
+  )
 }
 
 function FeedbackBox({ feedback }: { feedback: Feedback }) {
