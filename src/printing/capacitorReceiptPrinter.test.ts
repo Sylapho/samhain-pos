@@ -8,6 +8,7 @@ vi.mock('../native/epsonUsbPrinter', () => ({
   epsonUsbPrinter: {
     isAndroidNative: vi.fn(() => true),
     getDevices: vi.fn(),
+    getStatus: vi.fn(),
     requestPermission: vi.fn(),
     printJob: vi.fn(),
   },
@@ -27,6 +28,7 @@ beforeEach(() => {
         epson: true,
         hasPermission: true,
         hasBulkOutEndpoint: true,
+        hasBulkInEndpoint: true,
       },
     ],
   })
@@ -76,5 +78,19 @@ describe('progression des erreurs natives', () => {
       causeCode: 'USB_PERMISSION_DENIED',
     })
     expect(epsonUsbPrinter.printJob).not.toHaveBeenCalled()
+  })
+
+  it('préserve un refus natif avant transfert lorsque le matériel n’est pas prêt', async () => {
+    vi.mocked(epsonUsbPrinter.printJob).mockRejectedValue({
+      code: 'USB_PRINTER_PAPER_OUT',
+      message: 'L’imprimante n’a plus de papier. Remettez un rouleau puis réessayez.',
+      data: { completedDocuments: [] },
+    })
+
+    await expect(new CapacitorReceiptPrinter().printJob([])).rejects.toMatchObject({
+      stage: 'connection',
+      causeCode: 'USB_PRINTER_PAPER_OUT',
+      completedDocuments: [],
+    })
   })
 })

@@ -64,6 +64,8 @@ export function DevPanel({ network, printerOverride, onNetwork, onPrinterOverrid
             <option value="printing">Impression</option>
             <option value="disconnected">Déconnectée</option>
             <option value="paper-out">Plus de papier</option>
+            <option value="cover-open">Capot ouvert</option>
+            <option value="status-unavailable">Statut illisible</option>
             <option value="error">Erreur</option>
           </select>
         </label>

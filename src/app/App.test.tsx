@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { useCartStore } from '../store/cartStore'
 import { App } from './App'
@@ -7,6 +7,10 @@ import { App } from './App'
 describe('caisse', () => {
   beforeEach(() => {
     useCartStore.getState().clearCart()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('désactive la validation et l’annulation lorsque la commande est vide', () => {
@@ -45,13 +49,45 @@ describe('caisse', () => {
 
     await vi.advanceTimersByTimeAsync(3_000)
     await vi.waitFor(() => expect(screen.getByText('Imprimante : Déconnectée')).toBeInTheDocument())
-    vi.useRealTimers()
+  })
+
+  it('suit le retrait puis le retour du papier sans recharger l’application', async () => {
+    vi.useFakeTimers()
+    const probePrinterStatus = vi
+      .fn<() => Promise<'ready' | 'paper-out'>>()
+      .mockResolvedValueOnce('ready')
+      .mockResolvedValueOnce('paper-out')
+      .mockResolvedValue('ready')
+
+    render(<App probePrinterStatus={probePrinterStatus} />)
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.waitFor(() =>
+      expect(screen.getByText('Imprimante : Papier épuisé')).toBeInTheDocument(),
+    )
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
   })
 
   it('affiche une erreur si la vérification matérielle échoue', async () => {
+    render(<App probePrinterStatus={async () => 'error'} />)
+
+    expect(await screen.findByText('Imprimante : Erreur imprimante')).toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
+  })
+
+  it('indique clairement un capot ouvert', async () => {
+    render(<App probePrinterStatus={async () => 'cover-open'} />)
+
+    expect(await screen.findByText('Imprimante : Capot ouvert')).toBeInTheDocument()
+  })
+
+  it('n’annonce pas prête si la sonde ne peut pas lire le statut', async () => {
     render(<App probePrinterStatus={async () => Promise.reject(new Error('USB indisponible'))} />)
 
-    expect(await screen.findByText('Imprimante : Vérification impossible')).toBeInTheDocument()
+    expect(await screen.findByText('Imprimante : Statut illisible')).toBeInTheDocument()
     expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
   })
 

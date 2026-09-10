@@ -7,4 +7,6 @@ export type PrinterStatus =
   | 'printing'
   | 'disconnected'
   | 'paper-out'
+  | 'cover-open'
+  | 'status-unavailable'
   | 'error'

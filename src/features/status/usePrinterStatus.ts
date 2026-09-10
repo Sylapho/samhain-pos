@@ -20,7 +20,7 @@ export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): 
         const nextStatus = await probe()
         if (active) setStatus(nextStatus)
       } catch {
-        if (active) setStatus('error')
+        if (active) setStatus('status-unavailable')
       } finally {
         checking = false
       }

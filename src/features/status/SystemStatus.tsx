@@ -13,8 +13,10 @@ const printerLabels: Record<PrinterStatus, string> = {
   ready: 'Prête',
   printing: 'Impression en cours',
   disconnected: 'Déconnectée',
-  'paper-out': 'Plus de papier',
-  error: 'Vérification impossible',
+  'paper-out': 'Papier épuisé',
+  'cover-open': 'Capot ouvert',
+  'status-unavailable': 'Statut illisible',
+  error: 'Erreur imprimante',
 }
 
 export function SystemStatus({

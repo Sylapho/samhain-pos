@@ -11,6 +11,25 @@ export type UsbPrinterDevice = {
   epson: boolean
   hasPermission: boolean
   hasBulkOutEndpoint: boolean
+  hasBulkInEndpoint: boolean
+}
+
+export type EpsonPrinterHardwareStatus = {
+  connected: boolean
+  online: boolean
+  paperOut: boolean
+  paperNearEnd: boolean
+  coverOpen: boolean
+  error: boolean
+  cutterError: boolean
+  recoverableError: boolean
+  unrecoverableError: boolean
+  autoRecoverableError: boolean
+  raw: {
+    offline: number
+    error: number
+    paper: number
+  }
 }
 
 type DeviceListResult = {
@@ -30,6 +49,7 @@ type PrintResult = {
 
 interface EpsonUsbPrinterPlugin {
   getDevices(): Promise<DeviceListResult>
+  getStatus(options: { deviceId: number }): Promise<EpsonPrinterHardwareStatus>
   requestPermission(options: { deviceId: number }): Promise<PermissionResult>
   printTest(options: { deviceId: number }): Promise<PrintResult>
   printJob(options: { deviceId: number; steps: PrintJobStep[] }): Promise<PrintJobResult>
@@ -43,6 +63,9 @@ export const epsonUsbPrinter = {
   },
   getDevices() {
     return nativePlugin.getDevices()
+  },
+  getStatus(deviceId: number) {
+    return nativePlugin.getStatus({ deviceId })
   },
   requestPermission(deviceId: number) {
     return nativePlugin.requestPermission({ deviceId })
