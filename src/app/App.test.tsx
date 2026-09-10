@@ -84,10 +84,13 @@ describe('caisse', () => {
     expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Carte bancaire' })).toHaveAttribute(
       'aria-pressed',
-      'true',
+      'false',
     )
+    expect(screen.getByRole('button', { name: 'Espèces' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Encaisser et imprimer' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
     expect(screen.getByRole('button', { name: 'Espèces' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Encaisser et imprimer' })).toBeEnabled()
     expect(screen.getByRole('checkbox', { name: /Imprimer le ticket client/ })).toBeChecked()
   })
 

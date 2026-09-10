@@ -63,6 +63,38 @@ function createLifecycle(initialOrder = printPreviewOrder) {
 }
 
 describe('encaissement et impression', () => {
+  it('exige un choix explicite du moyen de paiement avant validation', () => {
+    const createOrder = vi.fn()
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={createOrder}
+      />,
+    )
+
+    const card = screen.getByRole('button', { name: 'Carte bancaire' })
+    const cash = screen.getByRole('button', { name: 'Espèces' })
+    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+
+    expect(card).toHaveAttribute('aria-pressed', 'false')
+    expect(cash).toHaveAttribute('aria-pressed', 'false')
+    expect(checkout).toBeDisabled()
+    expect(
+      screen.getByText('Sélectionnez Carte bancaire ou Espèces pour continuer.'),
+    ).toBeInTheDocument()
+
+    fireEvent.click(cash)
+
+    expect(cash).toHaveAttribute('aria-pressed', 'true')
+    expect(card).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('Paiement sélectionné : Espèces')).toBeInTheDocument()
+    expect(checkout).toBeEnabled()
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
   it('persiste avant impression, bloque le double clic et réimprime la même commande', async () => {
     let finishPersistence: (() => void) | undefined
     let finishFirstPrint: ((result: PrintJobResult) => void) | undefined
@@ -134,6 +166,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
     fireEvent.click(checkout)
     fireEvent.click(checkout)
@@ -166,6 +199,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
     expect(
@@ -196,6 +230,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(
       await screen.findByText(
@@ -236,6 +271,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(await screen.findByText(/impression partielle à reprendre/)).toBeInTheDocument()
     expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()

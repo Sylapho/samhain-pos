@@ -43,8 +43,8 @@ export function CheckoutFlow({
   initialOrder,
   onOrderUpdated,
 }: Props) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
-    initialOrder?.paymentMethod ?? 'card',
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(
+    initialOrder?.paymentMethod ?? null,
   )
   const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
     initialOrder?.printing.customerReceipt !== 'not_requested',
@@ -198,6 +198,7 @@ export function CheckoutFlow({
       return
     }
     if (printingRef.current) return
+    if (!paymentMethod) return
 
     printingRef.current = true
     setBusy(true)
@@ -268,7 +269,7 @@ export function CheckoutFlow({
               <div className="text-4xl font-black tabular-nums">{formatMoney(totalCents)}</div>
             </div>
 
-            <fieldset className="mt-6">
+            <fieldset className="mt-6" aria-describedby="payment-method-status">
               <legend className="text-lg font-black">Mode de paiement</legend>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <Button
@@ -290,6 +291,15 @@ export function CheckoutFlow({
                   Espèces
                 </Button>
               </div>
+              <p
+                id="payment-method-status"
+                className="mt-3 text-sm font-bold text-stone-700"
+                aria-live="polite"
+              >
+                {paymentMethod
+                  ? `Paiement sélectionné : ${paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces'}`
+                  : 'Sélectionnez Carte bancaire ou Espèces pour continuer.'}
+              </p>
             </fieldset>
 
             <label className="mt-5 flex min-h-14 cursor-pointer items-center gap-3 rounded-xl border border-stone-300 bg-white px-4 font-bold">
@@ -325,7 +335,7 @@ export function CheckoutFlow({
               <Button
                 variant="primary"
                 className="min-h-16 text-xl"
-                disabled={busy}
+                disabled={busy || (order === null && paymentMethod === null)}
                 onClick={checkoutAndPrint}
               >
                 {busy
