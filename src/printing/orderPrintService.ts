@@ -26,6 +26,29 @@ export type BuiltOrderPrintJob = {
   steps: PrintJobStep[]
 }
 
+export function getCompletedDocumentsFromPrintError(
+  error: unknown,
+  options: PrintOrderOptions = {},
+): PrintDocumentType[] {
+  if (!(error instanceof OrderPrintError)) return []
+  const selection = options.selection ?? 'both'
+  const customerRequested =
+    (options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')
+  const preparationRequested = includesDocument(selection, 'preparationTicket')
+
+  if (error.stage === 'customerCut') return customerRequested ? ['customerReceipt'] : []
+  if (error.stage === 'preparationTicket') {
+    return customerRequested ? ['customerReceipt'] : []
+  }
+  if (error.stage === 'preparationCut') {
+    return [
+      ...(customerRequested ? (['customerReceipt'] as const) : []),
+      ...(preparationRequested ? (['preparationTicket'] as const) : []),
+    ]
+  }
+  return []
+}
+
 function includesDocument(selection: PrintSelection, type: PrintDocumentType): boolean {
   return (
     selection === 'both' || selection === (type === 'customerReceipt' ? 'customer' : 'preparation')

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '../components/ui/Button'
 import { CartPanel } from '../features/cart/CartPanel'
 import { CategoryTabs } from '../features/catalog/CategoryTabs'
 import { ProductGrid } from '../features/catalog/ProductGrid'
@@ -8,22 +9,46 @@ import { DevPanel } from '../features/dev/DevPanel'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
+import { getRecoverableOrders } from '../services/orderService'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
+import type { Order } from '../types/order'
 import type { NetworkStatus, PrinterStatus } from '../types/system'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
 
-export function App() {
+type Props = {
+  loadRecoverableOrders?: typeof getRecoverableOrders
+}
+
+export function App({ loadRecoverableOrders = getRecoverableOrders }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [recoveryOrders, setRecoveryOrders] = useState<Order[]>([])
+  const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
+  const [recoveryError, setRecoveryError] = useState(false)
   const [network, setNetwork] = useState<NetworkStatus>('online')
   const [printer, setPrinter] = useState<PrinterStatus>('ready')
   const feedbackTimer = useRef<number | null>(null)
   const items = useCartStore((state) => state.items)
   const addItem = useCartStore((state) => state.addItem)
   const clearCart = useCartStore((state) => state.clearCart)
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const orders = await loadRecoverableOrders()
+        if (active) setRecoveryOrders(orders)
+      } catch {
+        if (active) setRecoveryError(true)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [loadRecoverableOrders])
 
   const filteredProducts = useMemo(
     () => products.filter((product) => product.categoryId === category),
@@ -63,9 +88,23 @@ export function App() {
   }
 
   const startNewOrder = () => {
-    clearCart()
+    if (!resumingOrder) clearCart()
     setCheckoutOpen(false)
+    setResumingOrder(null)
     setCategory('menus')
+  }
+
+  const updateRecoveryOrder = (updatedOrder: Order) => {
+    setRecoveryOrders((orders) => {
+      if (updatedOrder.printing.status === 'printed') {
+        return orders.filter((order) => order.id !== updatedOrder.id)
+      }
+      const exists = orders.some((order) => order.id === updatedOrder.id)
+      return exists
+        ? orders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order))
+        : [...orders, updatedOrder]
+    })
+    if (resumingOrder?.id === updatedOrder.id) setResumingOrder(updatedOrder)
   }
 
   return (
@@ -83,6 +122,33 @@ export function App() {
           {network === 'offline'
             ? 'Hors ligne — les ventes continuent sur cette tablette.'
             : 'Synchronisation locale simulée — aucun blocage de caisse.'}
+        </div>
+      ) : null}
+
+      {recoveryError ? (
+        <div
+          className="border-b border-rose-300 bg-rose-50 px-5 py-3 font-bold text-rose-950"
+          role="alert"
+        >
+          Impossible de vérifier les impressions en attente. Redémarrez l’application avant
+          d’encaisser.
+        </div>
+      ) : recoveryOrders.length ? (
+        <div className="flex items-center justify-between gap-4 border-b border-amber-300 bg-amber-50 px-5 py-3 text-amber-950">
+          <div>
+            <p className="font-black">{recoveryOrders.length} impression(s) à reprendre</p>
+            <p className="text-sm font-bold">
+              Commande {recoveryOrders[0]?.orderNumber} payée et enregistrée
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setResumingOrder(recoveryOrders[0] ?? null)
+              setCheckoutOpen(true)
+            }}
+          >
+            Reprendre l’impression
+          </Button>
         </div>
       ) : null}
 
@@ -129,9 +195,11 @@ export function App() {
 
       {checkoutOpen ? (
         <CheckoutFlow
-          items={items}
+          items={resumingOrder?.items ?? items}
           onCancel={() => setCheckoutOpen(false)}
           onNewOrder={startNewOrder}
+          initialOrder={resumingOrder ?? undefined}
+          onOrderUpdated={updateRecoveryOrder}
         />
       ) : null}
     </div>

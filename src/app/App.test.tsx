@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { printPreviewOrder } from '../mocks/printOrder'
 import { useCartStore } from '../store/cartStore'
 import { App } from './App'
 
@@ -98,5 +99,32 @@ describe('caisse', () => {
     expect(screen.getByRole('dialog', { name: 'Annuler cette commande ?' })).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Annuler la commande' })[1]!)
     expect(screen.getByText('Commande vide')).toBeInTheDocument()
+  })
+
+  it('propose de reprendre une impression persistée après redémarrage', async () => {
+    const partialOrder = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'partial' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }
+
+    render(<App loadRecoverableOrders={async () => [partialOrder]} />)
+
+    expect(await screen.findByText('1 impression(s) à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Commande A001 payée et enregistrée')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+
+    const checkout = screen.getByRole('dialog', { name: 'Encaissement' })
+    expect(checkout).toBeInTheDocument()
+    expect(
+      screen.getByText('Paiement enregistré · impression partielle à reprendre'),
+    ).toBeInTheDocument()
+    expect(
+      within(checkout).getByRole('button', { name: 'Reprendre l’impression' }),
+    ).toBeInTheDocument()
   })
 })

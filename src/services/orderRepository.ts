@@ -18,6 +18,7 @@ export type AllocatedOrderSequences = {
 export interface OrderRepository {
   createOrder(buildOrder: (sequences: AllocatedOrderSequences) => Order): Promise<Order>
   getOrders(): Promise<Order[]>
+  updateOrder(id: string, update: (order: Order) => Order): Promise<Order>
 }
 
 export class IndexedDbOrderRepository implements OrderRepository {
@@ -100,6 +101,45 @@ export class IndexedDbOrderRepository implements OrderRepository {
           request.onsuccess = () => resolve(request.result as Order[])
           request.onerror = () =>
             reject(request.error ?? new Error('Lecture des commandes locales impossible.'))
+        }),
+    )
+  }
+
+  updateOrder(id: string, update: (order: Order) => Order): Promise<Order> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<Order>((resolve, reject) => {
+          const transaction = database.transaction(ORDERS_STORE, 'readwrite')
+          const orders = transaction.objectStore(ORDERS_STORE)
+          const readRequest = orders.get(id)
+          let updatedOrder: Order | null = null
+          let operationError: unknown
+
+          readRequest.onsuccess = () => {
+            try {
+              if (!readRequest.result) throw new Error(`Commande locale ${id} introuvable.`)
+              updatedOrder = update(readRequest.result as Order)
+              const writeRequest = orders.put(updatedOrder)
+              writeRequest.onerror = () => {
+                operationError = writeRequest.error ?? new Error('Mise à jour locale impossible.')
+              }
+            } catch (error) {
+              operationError = error
+              transaction.abort()
+            }
+          }
+          readRequest.onerror = () => {
+            operationError = readRequest.error ?? new Error('Lecture de la commande impossible.')
+          }
+          transaction.oncomplete = () => {
+            if (updatedOrder) resolve(updatedOrder)
+            else reject(new Error('La commande locale n’a pas été mise à jour.'))
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
         }),
     )
   }

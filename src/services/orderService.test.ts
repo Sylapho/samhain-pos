@@ -35,6 +35,13 @@ describe('service de commandes persistantes', () => {
     expect(order.orderNumber).toBe('A001')
     expect(order.receiptNumber).toBe('R-20260901-0001')
     expect(order.paymentMethod).toBe('card')
+    expect(order.paymentStatus).toBe('paid')
+    expect(order.printing).toMatchObject({
+      status: 'pending',
+      customerReceipt: 'pending',
+      preparationTicket: 'pending',
+      attempts: 0,
+    })
     expect(order.items[0]?.options.map((option) => option.optionName)).toEqual([
       'Nuggets',
       'Jus de pomme',
@@ -99,5 +106,64 @@ describe('service de commandes persistantes', () => {
     expect(await recovered.service.getOrders()).toHaveLength(2)
 
     await Promise.all([duplicate.repository.close(), recovered.repository.close()])
+  })
+
+  it('persiste un échec partiel et reprend seulement le ticket restant après redémarrage', async () => {
+    const indexedDb = new IDBFactory()
+    const first = createService(indexedDb, 'print-lifecycle', 'order-1')
+    const order = await first.service.createOrder([], 'cash', createdAt)
+
+    await first.service.beginPrinting(order.id, 'both', createdAt)
+    const partial = await first.service.failPrinting(
+      order.id,
+      'both',
+      ['customerReceipt'],
+      'Préparation interrompue.',
+      createdAt,
+    )
+    expect(partial.printing).toMatchObject({
+      status: 'partial',
+      customerReceipt: 'printed',
+      preparationTicket: 'failed',
+      attempts: 1,
+      lastError: 'Préparation interrompue.',
+    })
+    await first.repository.close()
+
+    const restarted = createService(indexedDb, 'print-lifecycle', 'order-2')
+    expect((await restarted.service.getRecoverableOrders())[0]?.id).toBe(order.id)
+    await restarted.service.beginPrinting(order.id, 'preparation', createdAt)
+    const printed = await restarted.service.completePrinting(
+      order.id,
+      'preparation',
+      ['preparationTicket'],
+      createdAt,
+    )
+
+    expect(printed.printing).toMatchObject({
+      status: 'printed',
+      customerReceipt: 'printed',
+      preparationTicket: 'printed',
+      attempts: 2,
+    })
+    expect(await restarted.service.getRecoverableOrders()).toEqual([])
+    await restarted.repository.close()
+  })
+
+  it('mémorise qu’un ticket client a été refusé avant toute impression', async () => {
+    const indexedDb = new IDBFactory()
+    const { repository, service } = createService(indexedDb, 'no-customer-ticket', 'order-1')
+    const order = await service.createOrder([], 'card', createdAt, false)
+
+    expect(order.printing.customerReceipt).toBe('not_requested')
+    await service.beginPrinting(order.id, 'both', createdAt)
+    const printed = await service.completePrinting(
+      order.id,
+      'both',
+      ['preparationTicket'],
+      createdAt,
+    )
+    expect(printed.printing.status).toBe('printed')
+    await repository.close()
   })
 })
