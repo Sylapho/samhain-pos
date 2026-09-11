@@ -9,6 +9,7 @@ Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitu�
 - saisie tactile d'une commande, catégories, variantes, options et retrait d'ingrédients ;
 - encaissement CB ou espèces ;
 - création durable de la commande et de son paiement dans IndexedDB avant l'impression ;
+- journal d’encaissement append-only avec ventes scellées, corrections liées et chaîne SHA-256 ;
 - numéros de commande et de reçu alloués dans la même transaction que la commande ;
 - historique local des commandes et réimpression avec les numéros d'origine ;
 - suivi indépendant du ticket client et du ticket de préparation, y compris en cas d'échec partiel ;
@@ -18,6 +19,8 @@ Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitu�
 Une commande confirmée n'est pas annulée par une erreur d'impression. Avant chaque envoi, les documents concernés sont marqués `unknown` : après une interruption, le caissier doit vérifier le papier éventuellement sorti avant de réimprimer. Le transport USB confirme l'envoi des octets, pas la sortie physique de chaque ticket.
 
 Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Il n'existe pas encore de synchronisation entre appareils ni de backend.
+
+Le journal, les clôtures et les archives vérifiables sont décrits dans [`docs/sales-ledger.md`](docs/sales-ledger.md). Cette protection technique ne vaut pas, à elle seule, attestation ou certification de conformité pour une exploitation réelle.
 
 ## Prérequis
 
@@ -147,6 +150,7 @@ src/mocks/products.ts                  catalogue de développement
 src/store/cartStore.ts                 état temporaire du panier
 src/services/orderRepository.ts        stockage IndexedDB
 src/services/orderService.ts           commandes, séquences et cycle d'impression
+src/services/salesLedgerService.ts      corrections, clôtures, contrôle et archives
 src/features/orders/OrderHistory.tsx   historique et réimpression
 src/printing/*                         rendu des tickets et orchestration des jobs
 src/native/epsonUsbPrinter.ts          pont Capacitor TypeScript
