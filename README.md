@@ -1,51 +1,50 @@
-# Samhain POS — prototype tablette
+# Samhain POS
 
-Prototype React/TypeScript/Capacitor de caisse tactile pour le festival Samhain.
+Samhain POS est une caisse tactile conçue pour l'encaissement sur tablette Android pendant le festival Samhain. L'application fonctionne localement, y compris sans connexion réseau, et intègre l'impression USB ESC/POS pour une Epson TM-T88V compatible.
 
-Cette version reste volontairement simple : pas de backend, pas de SQLite, pas de synchronisation réelle et pas de gestion de stock avancée.
+Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitué de données de développement. Les informations administratives du ticket dans `src/config/organization.ts` sont également des placeholders et empêchent volontairement toute build web de production tant qu'elles ne sont pas remplacées.
 
-## Personnalisation des produits
+## Fonctionnalités présentes
 
-Les produits possédant une composition configurable affichent **Modifier la composition** dans le panier. La ligne ouvre une sheet tactile où les ingrédients présents sont cochés par défaut. Décocher puis valider ajoute une mention `Sans …` à la ligne et `*** SANS … ***` au ticket de préparation, sans modifier le prix ni le ticket client.
+- saisie tactile d'une commande, catégories, variantes, options et retrait d'ingrédients ;
+- encaissement CB ou espèces ;
+- création durable de la commande et de son paiement dans IndexedDB avant l'impression ;
+- numéros de commande et de reçu alloués dans la même transaction que la commande ;
+- historique local des commandes et réimpression avec les numéros d'origine ;
+- suivi indépendant du ticket client et du ticket de préparation, y compris en cas d'échec partiel ;
+- reprise prudente des impressions incomplètes après redémarrage ;
+- transport USB Android natif, permission USB et contrôle de l'état ESC/POS de l'imprimante.
 
-Si une ligne contient plusieurs unités, la modification s’applique à une seule unité et crée une ligne distincte. Deux configurations strictement identiques sont automatiquement regroupées.
+Une commande confirmée n'est pas annulée par une erreur d'impression. Avant chaque envoi, les documents concernés sont marqués `unknown` : après une interruption, le caissier doit vérifier le papier éventuellement sorti avant de réimprimer. Le transport USB confirme l'envoi des octets, pas la sortie physique de chaque ticket.
 
-Les variantes et groupes d’options utilisent la même fiche tactile. Chaque groupe configuré dans `src/mocks/products.ts` précise son type (`single` ou `multiple`), son caractère obligatoire et ses options par défaut. Un choix peut appliquer un supplément en centimes via `priceDeltaCents`. Le Menu Enfant et le Coca-Cola illustrent ce modèle entièrement piloté par les données.
-
-## Persistance locale des commandes
-
-Les commandes confirmées sont enregistrées dans IndexedDB sur la tablette avant le lancement de l'impression. Les commandes et les prochaines séquences de commande/reçu sont écrites dans une même transaction : une écriture interrompue ne peut donc pas consommer partiellement un numéro ni créer deux commandes avec la même séquence.
-
-Chaque commande possède également un UUID stable, prévu pour permettre une future synchronisation entre appareils sans rendre la caisse dépendante du réseau. La synchronisation n'est pas encore implémentée.
-
-Le paiement et l'impression ont des états distincts. Au moment de l'encaissement, la commande et son paiement sont d'abord enregistrés, puis chaque ticket passe indépendamment par `pending`, `printed` ou `failed`. Une erreur imprimante ne supprime donc jamais la vente confirmée. Si le ticket client est sorti avant l'échec du ticket de préparation, seule la préparation est proposée à la reprise.
-
-Le plugin Android transmet aussi la liste des documents terminés en cas d'échec, y compris si la coupe ou une étape ultérieure échoue. L'écran affiche séparément l'état du ticket client et celui du ticket de préparation ; les réussites restent enregistrées lors des tentatives suivantes. Une coupe échouée ne remet pas un document terminé dans la liste des tickets à imprimer.
-
-Avant tout transfert, les documents concernés sont durablement marqués `unknown`. Si l'application s'arrête pendant le transfert ou si l'enregistrement du résultat échoue, la reprise exige de vérifier les tickets sortis puis de choisir explicitement une réimpression. Un transfert USB terminé ne garantit pas la sortie physique du papier : cette intégration ESC/POS n'obtient pas d'accusé de réception physique par document. Après une écriture partielle, vérifier également le fragment éventuellement sorti avant de reprendre le document manquant.
-
-Le panier Zustand reste un état temporaire de l'interface et n'est pas utilisé comme stockage métier. Les commandes et leurs états d'impression survivent à un redémarrage de l'application. Une alerte en haut de la caisse permet de reprendre la plus ancienne impression incomplète avec les mêmes numéros de commande et de reçu. Les données sont toutefois supprimées si les données de l'application Android sont effacées ou si l'application est désinstallée. Aucun historique complet des commandes n'est encore affiché dans l'interface.
+Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Il n'existe pas encore de synchronisation entre appareils ni de backend.
 
 ## Prérequis
 
-- Node.js 22 recommandé
-- pnpm
-- Android Studio + Android SDK pour la version tablette
-- tablette Android compatible USB Host
-- Epson TM-T88V alimentée normalement
-- câble de données USB-C ↔ USB-B
+- Node.js 22 recommandé ;
+- pnpm (via Corepack) ;
+- Android Studio et Android SDK pour les workflows Android ;
+- une tablette Android compatible USB Host pour l'impression réelle ;
+- une Epson TM-T88V alimentée et un câble de données USB-C vers USB-B pour les essais matériel.
 
-## Tester dans le navigateur
+## Installation
 
 ```bash
 corepack enable
 pnpm install
+```
+
+## Workflow web
+
+### Développement
+
+```bash
 pnpm dev
 ```
 
-Puis ouvrir l'adresse Vite affichée dans le terminal.
+Ouvrir l'URL indiquée par Vite. Le panneau de développement est visible dans ce mode ; il permet notamment de prévisualiser les tickets sans imprimante et de tester les diagnostics USB.
 
-## Tests automatisés
+### Vérifications automatisées
 
 ```bash
 pnpm test:run
@@ -53,256 +52,121 @@ pnpm lint
 pnpm build:android:test
 ```
 
-`pnpm build` est un build de production. Tant que les informations administratives de
-démonstration de `src/config/organization.ts` n'ont pas été remplacées, son échec est
-volontaire.
+`pnpm build:android:test` effectue la vérification TypeScript et une build Vite en mode `android-test`, où les placeholders administratifs sont autorisés pour les essais.
 
-## Tickets client et préparation
-
-L’encaissement propose CB ou espèces et déclenche un seul job USB :
-
-```text
-ticket client → avance → coupe → ticket préparation → avance → coupe
-```
-
-Le ticket client peut être désactivé indépendamment ; le ticket de préparation reste imprimé. Après succès, les boutons de réimpression réutilisent la commande et le reçu existants.
-
-Les données administratives de démonstration sont centralisées dans `src/config/organization.ts`. Remplacer dans ce fichier l’adresse, le SIRET, la TVA intracommunautaire et le téléphone, puis passer `usesDemoPlaceholders` à `false` avant production. Toute build Vite en mode `production` échoue avant génération tant que ces placeholders sont présents. Le mode explicite `android-test` les autorise uniquement pour les essais et conserve la protection au moment de l’impression dans les autres modes.
-
-Le rendu est séparé du transport :
-
-- `src/printing/customerReceiptRenderer.ts` et `preparationTicketRenderer.ts` produisent les aperçus et les octets ESC/POS ;
-- `src/printing/orderPrintService.ts` orchestre les documents et coupes ;
-- `src/printing/capacitorReceiptPrinter.ts` sélectionne l’imprimante et gère la permission ;
-- le plugin Android conserve une seule connexion USB pendant tout le job.
-
-Avant chaque job, le plugin interroge maintenant l’état matériel récent de la TM-T88V. Un
-périphérique Epson présent sur le bus USB n’est pas nécessairement prêt : la permission Android,
-une sortie et une entrée USB BULK sur la même interface, puis une réponse ESC/POS valide sont
-toutes requises avant l’envoi du ticket.
-
-## Test Android avec impression USB réelle
-
-Cette branche du prototype contient une intégration Android native :
-
-- énumération des périphériques USB ;
-- sélection automatique préférentielle d'un périphérique Epson ;
-- demande de permission USB Android ;
-- détection des endpoints USB BULK OUT et BULK IN sur une même interface ;
-- interrogation du statut temps réel ESC/POS avec `DLE EOT 2`, `DLE EOT 3` et `DLE EOT 4` ;
-- blocage avant impression si le capot est ouvert, le papier absent ou une erreur signalée ;
-- envoi de tickets ESC/POS structurés ;
-- deux coupes successives via la commande ESC/POS `GS V 0` ;
-- fallback avec séparation visuelle et log explicite si la coupe échoue.
-
-Ce test **n'utilise pas encore Epson ePOS SDK**. Il sert uniquement à valider rapidement le câble, la tablette, les permissions Android et la communication avec la TM-T88V. Le code est isolé pour pouvoir remplacer cette implémentation par ePOS SDK plus tard.
-
-### 1. Installer les dépendances
+### Build web de production
 
 ```bash
-corepack enable
-pnpm install
+pnpm build
 ```
 
-### 2. Générer le projet Android de test + installer le plugin USB
+Cette commande correspond au mode Vite `production`. Elle échoue actuellement par conception tant que les données de démonstration de `src/config/organization.ts` n'ont pas été remplacées par les informations administratives confirmées et que `usesDemoPlaceholders` n'est pas passé à `false`. En production, le panneau de développement est toujours exclu, même si `VITE_ENABLE_DEV_PANEL=true` est défini localement.
+
+## Workflow Android de test
+
+Le mode `android-test` est destiné aux essais sur tablette. Il conserve le panneau de développement et autorise les données administratives de démonstration ; il ne doit pas être utilisé pour une exploitation réelle.
+
+### Première génération du projet Android
 
 ```bash
 pnpm android:add:test
 ```
 
-Le script :
+La commande construit les ressources web en mode `android-test`, crée le projet Capacitor Android puis installe le plugin USB Epson local. Le dossier `android/` est versionné ; cette commande est nécessaire lorsqu'il n'existe pas encore.
 
-1. crée un build Android de test où le panneau développeur reste visible ;
-2. exécute `cap add android` ;
-3. active Kotlin et la cible JVM 21 dans Gradle ;
-4. copie `EpsonUsbPrinterPlugin.kt` dans l'application Android ;
-5. convertit au besoin l'activité Capacitor générée, puis enregistre le plugin dans `MainActivity` ;
-6. déclare la fonctionnalité `android.hardware.usb.host` dans le manifeste.
-
-### Important : enregistrement du plugin Capacitor
-
-Le plugin local est enregistré **avant** `super.onCreate(savedInstanceState)` dans `MainActivity.kt`. Capacitor construit le Bridge pendant `super.onCreate`, donc un enregistrement effectué après serait trop tard et provoquerait `EpsonUsbPrinter plugin is not implemented on android`.
-
-La forme attendue est :
-
-```kotlin
-override fun onCreate(savedInstanceState: Bundle?) {
-    registerPlugin(EpsonUsbPrinterPlugin::class.java)
-    super.onCreate(savedInstanceState)
-}
-```
-
-Si une ancienne version du projet Android est déjà générée, relancer :
-
-```bash
-pnpm android:install-usb-printer
-```
-
-puis **Build > Clean Project**, **Build > Rebuild Project** et réinstaller l'application.
-
-### 3. Ouvrir Android Studio
-
-```bash
-pnpm android:open
-```
-
-Branche ensuite la tablette Samsung au PC avec le débogage USB activé et lance l'application avec **Run ▶**.
-
-### 4. Brancher l'imprimante à la tablette
-
-Une fois l'application installée sur la Samsung :
-
-1. débranche la tablette du PC si son port USB-C est utilisé pour le débogage ;
-2. branche `Samsung USB-C → Epson USB-B` ;
-3. vérifie que la TM-T88V est allumée et contient du papier ;
-4. ouvre **Outils de démonstration** dans l'application ;
-5. dans **Imprimante USB — test réel**, appuie sur **Détecter USB** ;
-6. sélectionne le périphérique Epson s'il y en a plusieurs ;
-7. appuie sur **Autoriser USB** ;
-8. accepte la fenêtre Android ;
-9. appuie sur **Imprimer les 2 tickets** pour tester la commande réaliste complète.
-
-Le bouton **Imprimer ticket test** conserve le test matériel historique. Le bouton **Prévisualiser sans imprimante** affiche les deux rendus et fonctionne aussi dans le navigateur en développement.
-
-Le bouton **Lire le statut** affiche le diagnostic interprété et les trois octets bruts reçus. Il
-permet de vérifier séparément la détection USB et la disponibilité matérielle :
-
-```text
-USB détecté + permission accordée
-≠
-imprimante matériellement prête
-```
-
-La caisse n’affiche **Imprimante : Prête** qu’après une réponse récente de la TM-T88V ne signalant
-aucune anomalie bloquante. Sans réponse, avec une réponse incomplète ou inattendue, le statut reste
-en erreur et aucun job ne démarre.
-
-Le ticket attendu commence par :
-
-```text
-SAMHAIN
-TEST IMPRESSION USB
-
-Burger Samhain            16,00 EUR
-Cafe                       1,50 EUR
-------------------------------------------
-TOTAL                     17,50 EUR
-```
-
-et doit finir par une coupe automatique.
-
-Pour tester le flux réel de caisse, ajoute des articles, appuie sur **Valider la commande**, choisis CB ou espèces, garde **Imprimer le ticket client** coché, puis appuie sur **Encaisser et imprimer**.
-
-### Synchroniser après une modification frontend
-
-Pour poursuivre les essais sur tablette avec les données de démonstration et le panneau de développement :
+### Synchronisation après une modification web
 
 ```bash
 pnpm android:sync:test
 ```
 
-`android:sync:test` construit explicitement le mode `android-test`, synchronise Capacitor puis réapplique le plugin USB de façon idempotente. Le panneau de développement et ses diagnostics USB restent disponibles dans ce mode.
+Elle reconstruit les ressources `android-test`, exécute la synchronisation Capacitor et réapplique le plugin USB de manière idempotente.
+
+### Ouvrir et lancer dans Android Studio
+
+```bash
+pnpm android:open
+```
+
+Dans Android Studio, connecter la tablette avec le débogage USB activé, puis lancer l'application avec **Run**. Pour tester l'imprimante, débrancher ensuite la tablette du PC si elle partage le même port USB-C, connecter l'Epson, ouvrir **Outils de démonstration**, détecter le périphérique, demander l'autorisation USB Android, puis lancer l'impression de test ou le flux de caisse.
+
+Le plugin cherche une interface ayant une sortie BULK et une entrée BULK sur la même interface, puis lit les statuts temps réel `DLE EOT 2`, `DLE EOT 3` et `DLE EOT 4`. Il bloque un job si le matériel ne peut pas être vérifié, si le capot est ouvert, si le papier est absent ou si une erreur est signalée.
 
 ## Workflow Android de production
 
-La production utilise des commandes distinctes et sûres par défaut :
+La production utilise des commandes distinctes, sûres par défaut : les alias non qualifiés `android:add` et `android:sync` pointent vers ce mode.
+
+### Première génération
 
 ```bash
-# Première génération du projet Android
 pnpm android:add:production
-
-# Synchronisations suivantes
-pnpm android:sync:production
+# équivalent : pnpm android:add
 ```
 
-Les alias non qualifiés `pnpm android:add` et `pnpm android:sync` pointent volontairement vers la production. Ils ne peuvent donc pas embarquer accidentellement le mode `android-test`.
+### Synchronisations suivantes
 
-Le workflow de production :
+```bash
+pnpm android:sync:production
+# équivalent : pnpm android:sync
+```
 
-1. construit Vite avec le mode `production` ;
-2. refuse le build si `src/config/organization.ts` contient encore les informations de démonstration ;
-3. exclut toujours le panneau de développement, même si `VITE_ENABLE_DEV_PANEL=true` est défini localement ;
-4. synchronise les fichiers web avec Capacitor ;
-5. réapplique le plugin USB sans modifier son implémentation.
+Ces commandes :
 
-La build web seule peut être vérifiée avec `pnpm build:android:production` (ou `pnpm build`). Elle doit actuellement échouer tant que les informations administratives réelles n'ont pas été renseignées.
+1. construisent Vite en mode `production` ;
+2. refusent la build si les informations administratives confirmées ne sont pas renseignées ;
+3. excluent le panneau de développement ;
+4. synchronisent Capacitor ;
+5. installent ou réappliquent le plugin USB Epson local.
 
-### Réinstaller uniquement le plugin natif
+Pour vérifier uniquement les ressources web qui seront embarquées :
 
-Si `MainActivity.kt` ou le manifeste Android ont été régénérés :
+```bash
+pnpm build:android:production
+```
+
+Le projet Android ainsi synchronisé s'ouvre avec `pnpm android:open`. La génération d'un APK/AAB signé relève ensuite de la configuration de signature et des variantes Gradle dans Android Studio ; aucune clé de production n'est stockée dans ce dépôt.
+
+Avant toute exploitation, remplacer les données de démonstration dans `src/config/organization.ts`, vérifier manuellement le parcours d'encaissement, la permission USB, le statut matériel, les deux tickets et la reprise après un échec d'impression. Une build réussie ne remplace pas ces vérifications sur la tablette et l'imprimante ciblées.
+
+## Plugin d'impression Android
+
+Le plugin Capacitor local est fourni dans `native/android/EpsonUsbPrinterPlugin.kt` et est copié dans le projet Android par le script d'installation. Il est enregistré dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor le rende disponible.
+
+Si `MainActivity.kt` ou le manifeste ont été régénérés, réinstaller uniquement l'intégration native :
 
 ```bash
 pnpm android:install-usb-printer
 ```
 
-## Diagnostic USB
+Cette intégration utilise la communication USB ESC/POS directe, pas le SDK Epson ePOS.
 
-### Aucun périphérique après « Détecter USB »
-
-Vérifier :
-
-- câble réellement compatible données ;
-- TM-T88V allumée ;
-- bon port USB-B de l'imprimante ;
-- USB Host/OTG supporté et actif sur la tablette ;
-- absence d'un hub/adaptateur problématique.
-
-### Epson détectée mais « Autoriser USB » échoue
-
-Débrancher/rebrancher l'imprimante puis relancer l'application. Android accorde l'autorisation jusqu'au débranchement du périphérique.
-
-### « Aucune sortie BULK détectée »
-
-Le périphérique USB exposé à Android ne présente pas l'interface attendue pour ce test direct. Dans ce cas, on passera à l'intégration ePOS SDK Epson plutôt que d'ajouter des contournements au prototype.
-
-### « Aucune entrée BULK » ou aucune réponse de statut
-
-La lecture temps réel exige un endpoint BULK IN sur la même interface USB que le BULK OUT. Une
-absence d’endpoint, un timeout, une réponse partielle ou un octet qui ne respecte pas le format
-ESC/POS attendu est traité comme une impossibilité de vérifier le matériel, jamais comme un état
-prêt. Vérifier le câble, la configuration de l’interface USB de la TM-T88V et l’absence d’un autre
-logiciel utilisant l’imprimante.
-
-### Ticket envoyé mais rien ne sort
-
-Le transfert USB a été accepté par Android mais l'interface sélectionnée n'interprète peut-être pas les données ESC/POS brutes. Vérifier la configuration/interface USB de la TM-T88V ; si nécessaire, l'étape suivante est l'intégration ePOS SDK.
-
-## Statut matériel ESC/POS
-
-Le plugin envoie les trois commandes temps réel dans l’ordre, puis attend exactement trois octets :
+## Architecture utile
 
 ```text
-DLE EOT 2 (10 04 02) → causes offline
-DLE EOT 3 (10 04 03) → causes d’erreur
-DLE EOT 4 (10 04 04) → capteurs du rouleau
+src/mocks/products.ts                  catalogue de développement
+src/store/cartStore.ts                 état temporaire du panier
+src/services/orderRepository.ts        stockage IndexedDB
+src/services/orderService.ts           commandes, séquences et cycle d'impression
+src/features/orders/OrderHistory.tsx   historique et réimpression
+src/printing/*                         rendu des tickets et orchestration des jobs
+src/native/epsonUsbPrinter.ts          pont Capacitor TypeScript
+native/android/EpsonUsbPrinterPlugin.kt plugin Android USB natif
+scripts/install-android-usb-printer.mjs installation idempotente du plugin
 ```
 
-Selon la [référence ESC/POS officielle Epson](https://download4.epson.biz/sec_pubs/pos/reference_en/escpos/dle_eot.html), le plugin interprète :
+## Scripts disponibles
 
-- `DLE EOT 2` : bit 2 capot ouvert, bit 5 arrêt par fin de papier, bit 6 erreur ;
-- `DLE EOT 3` : bit 2 erreur récupérable, bit 3 cutter, bit 5 erreur irrécupérable, bit 6 erreur auto-récupérable ;
-- `DLE EOT 4` : bits 2–3 fin de rouleau proche, bits 5–6 papier absent.
-
-Le capot ouvert est évalué avant le capteur papier, car Epson précise que certaines imprimantes
-conservent la dernière valeur du capteur de fin de papier pendant l’ouverture du capot.
-
-Cette lecture confirme un état matériel au moment de la requête, mais ne constitue pas un accusé de
-réception physique pour chaque ticket. Une écriture USB complète signifie toujours seulement que
-les octets ont été remis au transport USB. Les états persistants `unknown`, `printed` et `failed`,
-ainsi que la reprise prudente des impressions, restent donc nécessaires.
-
-## Fichiers liés au test imprimante
-
-```text
-src/native/epsonUsbPrinter.ts
-src/printing/orderPrintService.ts
-src/printing/customerReceiptRenderer.ts
-src/printing/preparationTicketRenderer.ts
-src/printing/capacitorReceiptPrinter.ts
-src/features/dev/UsbPrinterPanel.tsx
-native/android/EpsonUsbPrinterPlugin.kt
-scripts/install-android-usb-printer.mjs
-.env.android-test
-```
-
-Le dossier `android/` est versionné. Les commandes `pnpm android:sync:test` et `pnpm android:sync:production` le resynchronisent avec la version de Capacitor installée puis réappliquent le plugin Kotlin local.
+| Commande | Usage |
+| --- | --- |
+| `pnpm dev` | Serveur Vite de développement |
+| `pnpm test:run` | Suite Vitest sans mode interactif |
+| `pnpm lint` | Analyse ESLint |
+| `pnpm build` | Build web de production, bloquée avec les placeholders |
+| `pnpm build:android:test` | Build web `android-test` |
+| `pnpm build:android:production` | Build web `production` destinée à Android |
+| `pnpm android:add:test` | Création initiale Android pour les essais |
+| `pnpm android:sync:test` | Synchronisation Android pour les essais |
+| `pnpm android:add[:production]` | Création initiale Android de production |
+| `pnpm android:sync[:production]` | Synchronisation Android de production |
+| `pnpm android:open` | Ouverture du projet dans Android Studio |
+| `pnpm android:install-usb-printer` | Réinstallation du plugin USB local |
