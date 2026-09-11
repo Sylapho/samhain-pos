@@ -10,7 +10,8 @@ import type {
   ReceiptNumber,
 } from '../types/order'
 import type { TerminalCode, TerminalConfiguration } from '../types/terminal'
-import { IndexedDbOrderRepository, type OrderRepository } from './orderRepository'
+import type { OrderRepository } from './orderRepository'
+import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 
@@ -32,6 +33,10 @@ export function formatReceiptNumber(
   const value = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((part) => part.type === type)?.value ?? ''
   return `R-${terminalCode}-${value('year')}${value('month')}${value('day')}-${String(sequence).padStart(4, '0')}`
+}
+
+function receiptNumberPrefix(terminalCode: TerminalCode, date: Date): string {
+  return formatReceiptNumber(terminalCode, date, 0).replace(/-0000$/, '')
 }
 
 function cloneCartItems(items: CartItem[]): CartItem[] {
@@ -104,10 +109,10 @@ export class OrderService {
     }
 
     return this.repository.createOrder(
-      ({ orderSequence, receiptSequence }) => ({
+      {
         id: this.createId(),
-        orderNumber: formatOrderNumber(terminal.terminalCode, orderSequence),
-        receiptNumber: formatReceiptNumber(terminal.terminalCode, createdAt, receiptSequence),
+        orderNumberPrefix: terminal.terminalCode,
+        receiptNumberPrefix: receiptNumberPrefix(terminal.terminalCode, createdAt),
         terminal,
         paymentMethod,
         paymentStatus: 'paid',
@@ -124,7 +129,7 @@ export class OrderService {
           attempts: 0,
           updatedAt: createdAtIso,
         },
-      }),
+      },
       this.buildLedgerSource(terminal),
     )
   }
@@ -217,10 +222,7 @@ let defaultOrderService: OrderService | null = null
 
 function getDefaultOrderService(): OrderService {
   if (!defaultOrderService) {
-    if (!globalThis.indexedDB) {
-      throw new Error('Le stockage local durable IndexedDB est indisponible sur cet appareil.')
-    }
-    defaultOrderService = new OrderService(new IndexedDbOrderRepository(globalThis.indexedDB))
+    defaultOrderService = new OrderService(getOrderDataRepository())
   }
   return defaultOrderService
 }

@@ -24,18 +24,18 @@ const ORDER_TECHNICAL_STORE = 'orderTechnicalState'
 const SALES_LEDGER_STORE = 'salesLedger'
 const METADATA_STORE = 'metadata'
 const SEQUENCES_KEY = 'sequences'
-const ARCHIVE_NOTICE =
+export const ARCHIVE_NOTICE =
   'Archive JSON Samhain POS. Les montants sont exprimés en centimes. Les entrées sont ordonnées par sequence et chaînées par previousHash/hash en SHA-256. Vérifier archiveHash puis chaque entrée avant consultation ou restauration.'
 
 type StoredSequences = LedgerMetadataSnapshot & { key: typeof SEQUENCES_KEY }
 
-type StoredOrder = ImmutableOrderSnapshot & {
+export type StoredOrder = ImmutableOrderSnapshot & {
   integrity?: OrderIntegrity
   /** Only present on records created before database version 2. */
   printing?: OrderPrinting
 }
 
-type AuditSnapshot = {
+export type AuditSnapshot = {
   metadata: LedgerMetadataSnapshot
   orders: StoredOrder[]
   technicalStates: StoredOrderTechnicalState[]
@@ -44,11 +44,27 @@ type AuditSnapshot = {
 
 export type AllocatedOrderSequences = { orderSequence: number; receiptSequence: number }
 
+export type OrderCreationRequest = Omit<Order, 'orderNumber' | 'receiptNumber' | 'integrity'> & {
+  orderNumberPrefix: string
+  receiptNumberPrefix: string
+}
+
+export type OrderPersistenceSnapshot = AuditSnapshot
+
+export function buildPersistedOrder(
+  request: OrderCreationRequest,
+  sequences: AllocatedOrderSequences,
+): Order {
+  const { orderNumberPrefix, receiptNumberPrefix, ...order } = request
+  return {
+    ...order,
+    orderNumber: `${orderNumberPrefix}-${String(sequences.orderSequence).padStart(4, '0')}`,
+    receiptNumber: `${receiptNumberPrefix}-${String(sequences.receiptSequence).padStart(4, '0')}`,
+  }
+}
+
 export interface OrderRepository {
-  createOrder(
-    buildOrder: (sequences: AllocatedOrderSequences) => Order,
-    source: LedgerSource,
-  ): Promise<Order>
+  createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order>
   getOrders(): Promise<Order[]>
   updateOrderPrinting(
     id: string,
@@ -96,7 +112,7 @@ function metadataSnapshot(metadata: StoredSequences): LedgerMetadataSnapshot {
   }
 }
 
-function toImmutableOrderSnapshot(order: Order | StoredOrder): ImmutableOrderSnapshot {
+export function toImmutableOrderSnapshot(order: Order | StoredOrder): ImmutableOrderSnapshot {
   return {
     id: order.id,
     orderNumber: order.orderNumber,
@@ -234,7 +250,7 @@ function calculateClosureTotals(
   }
 }
 
-function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerification {
+export function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerification {
   const errors: string[] = []
   const warnings: string[] = []
   const entries = [...snapshot.entries].sort((left, right) => left.sequence - right.sequence)
@@ -370,10 +386,7 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
     private readonly databaseName = 'samhain-pos',
   ) {}
 
-  createOrder(
-    buildOrder: (sequences: AllocatedOrderSequences) => Order,
-    source: LedgerSource,
-  ): Promise<Order> {
+  createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order> {
     return this.openDatabase().then(
       (database) =>
         new Promise<Order>((resolve, reject) => {
@@ -398,7 +411,7 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
                 orderSequence: metadata.nextOrderSequence,
                 receiptSequence: metadata.nextReceiptSequence,
               }
-              const order = buildOrder(sequences)
+              const order = buildPersistedOrder(request, sequences)
               if (metadata.lastClosureEnd && order.paidAt < metadata.lastClosureEnd) {
                 throw new Error(
                   'Impossible d’enregistrer une vente dans une période déjà clôturée.',
@@ -825,6 +838,10 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
     const database = await this.databasePromise
     database.close()
     this.databasePromise = null
+  }
+
+  exportMigrationSnapshot(): Promise<OrderPersistenceSnapshot> {
+    return this.readAuditSnapshot()
   }
 
   private validateCorrection(

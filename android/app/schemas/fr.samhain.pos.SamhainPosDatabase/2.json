@@ -1,0 +1,486 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "345ef8a6fccf40f0785409349dc3e605",
+    "entities": [
+      {
+        "tableName": "orders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `order_number` TEXT NOT NULL, `receipt_number` TEXT NOT NULL, `terminal_id` TEXT, `terminal_code` TEXT, `terminal_name` TEXT, `register_name` TEXT, `created_at` TEXT NOT NULL, `paid_at` TEXT NOT NULL, `payment_method` TEXT NOT NULL, `payment_status` TEXT NOT NULL, `item_count` INTEGER NOT NULL, `total_cents` INTEGER NOT NULL, `status` TEXT NOT NULL, `items_json` TEXT NOT NULL, `immutable_payload_json` TEXT NOT NULL, `integrity_algorithm` TEXT, `integrity_entry_id` TEXT, `integrity_sequence` INTEGER, `integrity_hash` TEXT, `sync_status` TEXT NOT NULL, `sync_attempts` INTEGER NOT NULL, `sync_last_error` TEXT, `synced_at` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "orderNumber",
+            "columnName": "order_number",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "receiptNumber",
+            "columnName": "receipt_number",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "terminalId",
+            "columnName": "terminal_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "terminalCode",
+            "columnName": "terminal_code",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "terminalName",
+            "columnName": "terminal_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "registerName",
+            "columnName": "register_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paidAt",
+            "columnName": "paid_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentMethod",
+            "columnName": "payment_method",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "paymentStatus",
+            "columnName": "payment_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemCount",
+            "columnName": "item_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalCents",
+            "columnName": "total_cents",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemsJson",
+            "columnName": "items_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "immutablePayloadJson",
+            "columnName": "immutable_payload_json",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "integrityAlgorithm",
+            "columnName": "integrity_algorithm",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "integrityEntryId",
+            "columnName": "integrity_entry_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "integritySequence",
+            "columnName": "integrity_sequence",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "integrityHash",
+            "columnName": "integrity_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncAttempts",
+            "columnName": "sync_attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncLastError",
+            "columnName": "sync_last_error",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncedAt",
+            "columnName": "synced_at",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_orders_order_number",
+            "unique": true,
+            "columnNames": [
+              "order_number"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_orders_order_number` ON `${TABLE_NAME}` (`order_number`)"
+          },
+          {
+            "name": "index_orders_receipt_number",
+            "unique": true,
+            "columnNames": [
+              "receipt_number"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_orders_receipt_number` ON `${TABLE_NAME}` (`receipt_number`)"
+          },
+          {
+            "name": "index_orders_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          },
+          {
+            "name": "index_orders_paid_at",
+            "unique": false,
+            "columnNames": [
+              "paid_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_paid_at` ON `${TABLE_NAME}` (`paid_at`)"
+          },
+          {
+            "name": "index_orders_terminal_id",
+            "unique": false,
+            "columnNames": [
+              "terminal_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_terminal_id` ON `${TABLE_NAME}` (`terminal_id`)"
+          },
+          {
+            "name": "index_orders_payment_status",
+            "unique": false,
+            "columnNames": [
+              "payment_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_payment_status` ON `${TABLE_NAME}` (`payment_status`)"
+          },
+          {
+            "name": "index_orders_sync_status",
+            "unique": false,
+            "columnNames": [
+              "sync_status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_sync_status` ON `${TABLE_NAME}` (`sync_status`)"
+          }
+        ]
+      },
+      {
+        "tableName": "order_printing",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`order_id` TEXT NOT NULL, `status` TEXT NOT NULL, `customer_receipt` TEXT NOT NULL, `preparation_ticket` TEXT NOT NULL, `attempts` INTEGER NOT NULL, `updated_at` TEXT NOT NULL, `last_error` TEXT, PRIMARY KEY(`order_id`), FOREIGN KEY(`order_id`) REFERENCES `orders`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "orderId",
+            "columnName": "order_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customerReceipt",
+            "columnName": "customer_receipt",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "preparationTicket",
+            "columnName": "preparation_ticket",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attempts",
+            "columnName": "attempts",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "order_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_order_printing_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_order_printing_status` ON `${TABLE_NAME}` (`status`)"
+          },
+          {
+            "name": "index_order_printing_updated_at",
+            "unique": false,
+            "columnNames": [
+              "updated_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_order_printing_updated_at` ON `${TABLE_NAME}` (`updated_at`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "orders",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "order_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "sales_ledger",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sequence` INTEGER NOT NULL, `kind` TEXT NOT NULL, `recorded_at` TEXT NOT NULL, `previous_hash` TEXT, `source_terminal_id` TEXT, `order_id` TEXT, `hash` TEXT NOT NULL, `payload_json` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sequence",
+            "columnName": "sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordedAt",
+            "columnName": "recorded_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "previousHash",
+            "columnName": "previous_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceTerminalId",
+            "columnName": "source_terminal_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "orderId",
+            "columnName": "order_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "hash",
+            "columnName": "hash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payload_json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sales_ledger_sequence",
+            "unique": true,
+            "columnNames": [
+              "sequence"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sales_ledger_sequence` ON `${TABLE_NAME}` (`sequence`)"
+          },
+          {
+            "name": "index_sales_ledger_kind",
+            "unique": false,
+            "columnNames": [
+              "kind"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_ledger_kind` ON `${TABLE_NAME}` (`kind`)"
+          },
+          {
+            "name": "index_sales_ledger_recorded_at",
+            "unique": false,
+            "columnNames": [
+              "recorded_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_ledger_recorded_at` ON `${TABLE_NAME}` (`recorded_at`)"
+          },
+          {
+            "name": "index_sales_ledger_order_id",
+            "unique": false,
+            "columnNames": [
+              "order_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_ledger_order_id` ON `${TABLE_NAME}` (`order_id`)"
+          },
+          {
+            "name": "index_sales_ledger_source_terminal_id",
+            "unique": false,
+            "columnNames": [
+              "source_terminal_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sales_ledger_source_terminal_id` ON `${TABLE_NAME}` (`source_terminal_id`)"
+          },
+          {
+            "name": "index_sales_ledger_hash",
+            "unique": true,
+            "columnNames": [
+              "hash"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sales_ledger_hash` ON `${TABLE_NAME}` (`hash`)"
+          }
+        ]
+      },
+      {
+        "tableName": "pos_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `next_order_sequence` INTEGER NOT NULL, `next_receipt_sequence` INTEGER NOT NULL, `next_journal_sequence` INTEGER NOT NULL, `last_journal_hash` TEXT, `last_closure_end` TEXT, `legacy_migration_completed` INTEGER NOT NULL, `legacy_migration_completed_at` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextOrderSequence",
+            "columnName": "next_order_sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextReceiptSequence",
+            "columnName": "next_receipt_sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextJournalSequence",
+            "columnName": "next_journal_sequence",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastJournalHash",
+            "columnName": "last_journal_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastClosureEnd",
+            "columnName": "last_closure_end",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "legacyMigrationCompleted",
+            "columnName": "legacy_migration_completed",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "legacyMigrationCompletedAt",
+            "columnName": "legacy_migration_completed_at",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '345ef8a6fccf40f0785409349dc3e605')"
+    ]
+  }
+}

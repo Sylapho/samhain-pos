@@ -14,6 +14,7 @@ import com.getcapacitor.BridgeActivity
 class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(EpsonUsbPrinterPlugin::class.java)
+        registerPlugin(OrderStoragePlugin::class.java)
         super.onCreate(savedInstanceState)
 
         allowContentInDisplayCutout()

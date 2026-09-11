@@ -10,11 +10,11 @@ import type {
 import type { TerminalConfiguration, TerminalIdentity } from '../types/terminal'
 import { createLedgerSource } from './ledgerSource'
 import {
-  IndexedDbOrderRepository,
   type OrderRepository,
   type SalesLedgerRepository,
   verifySalesArchive,
 } from './orderRepository'
+import { getOrderDataRepository } from './orderRepositoryFactory'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 
 type LedgerDataRepository = OrderRepository & SalesLedgerRepository
@@ -164,12 +164,7 @@ let defaultSalesLedgerService: SalesLedgerService | null = null
 
 export function getSalesLedgerService(): SalesLedgerService {
   if (!defaultSalesLedgerService) {
-    if (!globalThis.indexedDB) {
-      throw new Error('Le stockage local durable IndexedDB est indisponible sur cet appareil.')
-    }
-    defaultSalesLedgerService = new SalesLedgerService(
-      new IndexedDbOrderRepository(globalThis.indexedDB),
-    )
+    defaultSalesLedgerService = new SalesLedgerService(getOrderDataRepository())
   }
   return defaultSalesLedgerService
 }
