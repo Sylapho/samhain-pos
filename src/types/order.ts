@@ -8,6 +8,13 @@ export type PaymentStatus = 'paid'
 export type PrintDocumentStatus = 'not_requested' | 'pending' | 'printed' | 'failed' | 'unknown'
 export type OrderPrintStatus = 'pending' | 'partial' | 'printed' | 'failed' | 'unknown'
 
+export type OrderIntegrity = {
+  algorithm: 'SHA-256'
+  journalEntryId: string
+  journalSequence: number
+  hash: string
+}
+
 export type OrderPrinting = {
   status: OrderPrintStatus
   customerReceipt: PrintDocumentStatus
@@ -33,5 +40,7 @@ export type Order = {
   totalCents: number
   createdAt: string
   status: 'confirmed'
+  /** Absent only on sales created before the append-only ledger was introduced. */
+  integrity?: OrderIntegrity
   printing: OrderPrinting
 }

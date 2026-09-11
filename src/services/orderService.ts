@@ -11,6 +11,7 @@ import type {
 } from '../types/order'
 import type { TerminalCode, TerminalConfiguration } from '../types/terminal'
 import { IndexedDbOrderRepository, type OrderRepository } from './orderRepository'
+import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 
 export function formatOrderNumber(terminalCode: TerminalCode, sequence: number): OrderNumber {
@@ -82,6 +83,7 @@ export class OrderService {
     private readonly repository: OrderRepository,
     private readonly createId: () => string = () => globalThis.crypto.randomUUID(),
     private readonly loadTerminalConfiguration: () => TerminalConfiguration = getRequiredTerminalConfiguration,
+    private readonly buildLedgerSource = createLedgerSource,
   ) {}
 
   createOrder(
@@ -101,27 +103,30 @@ export class OrderService {
       displayName: terminalConfiguration.displayName,
     }
 
-    return this.repository.createOrder(({ orderSequence, receiptSequence }) => ({
-      id: this.createId(),
-      orderNumber: formatOrderNumber(terminal.terminalCode, orderSequence),
-      receiptNumber: formatReceiptNumber(terminal.terminalCode, createdAt, receiptSequence),
-      terminal,
-      paymentMethod,
-      paymentStatus: 'paid',
-      paidAt: createdAtIso,
-      items: persistedItems,
-      itemCount,
-      totalCents,
-      createdAt: createdAtIso,
-      status: 'confirmed',
-      printing: {
-        status: 'pending',
-        customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
-        preparationTicket: 'pending',
-        attempts: 0,
-        updatedAt: createdAtIso,
-      },
-    }))
+    return this.repository.createOrder(
+      ({ orderSequence, receiptSequence }) => ({
+        id: this.createId(),
+        orderNumber: formatOrderNumber(terminal.terminalCode, orderSequence),
+        receiptNumber: formatReceiptNumber(terminal.terminalCode, createdAt, receiptSequence),
+        terminal,
+        paymentMethod,
+        paymentStatus: 'paid',
+        paidAt: createdAtIso,
+        items: persistedItems,
+        itemCount,
+        totalCents,
+        createdAt: createdAtIso,
+        status: 'confirmed',
+        printing: {
+          status: 'pending',
+          customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
+          preparationTicket: 'pending',
+          attempts: 0,
+          updatedAt: createdAtIso,
+        },
+      }),
+      this.buildLedgerSource(terminal),
+    )
   }
 
   getOrders(): Promise<Order[]> {
@@ -204,10 +209,7 @@ export class OrderService {
     orderId: string,
     update: (printing: OrderPrinting) => OrderPrinting,
   ): Promise<Order> {
-    return this.repository.updateOrder(orderId, (storedOrder) => {
-      const order = normalizeOrder(storedOrder)
-      return { ...order, printing: update(order.printing) }
-    })
+    return this.repository.updateOrderPrinting(orderId, update)
   }
 }
 
