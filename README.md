@@ -8,7 +8,7 @@ Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitu�
 
 - saisie tactile d'une commande, catégories, variantes, options et retrait d'ingrédients ;
 - encaissement CB ou espèces ;
-- création durable de la commande et de son paiement dans IndexedDB avant l'impression ;
+- création durable de la commande et de son paiement dans Room/SQLite sur Android, ou IndexedDB sur le web, avant l'impression ;
 - journal d’encaissement append-only avec ventes scellées, corrections liées et chaîne SHA-256 ;
 - numéros de commande et de reçu alloués dans la même transaction que la commande ;
 - historique local des commandes et réimpression avec les numéros d'origine ;
@@ -18,7 +18,7 @@ Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitu�
 
 Une commande confirmée n'est pas annulée par une erreur d'impression. Avant chaque envoi, les documents concernés sont marqués `unknown` : après une interruption, le caissier doit vérifier le papier éventuellement sorti avant de réimprimer. Le transport USB confirme l'envoi des octets, pas la sortie physique de chaque ticket.
 
-Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Il n'existe pas encore de synchronisation entre appareils ni de backend.
+Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Room/SQLite fonctionne entièrement hors ligne ; IndexedDB reste le stockage web et la source de migration des anciennes installations Android. La migration et le versioning natifs sont détaillés dans [`docs/android-persistence.md`](docs/android-persistence.md). Il n'existe pas encore de synchronisation entre appareils ni de backend.
 
 Le journal, les clôtures et les archives vérifiables sont décrits dans [`docs/sales-ledger.md`](docs/sales-ledger.md). Cette protection technique ne vaut pas, à elle seule, attestation ou certification de conformité pour une exploitation réelle.
 
@@ -75,7 +75,7 @@ Le mode `android-test` est destiné aux essais sur tablette. Il conserve le pann
 pnpm android:add:test
 ```
 
-La commande construit les ressources web en mode `android-test`, crée le projet Capacitor Android puis installe le plugin USB Epson local. Le dossier `android/` est versionné ; cette commande est nécessaire lorsqu'il n'existe pas encore.
+La commande construit les ressources web en mode `android-test`, crée le projet Capacitor Android puis installe les plugins locaux Epson et Room. Le dossier `android/` est versionné ; cette commande est nécessaire lorsqu'il n'existe pas encore.
 
 ### Synchronisation après une modification web
 
@@ -119,7 +119,7 @@ Ces commandes :
 2. refusent la build si les informations administratives confirmées ne sont pas renseignées ;
 3. excluent le panneau de développement ;
 4. synchronisent Capacitor ;
-5. installent ou réappliquent le plugin USB Epson local.
+5. installent ou réappliquent les plugins locaux USB Epson et stockage Room.
 
 Pour vérifier uniquement les ressources web qui seront embarquées :
 
@@ -131,14 +131,14 @@ Le projet Android ainsi synchronisé s'ouvre avec `pnpm android:open`. La géné
 
 Avant toute exploitation, remplacer les données de démonstration dans `src/config/organization.ts`, vérifier manuellement le parcours d'encaissement, la permission USB, le statut matériel, les deux tickets et la reprise après un échec d'impression. Une build réussie ne remplace pas ces vérifications sur la tablette et l'imprimante ciblées.
 
-## Plugin d'impression Android
+## Intégration native Android
 
-Le plugin Capacitor local est fourni dans `native/android/EpsonUsbPrinterPlugin.kt` et est copié dans le projet Android par le script d'installation. Il est enregistré dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor le rende disponible.
+Les plugins Capacitor locaux sont fournis dans `native/android/` et copiés dans le projet Android par l'installateur commun. `EpsonUsbPrinterPlugin` et `OrderStoragePlugin` sont enregistrés dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor les rende disponibles.
 
 Si `MainActivity.kt` ou le manifeste ont été régénérés, réinstaller uniquement l'intégration native :
 
 ```bash
-pnpm android:install-usb-printer
+pnpm android:install-native
 ```
 
 Cette intégration utilise la communication USB ESC/POS directe, pas le SDK Epson ePOS.
@@ -148,29 +148,34 @@ Cette intégration utilise la communication USB ESC/POS directe, pas le SDK Epso
 ```text
 src/mocks/products.ts                  catalogue de développement
 src/store/cartStore.ts                 état temporaire du panier
-src/services/orderRepository.ts        stockage IndexedDB
+src/services/orderRepository.ts        contrat repository et implémentation IndexedDB
+src/services/roomOrderRepository.ts    repository Android et migration legacy
+src/services/orderRepositoryFactory.ts sélection Capacitor Room/IndexedDB
 src/services/orderService.ts           commandes, séquences et cycle d'impression
 src/services/salesLedgerService.ts      corrections, clôtures, contrôle et archives
 src/features/orders/OrderHistory.tsx   historique et réimpression
 src/printing/*                         rendu des tickets et orchestration des jobs
 src/native/epsonUsbPrinter.ts          pont Capacitor TypeScript
 native/android/EpsonUsbPrinterPlugin.kt plugin Android USB natif
-scripts/install-android-usb-printer.mjs installation idempotente du plugin
+native/android/OrderStoragePlugin.kt    bridge Room/SQLite natif
+native/android/SamhainPosDatabase.kt    schéma, DAO et migrations Room
+scripts/install-android-usb-printer.mjs installateur natif commun idempotent
 ```
 
 ## Scripts disponibles
 
-| Commande | Usage |
-| --- | --- |
-| `pnpm dev` | Serveur Vite de développement |
-| `pnpm test:run` | Suite Vitest sans mode interactif |
-| `pnpm lint` | Analyse ESLint |
-| `pnpm build` | Build web de production, bloquée avec les placeholders |
-| `pnpm build:android:test` | Build web `android-test` |
-| `pnpm build:android:production` | Build web `production` destinée à Android |
-| `pnpm android:add:test` | Création initiale Android pour les essais |
-| `pnpm android:sync:test` | Synchronisation Android pour les essais |
-| `pnpm android:add[:production]` | Création initiale Android de production |
-| `pnpm android:sync[:production]` | Synchronisation Android de production |
-| `pnpm android:open` | Ouverture du projet dans Android Studio |
-| `pnpm android:install-usb-printer` | Réinstallation du plugin USB local |
+| Commande                           | Usage                                                  |
+| ---------------------------------- | ------------------------------------------------------ |
+| `pnpm dev`                         | Serveur Vite de développement                          |
+| `pnpm test:run`                    | Suite Vitest sans mode interactif                      |
+| `pnpm lint`                        | Analyse ESLint                                         |
+| `pnpm build`                       | Build web de production, bloquée avec les placeholders |
+| `pnpm build:android:test`          | Build web `android-test`                               |
+| `pnpm build:android:production`    | Build web `production` destinée à Android              |
+| `pnpm android:add:test`            | Création initiale Android pour les essais              |
+| `pnpm android:sync:test`           | Synchronisation Android pour les essais                |
+| `pnpm android:add[:production]`    | Création initiale Android de production                |
+| `pnpm android:sync[:production]`   | Synchronisation Android de production                  |
+| `pnpm android:open`                | Ouverture du projet dans Android Studio                |
+| `pnpm android:install-native`      | Réinstallation de Room et des plugins natifs locaux    |
+| `pnpm android:install-usb-printer` | Réinstallation du plugin USB local                     |
