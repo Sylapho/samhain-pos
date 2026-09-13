@@ -5,6 +5,7 @@ import { IndexedDbOrderRepository } from './orderRepository'
 import { createOrderDataRepository } from './orderRepositoryFactory'
 import { OrderService } from './orderService'
 import { RoomOrderRepository } from './roomOrderRepository'
+import { createValidOrderItems } from '../test/orderFixtures'
 
 const terminal = {
   terminalId: 'terminal-a',
@@ -76,7 +77,7 @@ describe('sélection et migration du repository Android Room', () => {
       () => 'legacy-order',
       () => terminal,
     )
-    await service.createOrder([], 'cash', new Date('2026-09-01T12:00:00.000Z'))
+    await service.createOrder(createValidOrderItems(), 'cash', new Date('2026-09-01T12:00:00.000Z'))
     await legacy.close()
 
     const bridge = nativeStorage()
@@ -109,7 +110,7 @@ describe('sélection et migration du repository Android Room', () => {
       () => 'legacy-order',
       () => terminal,
     )
-    await service.createOrder([], 'cash', new Date('2026-09-01T12:00:00.000Z'))
+    await service.createOrder(createValidOrderItems(), 'cash', new Date('2026-09-01T12:00:00.000Z'))
     await legacy.close()
 
     const bridge = nativeStorage()

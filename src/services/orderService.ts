@@ -1,5 +1,4 @@
 import { posConfig } from '../config/pos'
-import { getCartItemCount, getCartTotalCents } from '../store/cartStore'
 import type { CartItem } from '../types/cart'
 import type { PrintDocumentType, PrintSelection } from '../printing/types'
 import type {
@@ -14,6 +13,11 @@ import type { OrderRepository } from './orderRepository'
 import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
+import {
+  toIsoTimestamp,
+  validateOrderDraft,
+  validateTerminalConfiguration,
+} from './orderValidation'
 
 export function formatOrderNumber(terminalCode: TerminalCode, sequence: number): OrderNumber {
   return `${terminalCode}-${String(sequence).padStart(4, '0')}`
@@ -97,31 +101,26 @@ export class OrderService {
     createdAt = new Date(),
     printCustomerReceipt = true,
   ): Promise<Order> {
-    const persistedItems = cloneCartItems(items)
-    const itemCount = getCartItemCount(persistedItems)
-    const totalCents = getCartTotalCents(persistedItems)
-    const createdAtIso = createdAt.toISOString()
-    const terminalConfiguration = this.loadTerminalConfiguration()
-    const terminal = {
-      terminalId: terminalConfiguration.terminalId,
-      terminalCode: terminalConfiguration.terminalCode,
-      displayName: terminalConfiguration.displayName,
-    }
+    const createdAtIso = toIsoTimestamp(createdAt, 'La date de création')
+    const terminalConfiguration = validateTerminalConfiguration(this.loadTerminalConfiguration())
+    const validated = validateOrderDraft({
+      id: this.createId(),
+      terminal: terminalConfiguration,
+      paymentMethod,
+      paymentStatus: 'paid',
+      paidAt: createdAtIso,
+      items,
+      createdAt: createdAtIso,
+      status: 'confirmed',
+    })
+    const persistedItems = cloneCartItems(validated.items)
 
     return this.repository.createOrder(
       {
-        id: this.createId(),
-        orderNumberPrefix: terminal.terminalCode,
-        receiptNumberPrefix: receiptNumberPrefix(terminal.terminalCode, createdAt),
-        terminal,
-        paymentMethod,
-        paymentStatus: 'paid',
-        paidAt: createdAtIso,
+        ...validated,
+        orderNumberPrefix: validated.terminal.terminalCode,
+        receiptNumberPrefix: receiptNumberPrefix(validated.terminal.terminalCode, createdAt),
         items: persistedItems,
-        itemCount,
-        totalCents,
-        createdAt: createdAtIso,
-        status: 'confirmed',
         printing: {
           status: 'pending',
           customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
@@ -130,7 +129,7 @@ export class OrderService {
           updatedAt: createdAtIso,
         },
       },
-      this.buildLedgerSource(terminal),
+      this.buildLedgerSource(validated.terminal),
     )
   }
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { CartItem, CartItemDraft } from '../types/cart'
+import { calculateCartTotals } from '../utils/cartTotals'
 
 export type CartState = {
   items: CartItem[]
@@ -24,11 +25,11 @@ export function getCartLineId(item: CartItemDraft): string {
 }
 
 export function getCartTotalCents(items: CartItem[]): number {
-  return items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0)
+  return calculateCartTotals(items).totalCents
 }
 
 export function getCartItemCount(items: CartItem[]): number {
-  return items.reduce((total, item) => total + item.quantity, 0)
+  return calculateCartTotals(items).itemCount
 }
 
 export const useCartStore = create<CartState>()((set) => ({

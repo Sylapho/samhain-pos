@@ -25,9 +25,11 @@ OrderService
 → SQLite
 ```
 
-`OrderService` calcule les articles, quantités, montants, paiement, terminal, dates et préfixes de numérotation. Il envoie un brouillon complet au repository. Il ne demande jamais une séquence séparément.
+`OrderService` valide d’abord le snapshot métier complet (identités des lignes, quantités, prix, TVA, variantes, options, ingrédients retirés, paiement, terminal et dates). Les totaux sont recalculés avec détection des dépassements d’entiers sûrs par une fonction pure indépendante de React/Zustand. Le service envoie ensuite un brouillon complet au repository et ne demande jamais une séquence séparément. Les repositories réappliquent ce validateur à leur frontière pour protéger aussi les appels directs.
 
-`RoomOrderStore.createOrder()` ouvre une seule transaction Room et effectue :
+Les identifiants de commande sont traités comme des identifiants opaques non vides. La génération de production reste `crypto.randomUUID()`, tandis que cette convention conserve la compatibilité avec les identifiants historiques et permet l’injection d’identifiants déterministes dans les tests.
+
+`RoomOrderStore.createOrder()` contrôle le payload reçu avant d’ouvrir la transaction : lignes non vides, identifiants uniques, terminal et paiement autorisés, dates ISO, quantités/prix/TVA, puis égalité entre les totaux transportés et ceux recalculés avec `Math.multiplyExact` / `Math.addExact`. Il ouvre ensuite une seule transaction Room et effectue :
 
 1. lecture des trois prochaines séquences et de la tête du journal ;
 2. construction des numéros de commande et de reçu ;
@@ -38,7 +40,7 @@ OrderService
 7. avancement des séquences et de la tête du journal ;
 8. commit.
 
-Une contrainte ou exception annule toute la transaction. Il n'existe donc pas de fenêtre où une séquence serait consommée sans sa commande. Les appels Room synchrones sont exécutés sur l'exécuteur dédié du plugin et jamais sur le thread principal Android.
+Une validation échouée intervient avant toute lecture/allocation de séquence. Une contrainte ou exception ultérieure annule toute la transaction. Il n'existe donc pas de fenêtre où une séquence serait consommée sans sa commande, son état d’impression et son entrée de journal. Les appels Room synchrones sont exécutés sur l'exécuteur dédié du plugin et jamais sur le thread principal Android.
 
 ## Schéma
 
