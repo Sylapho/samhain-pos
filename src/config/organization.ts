@@ -7,7 +7,6 @@ export type ReceiptBusinessInfo = {
   address: string
   siret: string
   vatNumber: string
-  phone: string
   usesDemoPlaceholders: boolean
 }
 
@@ -17,18 +16,16 @@ export const receiptBusinessInfo: ReceiptBusinessInfo = {
   organizationName: 'Association Les Trouble-fêtes',
   eventName: 'Samhain',
   city: 'Bernay',
-  address: '1 rue du Festival, 27300 Bernay',
-  siret: '000 000 000 00000',
+  address: '24 rue Alsace Lorraine 27300 Bernay',
+  siret: '923 116 628 00028',
   vatNumber: 'FR00 000000000',
-  phone: '02 00 00 00 00',
-  usesDemoPlaceholders: true,
+  usesDemoPlaceholders: false,
 }
 
 const knownPlaceholderValues: Partial<Record<keyof ReceiptBusinessInfo, string>> = {
-  address: '1 rue du Festival, 27300 Bernay',
+  address: '24 rue Alsace Lorraine 27300 Bernay',
   siret: '000 000 000 00000',
   vatNumber: 'FR00 000000000',
-  phone: '02 00 00 00 00',
 }
 
 export function assertReceiptBusinessInfoReadyForProduction(
