@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import {
   getCompletedDocumentsFromPrintError,
+  getUnknownDocumentsFromPrintError,
   printOrderTickets,
   type PrintOrderOptions,
 } from '../../printing/orderPrintService'
@@ -85,7 +86,7 @@ export function CheckoutFlow({
 
     let result: PrintJobResult
     try {
-      result = await printOrder(printingOrder, options)
+      result = await printOrder(targetOrder, options)
     } catch (error) {
       if (trackLifecycle) {
         const message =
@@ -97,6 +98,7 @@ export function CheckoutFlow({
               selection,
               getCompletedDocumentsFromPrintError(error, options),
               message,
+              getUnknownDocumentsFromPrintError(error),
             ),
           )
           if (failedOrder.printing.status === 'printed') {
@@ -453,11 +455,7 @@ function CashPayment({
         <h3 id="cash-payment-title" className="text-lg font-black">
           Paiement en espèces
         </h3>
-        <Button
-          className="min-h-12 px-4"
-          disabled={disabled}
-          onClick={onSetExactAmount}
-        >
+        <Button className="min-h-12 px-4" disabled={disabled} onClick={onSetExactAmount}>
           Montant exact — {formatMoney(totalCents)}
         </Button>
       </div>
@@ -521,8 +519,8 @@ function CashPayment({
 }
 
 function getPendingSelection(order: Order): PrintSelection | null {
-  const needsCustomer = !['not_requested', 'printed'].includes(order.printing.customerReceipt)
-  const needsPreparation = !['not_requested', 'printed'].includes(order.printing.preparationTicket)
+  const needsCustomer = ['pending', 'failed'].includes(order.printing.customerReceipt)
+  const needsPreparation = ['pending', 'failed'].includes(order.printing.preparationTicket)
   if (needsCustomer && needsPreparation) return 'both'
   if (needsCustomer) return 'customer'
   if (needsPreparation) return 'preparation'

@@ -103,4 +103,30 @@ describe('orchestration d’impression', () => {
     expect(printJob.mock.calls[0]?.[0]).toHaveLength(2)
     expect(printJob.mock.calls[0]?.[0][0]).toMatchObject({ documentType: 'customerReceipt' })
   })
+
+  it('ne retransmet jamais implicitement un document inconnu', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>()
+    const service = new OrderPrintService({ printJob })
+    const order = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'unknown' as const,
+        status: 'unknown' as const,
+      },
+    }
+
+    await service.printOrder(order, { selection: 'both' })
+    expect(printJob).not.toHaveBeenCalled()
+
+    vi.mocked(printJob).mockResolvedValue({
+      ok: true,
+      bytesWritten: 50,
+      completedDocuments: ['preparationTicket'],
+      warnings: [],
+    })
+    await service.printOrder(order, { selection: 'preparation', reprint: true })
+    expect(printJob).toHaveBeenCalledOnce()
+  })
 })

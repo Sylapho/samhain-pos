@@ -4,7 +4,8 @@ import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { getCompletedDocumentsFromPrintError } from './orderPrintService'
 import { OrderPrintError } from './types'
 
-vi.mock('../native/epsonUsbPrinter', () => ({
+vi.mock('../native/epsonUsbPrinter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../native/epsonUsbPrinter')>()),
   epsonUsbPrinter: {
     isAndroidNative: vi.fn(() => true),
     getDevices: vi.fn(),
@@ -92,5 +93,80 @@ describe('progression des erreurs natives', () => {
       causeCode: 'USB_PRINTER_PAPER_OUT',
       completedDocuments: [],
     })
+  })
+
+  it('préserve un document ambigu et la progression USB structurée', async () => {
+    vi.mocked(epsonUsbPrinter.printJob).mockRejectedValue({
+      code: 'USB_PREPARATION_WRITE_PARTIAL',
+      message: 'Transfert interrompu',
+      data: {
+        completedDocuments: ['customerReceipt'],
+        unknownDocuments: ['preparationTicket'],
+        transfer: {
+          status: 'partial',
+          bytesWritten: 900,
+          totalBytes: 1_600,
+          failureKind: 'device_disconnected',
+        },
+      },
+    })
+
+    await expect(new CapacitorReceiptPrinter().printJob([])).rejects.toMatchObject({
+      stage: 'preparationTicket',
+      completedDocuments: ['customerReceipt'],
+      unknownDocuments: ['preparationTicket'],
+      transfer: {
+        status: 'partial',
+        bytesWritten: 900,
+        totalBytes: 1_600,
+        failureKind: 'device_disconnected',
+      },
+    })
+  })
+
+  it('ne sélectionne jamais automatiquement un périphérique non Epson', async () => {
+    const { devices } = await epsonUsbPrinter.getDevices()
+    vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({
+      devices: devices.map((device) => ({ ...device, epson: false })),
+    })
+
+    await expect(new CapacitorReceiptPrinter().printJob([])).rejects.toMatchObject({
+      causeCode: 'USB_DEVICE_NOT_FOUND',
+    })
+    expect(epsonUsbPrinter.printJob).not.toHaveBeenCalled()
+  })
+
+  it('sélectionne de façon déterministe une interface Printer Class compatible', async () => {
+    const { devices } = await epsonUsbPrinter.getDevices()
+    const base = devices[0]!
+    vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({
+      devices: [
+        {
+          ...base,
+          deviceId: 9,
+          deviceName: 'z',
+          serialNumber: 'B',
+          hasPrinterClassInterface: true,
+        },
+        {
+          ...base,
+          deviceId: 4,
+          deviceName: 'a',
+          serialNumber: 'A',
+          hasPrinterClassInterface: true,
+        },
+        { ...base, deviceId: 2, deviceName: '0', serialNumber: '0' },
+      ],
+    })
+    vi.mocked(epsonUsbPrinter.printJob).mockResolvedValue({
+      ok: true,
+      bytesWritten: 0,
+      completedDocuments: [],
+      warnings: [],
+    })
+
+    await new CapacitorReceiptPrinter().printJob([])
+
+    expect(epsonUsbPrinter.printJob).toHaveBeenCalledWith(4, [])
   })
 })

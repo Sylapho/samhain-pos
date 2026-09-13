@@ -1,18 +1,59 @@
-import { epsonUsbPrinter, type UsbPrinterDevice } from '../native/epsonUsbPrinter'
+import { epsonUsbPrinter, selectCompatibleEpsonPrinter } from '../native/epsonUsbPrinter'
 import {
   OrderPrintError,
   type PrintDocumentType,
   type PrintJobStep,
   type ReceiptPrinter,
+  type UsbTransferProgress,
 } from './types'
 
-type NativeError = Error & { code?: string; data?: { completedDocuments?: unknown } }
+type NativeError = Error & {
+  code?: string
+  data?: {
+    completedDocuments?: unknown
+    unknownDocuments?: unknown
+    transfer?: unknown
+  }
+}
 
-function selectPrinter(devices: UsbPrinterDevice[]): UsbPrinterDevice | undefined {
-  return (
-    devices.find((device) => device.epson && device.hasBulkOutEndpoint) ??
-    devices.find((device) => device.hasBulkOutEndpoint)
-  )
+function parseDocuments(value: unknown): PrintDocumentType[] | undefined {
+  return Array.isArray(value)
+    ? value.filter(
+        (document): document is PrintDocumentType =>
+          document === 'customerReceipt' || document === 'preparationTicket',
+      )
+    : undefined
+}
+
+function parseTransfer(value: unknown): UsbTransferProgress | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const transfer = value as Partial<UsbTransferProgress>
+  const bytesWritten = transfer.bytesWritten
+  const totalBytes = transfer.totalBytes
+  if (
+    !['complete', 'no_bytes_sent', 'partial'].includes(transfer.status ?? '') ||
+    typeof bytesWritten !== 'number' ||
+    typeof totalBytes !== 'number' ||
+    !Number.isSafeInteger(bytesWritten) ||
+    !Number.isSafeInteger(totalBytes) ||
+    bytesWritten < 0 ||
+    totalBytes < 0 ||
+    bytesWritten > totalBytes
+  ) {
+    return undefined
+  }
+  const progressMatchesStatus =
+    (transfer.status === 'complete' && bytesWritten === totalBytes) ||
+    (transfer.status === 'no_bytes_sent' && bytesWritten === 0) ||
+    (transfer.status === 'partial' && bytesWritten > 0 && bytesWritten < totalBytes)
+  if (!progressMatchesStatus) return undefined
+  if (
+    transfer.failureKind !== undefined &&
+    !['device_disconnected', 'transport_error'].includes(transfer.failureKind)
+  ) {
+    return undefined
+  }
+  return transfer as UsbTransferProgress
 }
 
 function mapNativeError(error: unknown): OrderPrintError {
@@ -21,20 +62,18 @@ function mapNativeError(error: unknown): OrderPrintError {
   const nativeError = error as NativeError
   const code = nativeError?.code ?? 'USB_PRINT_ERROR'
   const nativeMessage = nativeError?.message ?? 'Erreur USB inconnue.'
-  const reportedDocuments = nativeError?.data?.completedDocuments
-  const completedDocuments = Array.isArray(reportedDocuments)
-    ? reportedDocuments.filter(
-        (document): document is PrintDocumentType =>
-          document === 'customerReceipt' || document === 'preparationTicket',
-      )
-    : undefined
+  const completedDocuments = parseDocuments(nativeError?.data?.completedDocuments)
+  const unknownDocuments = parseDocuments(nativeError?.data?.unknownDocuments)
+  const transfer = parseTransfer(nativeError?.data?.transfer)
 
   if (code.startsWith('USB_CUSTOMER_RECEIPT')) {
     return new OrderPrintError(
-      `Le ticket client n’a pas pu être imprimé. ${nativeMessage}`,
+      `${unknownDocuments?.includes('customerReceipt') ? 'L’état du ticket client est incertain ; vérifiez le papier avant toute réimpression.' : 'Le ticket client n’a pas pu être imprimé.'} ${nativeMessage}`,
       'customerReceipt',
       code,
       completedDocuments,
+      unknownDocuments,
+      transfer,
     )
   }
   if (code.startsWith('USB_CUSTOMER_CUT')) {
@@ -43,14 +82,18 @@ function mapNativeError(error: unknown): OrderPrintError {
       'customerCut',
       code,
       completedDocuments,
+      unknownDocuments,
+      transfer,
     )
   }
   if (code.startsWith('USB_PREPARATION_WRITE')) {
     return new OrderPrintError(
-      `Le ticket de préparation n’a pas pu être imprimé. ${nativeMessage}`,
+      `${unknownDocuments?.includes('preparationTicket') ? 'L’état du ticket de préparation est incertain ; vérifiez le papier avant toute réimpression.' : 'Le ticket de préparation n’a pas pu être imprimé.'} ${nativeMessage}`,
       'preparationTicket',
       code,
       completedDocuments,
+      unknownDocuments,
+      transfer,
     )
   }
   if (code.startsWith('USB_PREPARATION_CUT')) {
@@ -59,13 +102,29 @@ function mapNativeError(error: unknown): OrderPrintError {
       'preparationCut',
       code,
       completedDocuments,
+      unknownDocuments,
+      transfer,
     )
   }
   if (code.startsWith('USB_PERMISSION')) {
-    return new OrderPrintError(nativeMessage, 'permission', code, completedDocuments)
+    return new OrderPrintError(
+      nativeMessage,
+      'permission',
+      code,
+      completedDocuments,
+      unknownDocuments,
+      transfer,
+    )
   }
 
-  return new OrderPrintError(nativeMessage, 'connection', code, completedDocuments)
+  return new OrderPrintError(
+    nativeMessage,
+    'connection',
+    code,
+    completedDocuments,
+    unknownDocuments,
+    transfer,
+  )
 }
 
 export class CapacitorReceiptPrinter implements ReceiptPrinter {
@@ -80,9 +139,15 @@ export class CapacitorReceiptPrinter implements ReceiptPrinter {
 
     try {
       const { devices } = await epsonUsbPrinter.getDevices()
-      const device = requestedDeviceId
-        ? devices.find((candidate) => candidate.deviceId === requestedDeviceId)
-        : selectPrinter(devices)
+      const device =
+        requestedDeviceId !== undefined
+          ? devices.find(
+              (candidate) =>
+                candidate.deviceId === requestedDeviceId &&
+                candidate.epson &&
+                candidate.hasBulkOutEndpoint,
+            )
+          : selectCompatibleEpsonPrinter(devices)
 
       if (!device) {
         throw new OrderPrintError(

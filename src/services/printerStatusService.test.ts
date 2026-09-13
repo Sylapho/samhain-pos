@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { epsonUsbPrinter } from '../native/epsonUsbPrinter'
 import { getPrinterStatus } from './printerStatusService'
 
-vi.mock('../native/epsonUsbPrinter', () => ({
+vi.mock('../native/epsonUsbPrinter', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../native/epsonUsbPrinter')>()),
   epsonUsbPrinter: {
     isAndroidNative: vi.fn(),
     getDevices: vi.fn(),

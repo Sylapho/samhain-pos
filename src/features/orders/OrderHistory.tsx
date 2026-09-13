@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { formatTicketDateTime, paymentMethodLabels } from '../../printing/format'
 import {
   getCompletedDocumentsFromPrintError,
+  getUnknownDocumentsFromPrintError,
   printOrderTickets,
   type PrintOrderOptions,
 } from '../../printing/orderPrintService'
@@ -134,6 +135,7 @@ export function OrderHistory({
                 selection,
                 getCompletedDocumentsFromPrintError(error, { selection }),
                 message,
+                getUnknownDocumentsFromPrintError(error),
               ),
             )
           } catch {

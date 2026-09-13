@@ -51,6 +51,11 @@ export function getCompletedDocumentsFromPrintError(
   return []
 }
 
+export function getUnknownDocumentsFromPrintError(error: unknown): PrintDocumentType[] {
+  if (!(error instanceof OrderPrintError)) return []
+  return error.unknownDocuments ?? []
+}
+
 function includesDocument(selection: PrintSelection, type: PrintDocumentType): boolean {
   return (
     selection === 'both' || selection === (type === 'customerReceipt' ? 'customer' : 'preparation')
@@ -115,10 +120,10 @@ export class OrderPrintService {
       const needsCustomer =
         (options.printCustomerReceipt ?? true) &&
         includesDocument(selection, 'customerReceipt') &&
-        !['printed', 'not_requested'].includes(order.printing.customerReceipt)
+        ['pending', 'failed'].includes(order.printing.customerReceipt)
       const needsPreparation =
         includesDocument(selection, 'preparationTicket') &&
-        !['printed', 'not_requested'].includes(order.printing.preparationTicket)
+        ['pending', 'failed'].includes(order.printing.preparationTicket)
       if (!needsCustomer && !needsPreparation) {
         return { ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] }
       }

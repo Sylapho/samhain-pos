@@ -197,13 +197,22 @@ export class OrderService {
     selection: PrintSelection,
     completedDocuments: PrintDocumentType[],
     message: string,
+    unknownDocumentsOrUpdatedAt: PrintDocumentType[] | Date = [],
     updatedAt = new Date(),
   ): Promise<Order> {
+    const unknownDocuments =
+      unknownDocumentsOrUpdatedAt instanceof Date ? [] : unknownDocumentsOrUpdatedAt
+    const effectiveUpdatedAt =
+      unknownDocumentsOrUpdatedAt instanceof Date ? unknownDocumentsOrUpdatedAt : updatedAt
     return this.updatePrinting(orderId, (printing) => {
-      const next = { ...printing, updatedAt: updatedAt.toISOString(), lastError: message }
+      const next = { ...printing, updatedAt: effectiveUpdatedAt.toISOString(), lastError: message }
       for (const document of selectedDocuments(selection)) {
         if (['not_requested', 'printed'].includes(next[document])) continue
-        next[document] = completedDocuments.includes(document) ? 'printed' : 'failed'
+        next[document] = completedDocuments.includes(document)
+          ? 'printed'
+          : unknownDocuments.includes(document)
+            ? 'unknown'
+            : 'failed'
       }
       next.status = derivePrintStatus(next)
       return next
@@ -257,5 +266,13 @@ export const orderLifecycle = {
     selection: PrintSelection,
     completedDocuments: PrintDocumentType[],
     message: string,
-  ) => getDefaultOrderService().failPrinting(orderId, selection, completedDocuments, message),
+    unknownDocuments: PrintDocumentType[] = [],
+  ) =>
+    getDefaultOrderService().failPrinting(
+      orderId,
+      selection,
+      completedDocuments,
+      message,
+      unknownDocuments,
+    ),
 }

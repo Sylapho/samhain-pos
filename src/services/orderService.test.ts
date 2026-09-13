@@ -258,6 +258,85 @@ describe('service de commandes persistantes', () => {
     await restarted.repository.close()
   })
 
+  it('persiste un transfert partiel comme inconnu sans perdre le ticket terminé', async () => {
+    const indexedDb = new IDBFactory()
+    const first = createService(indexedDb, 'unknown-transfer', 'order-1')
+    const order = await first.service.createOrder([], 'cash', createdAt)
+
+    await first.service.beginPrinting(order.id, 'both', createdAt)
+    const ambiguous = await first.service.failPrinting(
+      order.id,
+      'both',
+      ['customerReceipt'],
+      'Préparation partiellement transmise.',
+      ['preparationTicket'],
+      createdAt,
+    )
+
+    expect(ambiguous.printing).toMatchObject({
+      status: 'unknown',
+      customerReceipt: 'printed',
+      preparationTicket: 'unknown',
+    })
+    await first.repository.close()
+
+    const restarted = createService(indexedDb, 'unknown-transfer', 'order-2')
+    const [recovered] = await restarted.service.getRecoverableOrders()
+    expect(recovered?.printing).toMatchObject({
+      status: 'unknown',
+      customerReceipt: 'printed',
+      preparationTicket: 'unknown',
+    })
+    await restarted.repository.close()
+  })
+
+  it('distingue un ticket client partiel d’un échec avant le premier octet', async () => {
+    const { repository, service } = createService(
+      new IDBFactory(),
+      'customer-transfer-states',
+      'order-1',
+    )
+    const order = await service.createOrder([], 'card', createdAt)
+    await service.beginPrinting(order.id, 'both', createdAt)
+
+    const ambiguous = await service.failPrinting(
+      order.id,
+      'both',
+      [],
+      'Ticket client partiellement transmis.',
+      ['customerReceipt'],
+      createdAt,
+    )
+
+    expect(ambiguous.printing).toMatchObject({
+      status: 'unknown',
+      customerReceipt: 'unknown',
+      preparationTicket: 'failed',
+    })
+
+    const secondService = new OrderService(
+      repository,
+      () => 'order-2',
+      () => terminalA,
+    )
+    const secondOrder = await secondService.createOrder([], 'card', createdAt)
+    await secondService.beginPrinting(secondOrder.id, 'both', createdAt)
+    const retryable = await secondService.failPrinting(
+      secondOrder.id,
+      'both',
+      [],
+      'Aucun octet envoyé.',
+      [],
+      createdAt,
+    )
+    expect(retryable.printing).toMatchObject({
+      status: 'failed',
+      customerReceipt: 'failed',
+      preparationTicket: 'failed',
+    })
+    await repository.close()
+  })
+
   it('mémorise qu’un ticket client a été refusé avant toute impression', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-customer-ticket', 'order-1')
