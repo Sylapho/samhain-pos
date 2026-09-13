@@ -16,6 +16,7 @@ describe('configuration administrative de production', () => {
     expect(() =>
       assertReceiptBusinessInfoReadyForProduction({
         ...receiptBusinessInfo,
+        siret: '000 000 000 00000',
         usesDemoPlaceholders: false,
       }),
     ).toThrow('siret')
@@ -29,7 +30,6 @@ describe('configuration administrative de production', () => {
       address: 'Adresse configurée',
       siret: 'SIRET configuré',
       vatNumber: 'TVA configurée',
-      phone: 'Téléphone configuré',
       usesDemoPlaceholders: false,
     }
 

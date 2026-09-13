@@ -1,4 +1,4 @@
-import type { Product } from '../types/catalog'
+import type { Product } from '../types/catalog.ts'
 
 export const products: Product[] = [
   {
@@ -212,7 +212,7 @@ export const products: Product[] = [
     categoryId: 'sans-alcool',
     availability: 'available',
     vatRate: 10,
-    variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }]
+    variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }],
   },
   {
     id: 'cola-temporaire',
@@ -233,5 +233,5 @@ export const products: Product[] = [
         ],
       },
     ],
-  }
+  },
 ]

@@ -2,17 +2,10 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
-import { assertReceiptBusinessInfoReadyForProduction } from './src/config/organization.ts'
+import { assertProductionBuildReady } from './src/config/production.ts'
 
 export default defineConfig(({ command, mode }) => {
-  if (command === 'build' && mode === 'production') {
-    try {
-      assertReceiptBusinessInfoReadyForProduction()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Configuration inconnue.'
-      throw new Error(`Build de production bloqué. ${message}`)
-    }
-  }
+  assertProductionBuildReady({ command, mode })
 
   return {
     plugins: [react(), tailwindcss()],
