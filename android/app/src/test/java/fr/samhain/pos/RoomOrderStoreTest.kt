@@ -78,6 +78,58 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun rejectsInvalidNewOrdersWithoutLeavingDataOrConsumingSequences() = onDatabaseThread {
+        val invalidRequests =
+            listOf(
+                request("empty-items").apply {
+                    put("items", JSONArray())
+                    put("itemCount", 0)
+                    put("totalCents", 0)
+                },
+                request("zero-quantity").mutateFirstItem("quantity", 0),
+                request("negative-quantity").mutateFirstItem("quantity", -1),
+                request("fractional-quantity").mutateFirstItem("quantity", 1.5),
+                request("negative-price").mutateFirstItem("unitPriceCents", -1),
+                request("unsafe-price").mutateFirstItem("unitPriceCents", 9_007_199_254_740_992.0),
+                request("forged-count").put("itemCount", 2),
+                request("forged-total").put("totalCents", 1),
+                request("unknown-vat").mutateFirstItem("vatRate", 5),
+                request("unknown-payment", paymentMethod = "bitcoin"),
+                request("invalid-date").put("createdAt", "not-a-date"),
+                request("invalid-terminal").apply {
+                    getJSONObject("terminal").put("terminalCode", "Z")
+                },
+                request("duplicate-line").apply {
+                    val items = getJSONArray("items")
+                    items.put(JSONObject(items.getJSONObject(0).toString()))
+                    put("itemCount", 2)
+                    put("totalCents", 1_000)
+                },
+            )
+
+        invalidRequests.forEach { invalid ->
+            assertThrows(Exception::class.java) { store.createOrder(invalid, source()) }
+        }
+
+        val rejectedSnapshot = store.snapshot()
+        assertEquals(0, rejectedSnapshot.getJSONArray("orders").length())
+        assertEquals(0, rejectedSnapshot.getJSONArray("technicalStates").length())
+        assertEquals(0, rejectedSnapshot.getJSONArray("entries").length())
+        assertEquals(1L, rejectedSnapshot.getJSONObject("metadata").getLong("nextOrderSequence"))
+        assertEquals(1L, rejectedSnapshot.getJSONObject("metadata").getLong("nextReceiptSequence"))
+        assertEquals(1L, rejectedSnapshot.getJSONObject("metadata").getLong("nextJournalSequence"))
+
+        val accepted = store.createOrder(request("accepted-after-rejections"), source())
+        assertEquals("A-0001", accepted.getString("orderNumber"))
+        assertEquals("R-A-20260901-0001", accepted.getString("receiptNumber"))
+        val acceptedSnapshot = store.snapshot()
+        assertEquals(1, acceptedSnapshot.getJSONArray("orders").length())
+        assertEquals(1, acceptedSnapshot.getJSONArray("technicalStates").length())
+        assertEquals(1, acceptedSnapshot.getJSONArray("entries").length())
+        assertEquals(1L, acceptedSnapshot.getJSONArray("entries").getJSONObject(0).getLong("sequence"))
+    }
+
+    @Test
     fun persistsAllPrintingRecoveryStatesWithCompareAndSet() = onDatabaseThread {
         val states = listOf("pending", "unknown", "printed", "partial", "failed")
         states.forEachIndexed { index, status ->
@@ -299,8 +351,15 @@ class RoomOrderStoreTest {
             put("paymentMethod", paymentMethod)
             put("paymentStatus", "paid")
             put("paidAt", "2026-09-01T12:00:00.000Z")
-            put("items", JSONArray())
-            put("itemCount", 0)
+            put(
+                "items",
+                JSONArray().put(
+                    JSONObject().put("lineId", "line-1").put("productId", "product-1")
+                        .put("name", "Produit test").put("quantity", 1)
+                        .put("unitPriceCents", totalCents).put("vatRate", 10),
+                ),
+            )
+            put("itemCount", 1)
             put("totalCents", totalCents)
             put("createdAt", "2026-09-01T12:00:00.000Z")
             put("status", "confirmed")
@@ -311,6 +370,9 @@ class RoomOrderStoreTest {
                     .put("updatedAt", "2026-09-01T12:00:00.000Z"),
             )
         }
+
+    private fun JSONObject.mutateFirstItem(key: String, value: Any): JSONObject =
+        apply { getJSONArray("items").getJSONObject(0).put(key, value) }
 
     private fun source(): JSONObject =
         JSONObject().apply {

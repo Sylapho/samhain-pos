@@ -214,9 +214,9 @@ describe('journal local des encaissements', () => {
       cumulativeNetTotalCents: order.totalCents - 100,
       paymentTotalsCents: { cash: order.totalCents - 100, card: 0 },
     })
-    await expect(orders.createOrder([], 'card', new Date('2026-09-01T11:30:00Z'))).rejects.toThrow(
-      /période déjà clôturée/,
-    )
+    await expect(
+      orders.createOrder([item], 'card', new Date('2026-09-01T11:30:00Z')),
+    ).rejects.toThrow(/période déjà clôturée/)
     await expect(
       ledger.adjustSale(
         order.id,
@@ -227,7 +227,7 @@ describe('journal local des encaissements', () => {
       ),
     ).rejects.toThrow(/période déjà clôturée/)
     expect(
-      (await orders.createOrder([], 'card', new Date('2026-09-01T13:30:00Z'))).orderNumber,
+      (await orders.createOrder([item], 'card', new Date('2026-09-01T13:30:00Z'))).orderNumber,
     ).toBe('A-0002')
     await repository.close()
   })
@@ -260,7 +260,11 @@ describe('journal local des encaissements', () => {
       legacyOrderIds: ['legacy'],
     })
 
-    const sealed = await upgraded.orders.createOrder([], 'cash', new Date('2026-09-01T12:00:00Z'))
+    const sealed = await upgraded.orders.createOrder(
+      [item],
+      'cash',
+      new Date('2026-09-01T12:00:00Z'),
+    )
     expect(sealed.orderNumber).toBe('A-0002')
     expect((await upgraded.ledger.verifyIntegrity()).legacyOrderIds).toEqual(['legacy'])
     await upgraded.repository.close()

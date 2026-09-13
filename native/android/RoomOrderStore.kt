@@ -20,14 +20,16 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             }
         }
 
-    fun createOrder(request: JSONObject, source: JSONObject): JSONObject =
-        transaction {
+    fun createOrder(request: JSONObject, source: JSONObject): JSONObject {
+        val validatedRequest = JSONObject(request.toString())
+        validateNewOrderRequest(validatedRequest)
+        return transaction {
             var state = currentMetadata()
             validateSequence(state.nextOrderSequence)
             validateSequence(state.nextReceiptSequence)
             validateSequence(state.nextJournalSequence)
 
-            val order = JSONObject(request.toString())
+            val order = validatedRequest
             val orderPrefix = order.takeRequiredString("orderNumberPrefix")
             val receiptPrefix = order.takeRequiredString("receiptNumberPrefix")
             order.put("orderNumber", "$orderPrefix-${formatSequence(state.nextOrderSequence)}")
@@ -77,6 +79,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             require(metadata.update(state) == 1) { "Mise à jour des séquences impossible." }
             hydrateOrder(stored, technical)
         }
+    }
 
     fun snapshot(): JSONObject =
         transaction {
@@ -675,6 +678,98 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         order.getJSONArray("items")
     }
 
+    private fun validateNewOrderRequest(order: JSONObject) {
+        order.requireNonBlank("id")
+        val orderNumberPrefix = order.requireNonBlank("orderNumberPrefix")
+        val receiptNumberPrefix = order.requireNonBlank("receiptNumberPrefix")
+        val terminal = order.getJSONObject("terminal")
+        terminal.requireNonBlank("terminalId")
+        val terminalCode = terminal.requireNonBlank("terminalCode")
+        require(terminalCode in setOf("A", "B", "C", "D")) {
+            "Code terminal invalide."
+        }
+        require(orderNumberPrefix == terminalCode) {
+            "Le préfixe de commande ne correspond pas au terminal."
+        }
+        require(receiptNumberPrefix.startsWith("R-$terminalCode-")) {
+            "Le préfixe de reçu ne correspond pas au terminal."
+        }
+        terminal.requireNonBlank("displayName")
+        require(order.getString("paymentMethod") in setOf("cash", "card")) {
+            "Moyen de paiement invalide."
+        }
+        require(order.getString("paymentStatus") == "paid") { "État de paiement invalide." }
+        require(order.getString("status") == "confirmed") { "État de commande invalide." }
+        requireIsoTimestamp(order.requireNonBlank("createdAt"), "createdAt")
+        requireIsoTimestamp(order.requireNonBlank("paidAt"), "paidAt")
+
+        val items = order.getJSONArray("items")
+        require(items.length() > 0) { "La commande doit contenir au moins une ligne." }
+        val lineIds = mutableSetOf<String>()
+        var expectedItemCount = 0L
+        var expectedTotalCents = 0L
+        for (index in 0 until items.length()) {
+            val item = items.getJSONObject(index)
+            val lineId = item.requireNonBlank("lineId")
+            require(lineIds.add(lineId)) { "L’identifiant de ligne $lineId est dupliqué." }
+            item.requireNonBlank("productId")
+            item.requireNonBlank("name")
+            val quantity = item.requiredSafeLong("quantity")
+            require(quantity > 0) { "La quantité de la ligne $lineId doit être strictement positive." }
+            val unitPriceCents = item.requiredSafeLong("unitPriceCents")
+            require(unitPriceCents >= 0) { "Le prix unitaire de la ligne $lineId est invalide." }
+            require(item.requiredSafeLong("vatRate") in setOf(10L, 20L)) {
+                "Le taux de TVA de la ligne $lineId n’est pas supporté."
+            }
+
+            val lineTotalCents = safeMultiply(quantity, unitPriceCents, "Le total de la ligne $lineId")
+            expectedItemCount = safeAdd(expectedItemCount, quantity, "Le nombre total d’articles")
+            expectedTotalCents = safeAdd(expectedTotalCents, lineTotalCents, "Le total de la commande")
+        }
+
+        val itemCount = order.requiredSafeLong("itemCount")
+        val totalCents = order.requiredSafeLong("totalCents")
+        require(itemCount in 1..Int.MAX_VALUE.toLong()) { "Le nombre total d’articles est invalide." }
+        require(totalCents >= 0) { "Le total de la commande est invalide." }
+        require(itemCount == expectedItemCount) {
+            "Le nombre total d’articles ne correspond pas aux lignes."
+        }
+        require(totalCents == expectedTotalCents) {
+            "Le total de la commande ne correspond pas aux lignes."
+        }
+        validatePrinting(order.getJSONObject("printing"))
+    }
+
+    private fun requireIsoTimestamp(value: String, field: String) {
+        try {
+            Instant.parse(value)
+        } catch (error: Exception) {
+            throw IllegalArgumentException("Le champ $field doit être un timestamp ISO valide.", error)
+        }
+    }
+
+    private fun safeMultiply(left: Long, right: Long, label: String): Long {
+        val result =
+            try {
+                Math.multiplyExact(left, right)
+            } catch (error: ArithmeticException) {
+                throw IllegalArgumentException("$label dépasse la plage entière sûre.", error)
+            }
+        require(result <= MAX_SAFE_INTEGER) { "$label dépasse la plage entière sûre." }
+        return result
+    }
+
+    private fun safeAdd(left: Long, right: Long, label: String): Long {
+        val result =
+            try {
+                Math.addExact(left, right)
+            } catch (error: ArithmeticException) {
+                throw IllegalArgumentException("$label dépasse la plage entière sûre.", error)
+            }
+        require(result <= MAX_SAFE_INTEGER) { "$label dépasse la plage entière sûre." }
+        return result
+    }
+
     private fun validatePrinting(value: JSONObject) {
         require(value.getString("status") in setOf("pending", "partial", "printed", "failed", "unknown")) {
             "État global d’impression invalide."
@@ -754,11 +849,13 @@ private fun JSONObject.requiredSafeLong(key: String): Long {
         "Le champ $key doit être un entier fini."
     }
     val value = numeric.toLong()
-    require(value.toDouble() == numeric && value in -9_007_199_254_740_990L..9_007_199_254_740_990L) {
+    require(value.toDouble() == numeric && value in -MAX_SAFE_INTEGER..MAX_SAFE_INTEGER) {
         "Le champ $key dépasse la précision entière prise en charge."
     }
     return value
 }
+
+private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
 
 private fun JSONObject.takeRequiredString(key: String): String =
     requireNonBlank(key).also { remove(key) }

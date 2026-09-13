@@ -14,6 +14,7 @@ import {
 } from '../types/salesLedger'
 import { hashCanonicalValue } from '../utils/integrity'
 import { orderStorage, type NativeOrderStorageBridge } from '../native/orderStorage'
+import { validateOrderDraft } from './orderValidation'
 import {
   ARCHIVE_NOTICE,
   IndexedDbOrderRepository,
@@ -75,6 +76,7 @@ export class RoomOrderRepository implements OrderRepository, SalesLedgerReposito
   ) {}
 
   async createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order> {
+    validateOrderDraft(request)
     await this.ensureInitialized()
     return this.nativeStorage.createOrder(request, source)
   }

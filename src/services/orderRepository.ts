@@ -1,4 +1,5 @@
 import type { Order, OrderIntegrity, OrderPrinting, PaymentMethod } from '../types/order'
+import type { TerminalIdentity } from '../types/terminal'
 import {
   SALES_ARCHIVE_SCHEMA_VERSION,
   SALES_LEDGER_SCHEMA_VERSION,
@@ -17,6 +18,7 @@ import {
   type StoredOrderTechnicalState,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
+import { validateOrderDraft } from './orderValidation'
 
 const DATABASE_VERSION = 2
 const ORDERS_STORE = 'orders'
@@ -44,7 +46,11 @@ export type AuditSnapshot = {
 
 export type AllocatedOrderSequences = { orderSequence: number; receiptSequence: number }
 
-export type OrderCreationRequest = Omit<Order, 'orderNumber' | 'receiptNumber' | 'integrity'> & {
+export type OrderCreationRequest = Omit<
+  Order,
+  'orderNumber' | 'receiptNumber' | 'integrity' | 'terminal'
+> & {
+  terminal: TerminalIdentity
   orderNumberPrefix: string
   receiptNumberPrefix: string
 }
@@ -387,6 +393,7 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
   ) {}
 
   createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order> {
+    validateOrderDraft(request)
     return this.openDatabase().then(
       (database) =>
         new Promise<Order>((resolve, reject) => {

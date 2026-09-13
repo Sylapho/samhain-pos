@@ -5,6 +5,7 @@ import { createCartItemDraft } from '../utils/cart'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { OrderService } from './orderService'
 import type { TerminalConfiguration } from '../types/terminal'
+import { createValidOrderItems } from '../test/orderFixtures'
 
 const menu = products.find((product) => product.id === 'menu-enfant')!
 const createdAt = new Date('2026-09-01T12:00:00Z')
@@ -72,6 +73,8 @@ describe('service de commandes persistantes', () => {
       'Glace',
     ])
     expect(order.totalCents).toBe(950)
+    expect(order.itemCount).toBe(1)
+    expect(await repository.getLedgerEntries()).toHaveLength(1)
     expect(persistedOrders).toEqual([order])
 
     await repository.close()
@@ -80,13 +83,17 @@ describe('service de commandes persistantes', () => {
   it('retrouve les commandes et poursuit les séquences après un redémarrage', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'restart', 'order-1')
-    await first.service.createOrder([], 'cash', createdAt)
+    await first.service.createOrder(createValidOrderItems(), 'cash', createdAt)
     await first.repository.close()
 
     const restarted = createService(indexedDb, 'restart', 'order-2')
     expect(await restarted.service.getOrders()).toHaveLength(1)
 
-    const secondOrder = await restarted.service.createOrder([], 'card', createdAt)
+    const secondOrder = await restarted.service.createOrder(
+      createValidOrderItems(),
+      'card',
+      createdAt,
+    )
     expect(secondOrder.orderNumber).toBe('A-0002')
     expect(secondOrder.receiptNumber).toBe('R-A-20260901-0002')
     expect(await restarted.service.getOrders()).toHaveLength(2)
@@ -104,8 +111,8 @@ describe('service de commandes persistantes', () => {
       () => terminalA,
     )
 
-    await service.createOrder([], 'cash', new Date('2026-09-01T10:00:00Z'))
-    await service.createOrder([], 'card', new Date('2026-09-01T12:00:00Z'))
+    await service.createOrder(createValidOrderItems(), 'cash', new Date('2026-09-01T10:00:00Z'))
+    await service.createOrder(createValidOrderItems(), 'card', new Date('2026-09-01T12:00:00Z'))
 
     expect((await service.getOrders()).map((order) => order.orderNumber)).toEqual([
       'A-0002',
@@ -121,8 +128,8 @@ describe('service de commandes persistantes', () => {
     await Promise.all([first.service.getOrders(), second.service.getOrders()])
 
     const orders = await Promise.all([
-      first.service.createOrder([], 'cash', createdAt),
-      second.service.createOrder([], 'card', createdAt),
+      first.service.createOrder(createValidOrderItems(), 'cash', createdAt),
+      second.service.createOrder(createValidOrderItems(), 'card', createdAt),
     ])
 
     expect(new Set(orders.map((order) => order.id)).size).toBe(2)
@@ -139,11 +146,17 @@ describe('service de commandes persistantes', () => {
   it('annule aussi l’incrément si l’identifiant durable existe déjà', async () => {
     const indexedDb = new IDBFactory()
     const duplicate = createService(indexedDb, 'rollback', 'same-id')
-    await duplicate.service.createOrder([], 'cash', createdAt)
-    await expect(duplicate.service.createOrder([], 'card', createdAt)).rejects.toBeTruthy()
+    await duplicate.service.createOrder(createValidOrderItems(), 'cash', createdAt)
+    await expect(
+      duplicate.service.createOrder(createValidOrderItems(), 'card', createdAt),
+    ).rejects.toBeTruthy()
 
     const recovered = createService(indexedDb, 'rollback', 'new-id')
-    const nextOrder = await recovered.service.createOrder([], 'card', createdAt)
+    const nextOrder = await recovered.service.createOrder(
+      createValidOrderItems(),
+      'card',
+      createdAt,
+    )
 
     expect(nextOrder.orderNumber).toBe('A-0002')
     expect(nextOrder.receiptNumber).toBe('R-A-20260901-0002')
@@ -164,7 +177,9 @@ describe('service de commandes persistantes', () => {
     )
 
     const orders = await Promise.all(
-      installations.map(({ service }) => service.createOrder([], 'cash', createdAt)),
+      installations.map(({ service }) =>
+        service.createOrder(createValidOrderItems(), 'cash', createdAt),
+      ),
     )
 
     expect(orders.map((order) => order.orderNumber)).toEqual([
@@ -186,7 +201,7 @@ describe('service de commandes persistantes', () => {
       () => current,
     )
 
-    const order = await service.createOrder([], 'cash', createdAt)
+    const order = await service.createOrder(createValidOrderItems(), 'cash', createdAt)
     current.displayName = 'Caisse accueil'
 
     expect((await service.getOrders())[0]?.terminal?.displayName).toBe('Caisse A')
@@ -205,21 +220,25 @@ describe('service de commandes persistantes', () => {
       },
     )
 
-    expect(() => unconfigured.createOrder([], 'cash', createdAt)).toThrow(/non configurée/)
+    expect(() => unconfigured.createOrder(createValidOrderItems(), 'cash', createdAt)).toThrow(
+      /non configurée/,
+    )
 
     const configured = new OrderService(
       repository,
       () => 'order-accepted',
       () => terminalA,
     )
-    expect((await configured.createOrder([], 'cash', createdAt)).orderNumber).toBe('A-0001')
+    expect(
+      (await configured.createOrder(createValidOrderItems(), 'cash', createdAt)).orderNumber,
+    ).toBe('A-0001')
     await repository.close()
   })
 
   it('persiste un échec partiel et reprend seulement le ticket restant après redémarrage', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'print-lifecycle', 'order-1')
-    const order = await first.service.createOrder([], 'cash', createdAt)
+    const order = await first.service.createOrder(createValidOrderItems(), 'cash', createdAt)
 
     await first.service.beginPrinting(order.id, 'both', createdAt)
     const partial = await first.service.failPrinting(
@@ -261,7 +280,7 @@ describe('service de commandes persistantes', () => {
   it('persiste un transfert partiel comme inconnu sans perdre le ticket terminé', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'unknown-transfer', 'order-1')
-    const order = await first.service.createOrder([], 'cash', createdAt)
+    const order = await first.service.createOrder(createValidOrderItems(), 'cash', createdAt)
 
     await first.service.beginPrinting(order.id, 'both', createdAt)
     const ambiguous = await first.service.failPrinting(
@@ -296,7 +315,7 @@ describe('service de commandes persistantes', () => {
       'customer-transfer-states',
       'order-1',
     )
-    const order = await service.createOrder([], 'card', createdAt)
+    const order = await service.createOrder(createValidOrderItems(), 'card', createdAt)
     await service.beginPrinting(order.id, 'both', createdAt)
 
     const ambiguous = await service.failPrinting(
@@ -319,7 +338,7 @@ describe('service de commandes persistantes', () => {
       () => 'order-2',
       () => terminalA,
     )
-    const secondOrder = await secondService.createOrder([], 'card', createdAt)
+    const secondOrder = await secondService.createOrder(createValidOrderItems(), 'card', createdAt)
     await secondService.beginPrinting(secondOrder.id, 'both', createdAt)
     const retryable = await secondService.failPrinting(
       secondOrder.id,
@@ -340,7 +359,7 @@ describe('service de commandes persistantes', () => {
   it('mémorise qu’un ticket client a été refusé avant toute impression', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-customer-ticket', 'order-1')
-    const order = await service.createOrder([], 'card', createdAt, false)
+    const order = await service.createOrder(createValidOrderItems(), 'card', createdAt, false)
 
     expect(order.printing.customerReceipt).toBe('not_requested')
     await service.beginPrinting(order.id, 'both', createdAt)
@@ -357,7 +376,7 @@ describe('service de commandes persistantes', () => {
   it('conserve les réussites après plusieurs échecs et une interruption de reprise', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'interrupted-retry', 'order-1')
-    const order = await first.service.createOrder([], 'cash', createdAt)
+    const order = await first.service.createOrder(createValidOrderItems(), 'cash', createdAt)
     await first.service.beginPrinting(order.id, 'both')
     await first.service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
     await first.service.beginPrinting(order.id, 'preparation')
@@ -384,7 +403,7 @@ describe('service de commandes persistantes', () => {
 
   it('ne perd pas une réussite connue si une sélection inclut à nouveau le document', async () => {
     const { repository, service } = createService(new IDBFactory(), 'preserve-success', 'order-1')
-    const order = await service.createOrder([], 'card', createdAt)
+    const order = await service.createOrder(createValidOrderItems(), 'card', createdAt)
     await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
     const started = await service.beginPrinting(order.id, 'both')
     expect(started.printing.customerReceipt).toBe('printed')
