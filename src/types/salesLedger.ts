@@ -1,4 +1,5 @@
 import type { Order, OrderPrinting, PaymentMethod } from './order'
+import type { ReceiptBusinessInfo } from '../config/organization'
 import type { TerminalIdentity } from './terminal'
 
 export const SALES_LEDGER_SCHEMA_VERSION = 1 as const
@@ -10,16 +11,7 @@ export type LedgerSource = {
   softwareVersion: string
   buildMode: string
   terminal: TerminalIdentity
-  organization: {
-    organizationName: string
-    eventName: string
-    city: string
-    address: string
-    siret: string
-    vatNumber: string
-    phone: string
-    usesDemoPlaceholders: boolean
-  }
+  organization: ReceiptBusinessInfo
 }
 
 type LedgerEntryBase = {

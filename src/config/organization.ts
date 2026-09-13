@@ -18,14 +18,14 @@ export const receiptBusinessInfo: ReceiptBusinessInfo = {
   city: 'Bernay',
   address: '24 rue Alsace Lorraine 27300 Bernay',
   siret: '923 116 628 00028',
-  vatNumber: 'FR00 000000000',
+  vatNumber: 'FR90 923116628',
   usesDemoPlaceholders: false,
 }
 
 const knownPlaceholderValues: Partial<Record<keyof ReceiptBusinessInfo, string>> = {
   address: '24 rue Alsace Lorraine 27300 Bernay',
   siret: '000 000 000 00000',
-  vatNumber: 'FR00 000000000',
+  vatNumber: 'FR90 923116628',
 }
 
 export function assertReceiptBusinessInfoReadyForProduction(
