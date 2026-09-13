@@ -56,21 +56,33 @@ function createLifecycle(initialOrder = printPreviewOrder) {
       }
       return current
     }),
-    failPrinting: vi.fn(async (_id, _selection, completedDocuments, message) => {
-      current = {
-        ...current,
-        printing: {
-          ...current.printing,
-          status: completedDocuments.length ? 'partial' : 'failed',
-          customerReceipt: completedDocuments.includes('customerReceipt') ? 'printed' : 'failed',
-          preparationTicket: completedDocuments.includes('preparationTicket')
-            ? 'printed'
-            : 'failed',
-          lastError: message,
-        },
-      }
-      return current
-    }),
+    failPrinting: vi.fn(
+      async (_id, _selection, completedDocuments, message, unknownDocuments = []) => {
+        current = {
+          ...current,
+          printing: {
+            ...current.printing,
+            status: unknownDocuments.length
+              ? 'unknown'
+              : completedDocuments.length
+                ? 'partial'
+                : 'failed',
+            customerReceipt: completedDocuments.includes('customerReceipt')
+              ? 'printed'
+              : unknownDocuments.includes('customerReceipt')
+                ? 'unknown'
+                : 'failed',
+            preparationTicket: completedDocuments.includes('preparationTicket')
+              ? 'printed'
+              : unknownDocuments.includes('preparationTicket')
+                ? 'unknown'
+                : 'failed',
+            lastError: message,
+          },
+        }
+        return current
+      },
+    ),
   }
 }
 
@@ -330,11 +342,57 @@ describe('encaissement et impression', () => {
       'both',
       ['customerReceipt'],
       'Ticket de préparation interrompu.',
+      [],
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Réessayer l’impression' }))
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
     expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
+  })
+
+  it('conserve une préparation partiellement transmise comme inconnue et bloque la reprise automatique', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi
+      .fn()
+      .mockRejectedValue(
+        new OrderPrintError(
+          'Préparation partiellement transmise.',
+          'preparationTicket',
+          'USB_PREPARATION_WRITE_PARTIAL',
+          ['customerReceipt'],
+          ['preparationTicket'],
+        ),
+      )
+    const lifecycle = createLifecycle()
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+        createOrder={createOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+
+    expect(await screen.findByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(
+      screen.getByText('Ticket de préparation : à vérifier avant réimpression'),
+    ).toBeInTheDocument()
+    expect(lifecycle.failPrinting).toHaveBeenCalledWith(
+      printPreviewOrder.id,
+      'both',
+      ['customerReceipt'],
+      'Préparation partiellement transmise.',
+      ['preparationTicket'],
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
+    expect(printOrder).toHaveBeenCalledOnce()
   })
 
   it('ne réimprime pas automatiquement une ancienne commande dont les tickets sont inconnus', async () => {

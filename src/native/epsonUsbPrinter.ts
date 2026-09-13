@@ -8,10 +8,13 @@ export type UsbPrinterDevice = {
   productId: number
   manufacturerName: string | null
   productName: string | null
+  /** Unavailable until Android has granted USB permission on some devices. */
+  serialNumber?: string | null
   epson: boolean
   hasPermission: boolean
   hasBulkOutEndpoint: boolean
   hasBulkInEndpoint: boolean
+  hasPrinterClassInterface?: boolean
 }
 
 export type EpsonPrinterHardwareStatus = {
@@ -30,6 +33,37 @@ export type EpsonPrinterHardwareStatus = {
     error: number
     paper: number
   }
+}
+
+export function selectCompatibleEpsonPrinter(
+  devices: UsbPrinterDevice[],
+): UsbPrinterDevice | undefined {
+  return devices
+    .filter((device) => device.epson && device.hasBulkOutEndpoint)
+    .sort((left, right) => {
+      const printerClassOrder =
+        Number(Boolean(right.hasPrinterClassInterface)) -
+        Number(Boolean(left.hasPrinterClassInterface))
+      if (printerClassOrder !== 0) return printerClassOrder
+      const serialAvailabilityOrder =
+        Number(Boolean(right.serialNumber)) - Number(Boolean(left.serialNumber))
+      if (serialAvailabilityOrder !== 0) return serialAvailabilityOrder
+      const leftIdentity = [
+        left.vendorId,
+        left.productId,
+        left.serialNumber ?? '',
+        left.productName ?? '',
+        left.deviceName,
+      ].join(':')
+      const rightIdentity = [
+        right.vendorId,
+        right.productId,
+        right.serialNumber ?? '',
+        right.productName ?? '',
+        right.deviceName,
+      ].join(':')
+      return leftIdentity.localeCompare(rightIdentity) || left.deviceId - right.deviceId
+    })[0]
 }
 
 type DeviceListResult = {

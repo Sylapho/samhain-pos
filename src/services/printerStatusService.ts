@@ -1,4 +1,4 @@
-import { epsonUsbPrinter } from '../native/epsonUsbPrinter'
+import { epsonUsbPrinter, selectCompatibleEpsonPrinter } from '../native/epsonUsbPrinter'
 import type { PrinterStatus } from '../types/system'
 
 export async function getPrinterStatus(): Promise<PrinterStatus> {
@@ -6,7 +6,7 @@ export async function getPrinterStatus(): Promise<PrinterStatus> {
 
   try {
     const { devices } = await epsonUsbPrinter.getDevices()
-    const printer = devices.find((device) => device.epson && device.hasBulkOutEndpoint)
+    const printer = selectCompatibleEpsonPrinter(devices)
 
     if (!printer) return 'disconnected'
     if (!printer.hasPermission) return 'permission-required'

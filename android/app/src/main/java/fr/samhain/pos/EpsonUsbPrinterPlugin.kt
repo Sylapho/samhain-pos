@@ -324,24 +324,22 @@ class EpsonUsbPrinterPlugin : Plugin() {
             }
 
             val ticket = buildTestTicket()
-            val written =
-                connection.bulkTransfer(
+            val transfer =
+                writeUsbData(
+                    manager,
+                    device,
+                    connection,
                     printerInterface.outEndpoint,
                     ticket,
-                    ticket.size,
-                    TRANSFER_TIMEOUT_MS,
                 )
-            if (written < 0) {
+            if (transfer.status != UsbWriteStatus.COMPLETE) {
                 call.reject(
-                    "Le transfert USB a échoué. Essayez de débrancher puis rebrancher l’imprimante.",
-                    "USB_TRANSFER_FAILED",
-                )
-                return
-            }
-            if (written != ticket.size) {
-                call.reject(
-                    "Le transfert USB est incomplet ($written/${ticket.size} octets).",
-                    "USB_TRANSFER_PARTIAL",
+                    transferFailureMessage(transfer),
+                    if (transfer.status == UsbWriteStatus.PARTIAL) {
+                        "USB_TRANSFER_PARTIAL"
+                    } else {
+                        "USB_TRANSFER_FAILED"
+                    },
                 )
                 return
             }
@@ -349,7 +347,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
             call.resolve(
                 JSObject().apply {
                     put("ok", true)
-                    put("bytesWritten", written)
+                    put("bytesWritten", transfer.bytesWritten)
                     put("device", toJsDevice(manager, device))
                 },
             )
@@ -419,6 +417,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
         var customerReceiptPrinted = false
         var bytesWritten = 0
         val completedDocuments = JSArray()
+        val unknownDocuments = JSArray()
         val warnings = JSArray()
 
         try {
@@ -470,22 +469,41 @@ class EpsonUsbPrinterPlugin : Plugin() {
                     }
 
                     val data = Base64.decode(encodedData, Base64.DEFAULT)
-                    val written =
-                        connection.bulkTransfer(
+                    val transfer =
+                        writeUsbData(
+                            manager,
+                            device,
+                            connection,
                             printerInterface.outEndpoint,
                             data,
-                            data.size,
-                            TRANSFER_TIMEOUT_MS,
                         )
-                    if (written != data.size) {
+                    if (transfer.status != UsbWriteStatus.COMPLETE) {
+                        if (transfer.status == UsbWriteStatus.PARTIAL) {
+                            unknownDocuments.put(documentType)
+                        }
                         val code =
                             if (documentType == "customerReceipt") {
-                                "USB_CUSTOMER_RECEIPT_WRITE_FAILED"
+                                if (transfer.status == UsbWriteStatus.PARTIAL) {
+                                    "USB_CUSTOMER_RECEIPT_WRITE_PARTIAL"
+                                } else {
+                                    "USB_CUSTOMER_RECEIPT_WRITE_FAILED"
+                                }
                             } else {
-                                "USB_PREPARATION_WRITE_FAILED"
+                                if (transfer.status == UsbWriteStatus.PARTIAL) {
+                                    "USB_PREPARATION_WRITE_PARTIAL"
+                                } else {
+                                    "USB_PREPARATION_WRITE_FAILED"
+                                }
                             }
                         val prefix =
                             when {
+                                transfer.status == UsbWriteStatus.PARTIAL &&
+                                    documentType == "customerReceipt" ->
+                                    "L’envoi du ticket client a été interrompu. "
+                                transfer.status == UsbWriteStatus.PARTIAL && customerReceiptPrinted ->
+                                    "Le ticket client a été imprimé, mais l’envoi du ticket de préparation a été interrompu. "
+                                transfer.status == UsbWriteStatus.PARTIAL ->
+                                    "L’envoi du ticket de préparation a été interrompu. "
                                 documentType == "customerReceipt" ->
                                     "L’impression du ticket client a échoué. "
                                 customerReceiptPrinted ->
@@ -495,13 +513,15 @@ class EpsonUsbPrinterPlugin : Plugin() {
                         rejectPrintJob(
                             call,
                             completedDocuments,
-                            prefix + transferFailureMessage(written, data.size),
+                            prefix + transferFailureMessage(transfer),
                             code,
+                            unknownDocuments,
+                            transfer,
                         )
                         return
                     }
 
-                    bytesWritten += written
+                    bytesWritten += transfer.bytesWritten
                     completedDocuments.put(documentType)
                     if (documentType == "customerReceipt") customerReceiptPrinted = true
                     continue
@@ -511,39 +531,45 @@ class EpsonUsbPrinterPlugin : Plugin() {
                     val afterDocument = step.optString("afterDocument", "")
                     val feedLines = maxOf(0, step.optInt("feedLines", 4))
                     val feed = repeatedLineFeeds(feedLines)
-                    val feedWritten =
-                        connection.bulkTransfer(
+                    val feedTransfer =
+                        writeUsbData(
+                            manager,
+                            device,
+                            connection,
                             printerInterface.outEndpoint,
                             feed,
-                            feed.size,
-                            TRANSFER_TIMEOUT_MS,
                         )
-                    val cutWritten =
-                        if (feedWritten == feed.size) {
-                            connection.bulkTransfer(
+                    val cutTransfer =
+                        if (feedTransfer.status == UsbWriteStatus.COMPLETE) {
+                            writeUsbData(
+                                manager,
+                                device,
+                                connection,
                                 printerInterface.outEndpoint,
                                 FULL_CUT_COMMAND,
-                                FULL_CUT_COMMAND.size,
-                                TRANSFER_TIMEOUT_MS,
                             )
                         } else {
-                            -1
+                            null
                         }
 
-                    if (feedWritten == feed.size && cutWritten == FULL_CUT_COMMAND.size) {
-                        bytesWritten += feedWritten + cutWritten
+                    if (
+                        feedTransfer.status == UsbWriteStatus.COMPLETE &&
+                        cutTransfer?.status == UsbWriteStatus.COMPLETE
+                    ) {
+                        bytesWritten += feedTransfer.bytesWritten + cutTransfer.bytesWritten
                         continue
                     }
 
                     val fallback = buildCutFallback()
-                    val fallbackWritten =
-                        connection.bulkTransfer(
+                    val fallbackTransfer =
+                        writeUsbData(
+                            manager,
+                            device,
+                            connection,
                             printerInterface.outEndpoint,
                             fallback,
-                            fallback.size,
-                            TRANSFER_TIMEOUT_MS,
                         )
-                    if (fallbackWritten != fallback.size) {
+                    if (fallbackTransfer.status != UsbWriteStatus.COMPLETE) {
                         val code =
                             if (afterDocument == "customerReceipt") {
                                 "USB_CUSTOMER_CUT_FAILED"
@@ -555,12 +581,16 @@ class EpsonUsbPrinterPlugin : Plugin() {
                             completedDocuments,
                             "La coupe a échoué et la séparation visuelle de secours n’a pas pu être imprimée.",
                             code,
+                            unknownDocuments,
+                            fallbackTransfer,
                         )
                         return
                     }
 
                     bytesWritten +=
-                        maxOf(feedWritten, 0) + maxOf(cutWritten, 0) + fallbackWritten
+                        feedTransfer.bytesWritten +
+                        (cutTransfer?.bytesWritten ?: 0) +
+                        fallbackTransfer.bytesWritten
                     val warning =
                         "Coupe indisponible après $afterDocument : séparation visuelle imprimée."
                     warnings.put(warning)
@@ -582,6 +612,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
                     put("ok", true)
                     put("bytesWritten", bytesWritten)
                     put("completedDocuments", completedDocuments)
+                    put("unknownDocuments", unknownDocuments)
                     put("warnings", warnings)
                     put("device", toJsDevice(manager, device))
                 },
@@ -613,8 +644,15 @@ class EpsonUsbPrinterPlugin : Plugin() {
         completedDocuments: JSArray,
         message: String,
         code: String,
+        unknownDocuments: JSArray = JSArray(),
+        transfer: UsbWriteResult? = null,
     ) {
-        val progress = JSObject().apply { put("completedDocuments", completedDocuments) }
+        val progress =
+            JSObject().apply {
+                put("completedDocuments", completedDocuments)
+                put("unknownDocuments", unknownDocuments)
+                if (transfer != null) put("transfer", transfer.toJsObject())
+            }
         call.reject(message, code, null, progress)
     }
 
@@ -647,11 +685,13 @@ class EpsonUsbPrinterPlugin : Plugin() {
             put("productId", device.productId)
             put("manufacturerName", safeManufacturerName(device))
             put("productName", safeProductName(device))
+            put("serialNumber", safeSerialNumber(manager, device))
             put("epson", device.vendorId == EPSON_VENDOR_ID)
             put("hasPermission", manager.hasPermission(device))
             val printerInterface = findPrinterInterface(device)
             put("hasBulkOutEndpoint", printerInterface != null)
             put("hasBulkInEndpoint", printerInterface?.inEndpoint != null)
+            put("hasPrinterClassInterface", printerInterface?.isPrinterClass == true)
         }
 
     private fun safeManufacturerName(device: UsbDevice): String? =
@@ -668,7 +708,18 @@ class EpsonUsbPrinterPlugin : Plugin() {
             null
         }
 
+    private fun safeSerialNumber(manager: UsbManager, device: UsbDevice): String? {
+        if (!manager.hasPermission(device)) return null
+        return try {
+            device.serialNumber
+        } catch (_: SecurityException) {
+            null
+        }
+    }
+
     private fun findPrinterInterface(device: UsbDevice): PrinterUsbInterface? {
+        var printerClassPairedInterface: PrinterUsbInterface? = null
+        var printerClassOutOnlyInterface: PrinterUsbInterface? = null
         var pairedInterface: PrinterUsbInterface? = null
         var outOnlyInterface: PrinterUsbInterface? = null
         for (interfaceIndex in 0 until device.interfaceCount) {
@@ -682,17 +733,40 @@ class EpsonUsbPrinterPlugin : Plugin() {
                 if (endpoint.direction == UsbConstants.USB_DIR_IN) inEndpoint = endpoint
             }
             if (outEndpoint != null && inEndpoint != null) {
-                val candidate = PrinterUsbInterface(usbInterface, outEndpoint, inEndpoint)
+                val candidate =
+                    PrinterUsbInterface(
+                        usbInterface,
+                        outEndpoint,
+                        inEndpoint,
+                        usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER,
+                    )
                 if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER) {
-                    return candidate
+                    if (printerClassPairedInterface == null) {
+                        printerClassPairedInterface = candidate
+                    }
+                } else if (pairedInterface == null) {
+                    pairedInterface = candidate
                 }
-                if (pairedInterface == null) pairedInterface = candidate
             }
-            if (outEndpoint != null && outOnlyInterface == null) {
-                outOnlyInterface = PrinterUsbInterface(usbInterface, outEndpoint, null)
+            if (outEndpoint != null) {
+                val candidate =
+                    PrinterUsbInterface(
+                        usbInterface,
+                        outEndpoint,
+                        null,
+                        usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER,
+                    )
+                if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER) {
+                    if (printerClassOutOnlyInterface == null) {
+                        printerClassOutOnlyInterface = candidate
+                    }
+                } else if (outOnlyInterface == null) {
+                    outOnlyInterface = candidate
+                }
             }
         }
-        return pairedInterface ?: outOnlyInterface
+        return printerClassPairedInterface ?: pairedInterface ?: printerClassOutOnlyInterface
+            ?: outOnlyInterface
     }
 
     private fun readHardwareStatus(
@@ -702,22 +776,15 @@ class EpsonUsbPrinterPlugin : Plugin() {
         outEndpoint: UsbEndpoint,
         inEndpoint: UsbEndpoint,
     ): HardwareStatus {
-        val written =
-            connection.bulkTransfer(
-                outEndpoint,
-                STATUS_COMMANDS,
-                STATUS_COMMANDS.size,
-                TRANSFER_TIMEOUT_MS,
-            )
-        if (written != STATUS_COMMANDS.size) {
-            ensureDeviceStillAvailable(manager, device)
+        val transfer = writeUsbData(manager, device, connection, outEndpoint, STATUS_COMMANDS)
+        if (transfer.status != UsbWriteStatus.COMPLETE) {
             throw PrinterStatusException(
-                if (written < 0) {
-                    "Impossible d’envoyer la demande de statut à l’imprimante."
+                transferFailureMessage(transfer, "la demande de statut"),
+                if (transfer.status == UsbWriteStatus.PARTIAL) {
+                    "USB_STATUS_WRITE_PARTIAL"
                 } else {
-                    "Demande de statut USB incomplète ($written/${STATUS_COMMANDS.size} octets)."
+                    "USB_STATUS_WRITE_FAILED"
                 },
-                if (written < 0) "USB_STATUS_WRITE_FAILED" else "USB_STATUS_WRITE_PARTIAL",
             )
         }
 
@@ -836,11 +903,57 @@ class EpsonUsbPrinterPlugin : Plugin() {
         "\n------------------------------------------\n\n\n\n"
             .toByteArray(StandardCharsets.US_ASCII)
 
-    private fun transferFailureMessage(written: Int, expected: Int): String =
-        if (written < 0) {
-            "Le transfert USB a échoué."
+    private fun writeUsbData(
+        manager: UsbManager,
+        device: UsbDevice,
+        connection: UsbDeviceConnection,
+        endpoint: UsbEndpoint,
+        data: ByteArray,
+    ): UsbWriteResult =
+        writeUsbBuffer(
+            data = data,
+            maxChunkSize = USB_WRITE_CHUNK_SIZE,
+            isDeviceConnected = { findDevice(manager, device.deviceId) != null },
+        ) { buffer, offset, length ->
+            connection.bulkTransfer(endpoint, buffer, offset, length, TRANSFER_TIMEOUT_MS)
+        }
+
+    private fun transferFailureMessage(
+        transfer: UsbWriteResult,
+        subject: String = "le document",
+    ): String {
+        val progress = "${transfer.bytesWritten}/${transfer.totalBytes} octets"
+        if (transfer.failure == UsbWriteFailure.DEVICE_DISCONNECTED) {
+            return "L’imprimante a été débranchée pendant le transfert de $subject ($progress)."
+        }
+        return if (transfer.status == UsbWriteStatus.PARTIAL) {
+            "Le transfert USB de $subject s’est interrompu après $progress. Le résultat imprimé doit être vérifié."
         } else {
-            "Le transfert USB est incomplet ($written/$expected octets)."
+            "Le transfert USB de $subject a échoué avant l’envoi du premier octet."
+        }
+    }
+
+    private fun UsbWriteResult.toJsObject(): JSObject =
+        JSObject().apply {
+            put(
+                "status",
+                when (status) {
+                    UsbWriteStatus.COMPLETE -> "complete"
+                    UsbWriteStatus.NO_BYTES_SENT -> "no_bytes_sent"
+                    UsbWriteStatus.PARTIAL -> "partial"
+                },
+            )
+            put("bytesWritten", bytesWritten)
+            put("totalBytes", totalBytes)
+            if (failure != null) {
+                put(
+                    "failureKind",
+                    when (failure) {
+                        UsbWriteFailure.DEVICE_DISCONNECTED -> "device_disconnected"
+                        UsbWriteFailure.TRANSPORT_ERROR -> "transport_error"
+                    },
+                )
+            }
         }
 
     private fun resolvePermission(
@@ -885,6 +998,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
         val usbInterface: UsbInterface,
         val outEndpoint: UsbEndpoint,
         val inEndpoint: UsbEndpoint?,
+        val isPrinterClass: Boolean,
     )
 
     private class PrinterStatusException(
@@ -994,6 +1108,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
         const val EPSON_VENDOR_ID = 0x04B8
         const val TRANSFER_TIMEOUT_MS = 4_000
         const val STATUS_READ_TIMEOUT_MS = 1_500
+        const val USB_WRITE_CHUNK_SIZE = 16 * 1024
         val STATUS_COMMANDS =
             byteArrayOf(
                 0x10,

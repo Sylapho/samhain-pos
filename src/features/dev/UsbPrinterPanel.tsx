@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import { printPreviewOrder } from '../../mocks/printOrder'
 import {
   epsonUsbPrinter,
+  selectCompatibleEpsonPrinter,
   type EpsonPrinterHardwareStatus,
   type UsbPrinterDevice,
 } from '../../native/epsonUsbPrinter'
@@ -51,10 +52,7 @@ export function UsbPrinterPanel() {
     try {
       const result = await epsonUsbPrinter.getDevices()
       setDevices(result.devices)
-      const preferred =
-        result.devices.find((device) => device.epson && device.hasBulkOutEndpoint) ??
-        result.devices.find((device) => device.hasBulkOutEndpoint) ??
-        result.devices[0]
+      const preferred = selectCompatibleEpsonPrinter(result.devices)
       setSelectedId((current) =>
         result.devices.some((device) => device.deviceId === current)
           ? current
