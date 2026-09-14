@@ -64,6 +64,34 @@ describe('historique des commandes', () => {
     expect(within(detail).getByText('Impression : Imprimée')).toBeInTheDocument()
   })
 
+  it('affiche une impression inconnue comme à vérifier sans la relancer à l’ouverture', async () => {
+    const unknownOrder = {
+      ...printedOrder,
+      printing: {
+        ...printedOrder.printing,
+        status: 'unknown' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'unknown' as const,
+      },
+    }
+    const printOrder = vi.fn()
+
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [unknownOrder]}
+        printOrder={printOrder}
+      />,
+    )
+
+    const detail = await screen.findByRole('article', { name: 'Commande A-0001' })
+    expect(within(detail).getByText('Impression : À vérifier')).toBeInTheDocument()
+    expect(
+      within(detail).getByText('Ticket de préparation : À vérifier avant réimpression'),
+    ).toBeInTheDocument()
+    expect(printOrder).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['Ticket client', 'customer'],
     ['Préparation', 'preparation'],

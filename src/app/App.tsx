@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import { Button } from '../components/ui/Button'
 import { CartPanel } from '../features/cart/CartPanel'
 import { CategoryTabs } from '../features/catalog/CategoryTabs'
@@ -39,6 +39,10 @@ type Props = {
     reprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
   }
   responsibleMode?: ResponsibleMode
+  checkoutDependencies?: Pick<
+    ComponentProps<typeof CheckoutFlow>,
+    'createOrder' | 'lifecycle' | 'printOrder'
+  >
 }
 
 const defaultTerminalManagement = {
@@ -54,6 +58,7 @@ export function App({
   probePrinterStatus,
   terminalManagement = defaultTerminalManagement,
   responsibleMode = getResponsibleModeService(),
+  checkoutDependencies,
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
@@ -180,9 +185,10 @@ export function App({
         return orders.filter((order) => order.id !== updatedOrder.id)
       }
       const exists = orders.some((order) => order.id === updatedOrder.id)
-      return exists
+      const updatedOrders = exists
         ? orders.map((order) => (order.id === updatedOrder.id ? updatedOrder : order))
         : [...orders, updatedOrder]
+      return updatedOrders.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     })
     if (resumingOrder?.id === updatedOrder.id) setResumingOrder(updatedOrder)
   }
@@ -334,6 +340,7 @@ export function App({
           initialOrder={resumingOrder ?? undefined}
           onOrderUpdated={updateRecoveryOrder}
           requestResponsibleAccess={requestResponsibleAccess}
+          {...checkoutDependencies}
         />
       ) : null}
 

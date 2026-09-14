@@ -172,12 +172,13 @@ describe('encaissement et impression', () => {
       .mockResolvedValue(success)
     const lifecycle = createLifecycle({ ...printPreviewOrder, paymentMethod: 'cash' })
     const requestResponsibleAccess = vi.fn().mockResolvedValue(true)
+    const onNewOrder = vi.fn()
 
     render(
       <CheckoutFlow
         items={printPreviewOrder.items}
         onCancel={vi.fn()}
-        onNewOrder={vi.fn()}
+        onNewOrder={onNewOrder}
         printOrder={printOrder}
         createOrder={createOrder}
         lifecycle={lifecycle}
@@ -197,6 +198,12 @@ describe('encaissement et impression', () => {
     await act(async () => finishPersistence?.())
     await waitFor(() => expect(printOrder).toHaveBeenCalledOnce())
     expect(lifecycle.beginPrinting).toHaveBeenCalledOnce()
+    const deferPrinting = screen.getByRole('button', {
+      name: 'Mettre en attente et nouvelle commande',
+    })
+    expect(deferPrinting).toBeDisabled()
+    fireEvent.click(deferPrinting)
+    expect(onNewOrder).not.toHaveBeenCalled()
 
     await act(async () => finishFirstPrint?.(success))
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
@@ -212,6 +219,9 @@ describe('encaissement et impression', () => {
     expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
     expect(createOrder).toHaveBeenCalledOnce()
     expect(requestResponsibleAccess).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+    ).not.toBeInTheDocument()
   })
 
   it('demande le mode responsable avant de dupliquer un ticket client terminé', async () => {
@@ -272,13 +282,21 @@ describe('encaissement et impression', () => {
     expect(printOrder).not.toHaveBeenCalled()
     expect(lifecycle.beginPrinting).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Encaisser et imprimer' })).toBeEnabled()
+    expect(
+      screen.queryByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+    ).not.toBeInTheDocument()
   })
 
-  it('ne lance pas l’imprimante si l’état de reprise ne peut pas être sauvegardé', async () => {
-    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
-    const printOrder = vi.fn()
+  it('ne propose la mise en attente qu’après la persistance confirmée', async () => {
+    let finishPersistence: ((order: typeof printPreviewOrder) => void) | undefined
+    const createOrder = vi.fn(
+      () =>
+        new Promise<typeof printPreviewOrder>((resolve) => {
+          finishPersistence = resolve
+        }),
+    )
+    const printOrder = vi.fn().mockRejectedValue(new Error('Imprimante déconnectée'))
     const lifecycle = createLifecycle()
-    lifecycle.beginPrinting.mockRejectedValueOnce(new Error('Écriture impossible'))
 
     render(
       <CheckoutFlow
@@ -295,11 +313,152 @@ describe('encaissement et impression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
     expect(
+      screen.queryByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+    ).not.toBeInTheDocument()
+
+    await act(async () => finishPersistence?.(printPreviewOrder))
+    await screen.findByText(/Commande A-0001 enregistrée. Imprimante déconnectée/)
+
+    expect(
+      screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+    ).toBeEnabled()
+  })
+
+  it('ne lance pas l’imprimante si l’état de reprise ne peut pas être sauvegardé', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi.fn()
+    const lifecycle = createLifecycle()
+    const onNewOrder = vi.fn()
+    lifecycle.beginPrinting.mockRejectedValueOnce(new Error('Écriture impossible'))
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={onNewOrder}
+        printOrder={printOrder}
+        createOrder={createOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+
+    expect(
       await screen.findByText(
         'Commande A-0001 enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.',
       ),
     ).toBeInTheDocument()
     expect(printOrder).not.toHaveBeenCalled()
+    expect(lifecycle.failPrinting).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+    ).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+    expect(onNewOrder).toHaveBeenCalledOnce()
+    expect(createOrder).toHaveBeenCalledOnce()
+    expect(lifecycle.beginPrinting).toHaveBeenCalledOnce()
+    expect(lifecycle.completePrinting).not.toHaveBeenCalled()
+    expect(lifecycle.failPrinting).not.toHaveBeenCalled()
+  })
+
+  it('met une impression échouée en attente sans recréer ni modifier la vente', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi.fn().mockRejectedValue(new Error('Imprimante déconnectée'))
+    const lifecycle = createLifecycle()
+    const onNewOrder = vi.fn()
+    const onOrderUpdated = vi.fn()
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={onNewOrder}
+        onOrderUpdated={onOrderUpdated}
+        printOrder={printOrder}
+        createOrder={createOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+
+    await screen.findByText(/Commande A-0001 enregistrée. Imprimante déconnectée/)
+    expect(
+      screen.getByText('Paiement enregistré · impression échouée à reprendre'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Ticket client : échec — à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Attention : le ticket de préparation n’a pas été imprimé.',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    const confirmation = screen.getByRole('dialog', {
+      name: 'Mettre l’impression en attente ?',
+    })
+    const confirm = screen.getByRole('button', { name: 'Mettre en attente' })
+    expect(confirmation).toHaveAttribute('aria-modal', 'true')
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    expect(onNewOrder).toHaveBeenCalledOnce()
+    expect(createOrder).toHaveBeenCalledOnce()
+    expect(lifecycle.beginPrinting).toHaveBeenCalledOnce()
+    expect(lifecycle.failPrinting).toHaveBeenCalledOnce()
+    expect(lifecycle.completePrinting).not.toHaveBeenCalled()
+    expect(onOrderUpdated).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: printPreviewOrder.id,
+        orderNumber: printPreviewOrder.orderNumber,
+        receiptNumber: printPreviewOrder.receiptNumber,
+        terminal: printPreviewOrder.terminal,
+        paymentMethod: printPreviewOrder.paymentMethod,
+        createdAt: printPreviewOrder.createdAt,
+        paidAt: printPreviewOrder.paidAt,
+      }),
+    )
+  })
+
+  it('diffère sans confirmation un échec du ticket client seul et bloque le double appui', () => {
+    const customerOnlyFailure = {
+      ...structuredClone(printPreviewOrder),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'partial' as const,
+        customerReceipt: 'failed' as const,
+        preparationTicket: 'printed' as const,
+      },
+    }
+    const onNewOrder = vi.fn()
+    const lifecycle = createLifecycle(customerOnlyFailure)
+
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={customerOnlyFailure}
+        onCancel={vi.fn()}
+        onNewOrder={onNewOrder}
+        printOrder={vi.fn()}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    const deferPrinting = screen.getByRole('button', {
+      name: 'Mettre en attente et nouvelle commande',
+    })
+    fireEvent.click(deferPrinting)
+    fireEvent.click(deferPrinting)
+
+    expect(onNewOrder).toHaveBeenCalledOnce()
+    expect(
+      screen.queryByRole('dialog', { name: 'Mettre l’impression en attente ?' }),
+    ).not.toBeInTheDocument()
+    expect(lifecycle.beginPrinting).not.toHaveBeenCalled()
+    expect(lifecycle.completePrinting).not.toHaveBeenCalled()
     expect(lifecycle.failPrinting).not.toHaveBeenCalled()
   })
 
@@ -381,6 +540,67 @@ describe('encaissement et impression', () => {
     expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
   })
 
+  it('conserve un ticket client imprimé pendant la mise en attente puis reprend seulement la préparation', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new OrderPrintError('Ticket de préparation interrompu.', 'preparationTicket'),
+      )
+      .mockResolvedValue({ ...success, completedDocuments: ['preparationTicket'] })
+    const lifecycle = createLifecycle()
+    const onNewOrder = vi.fn()
+    const onOrderUpdated = vi.fn()
+    const firstRender = render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={onNewOrder}
+        onOrderUpdated={onOrderUpdated}
+        printOrder={printOrder}
+        createOrder={createOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    await screen.findByText('Ticket client : imprimé')
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+
+    const deferredOrder = onOrderUpdated.mock.calls.at(-1)?.[0] as typeof printPreviewOrder
+    expect(deferredOrder.printing).toMatchObject({
+      status: 'partial',
+      customerReceipt: 'printed',
+      preparationTicket: 'failed',
+    })
+    firstRender.unmount()
+
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={deferredOrder}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        onOrderUpdated={onOrderUpdated}
+        printOrder={printOrder}
+        createOrder={createOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+    await screen.findByRole('heading', { name: 'Commande validée' })
+
+    expect(printOrder.mock.calls[1]?.[0]).toMatchObject({
+      id: printPreviewOrder.id,
+      orderNumber: printPreviewOrder.orderNumber,
+      receiptNumber: printPreviewOrder.receiptNumber,
+    })
+    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(createOrder).toHaveBeenCalledOnce()
+  })
+
   it('conserve une préparation partiellement transmise comme inconnue et bloque la reprise automatique', async () => {
     const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
     const printOrder = vi
@@ -459,6 +679,58 @@ describe('encaissement et impression', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ticket client' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Préparation' })).toBeInTheDocument()
+  })
+
+  it('permet de différer un état inconnu puis exige toujours une reprise explicite', async () => {
+    const unknownOrder = {
+      ...structuredClone(printPreviewOrder),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'unknown' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'unknown' as const,
+      },
+    }
+    const printOrder = vi.fn()
+    const lifecycle = createLifecycle(unknownOrder)
+    const onNewOrder = vi.fn()
+    const firstRender = render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={unknownOrder}
+        onCancel={vi.fn()}
+        onNewOrder={onNewOrder}
+        printOrder={printOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+    expect(onNewOrder).toHaveBeenCalledOnce()
+    expect(printOrder).not.toHaveBeenCalled()
+    expect(lifecycle.beginPrinting).not.toHaveBeenCalled()
+    expect(lifecycle.failPrinting).not.toHaveBeenCalled()
+    expect(lifecycle.completePrinting).not.toHaveBeenCalled()
+    firstRender.unmount()
+
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={unknownOrder}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
+
+    expect(printOrder).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Vérifier les tickets' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Ticket de préparation : à vérifier avant réimpression'),
+    ).toBeInTheDocument()
   })
 
   it('reprend la préparation après réouverture et plusieurs échecs sans réimprimer le client', async () => {
@@ -549,13 +821,14 @@ describe('encaissement et impression', () => {
     const order = await service.createOrder(printPreviewOrder.items, 'card')
     vi.spyOn(service, 'completePrinting').mockRejectedValueOnce(new Error('Stockage indisponible'))
     const printOrder = vi.fn().mockResolvedValue(success)
+    const onNewOrder = vi.fn()
     render(
       <CheckoutFlow
         items={[]}
         initialOrder={order}
         lifecycle={service}
         onCancel={vi.fn()}
-        onNewOrder={vi.fn()}
+        onNewOrder={onNewOrder}
         printOrder={printOrder}
       />,
     )
@@ -565,6 +838,10 @@ describe('encaissement et impression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
     expect(printOrder).toHaveBeenCalledOnce()
     expect(screen.getByText(/L’état de certains tickets est incertain/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+    expect(onNewOrder).toHaveBeenCalledOnce()
+    expect((await service.getRecoverableOrders())[0]?.printing.status).toBe('unknown')
     await repository.close()
   })
 

@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
+import type { PrintJobResult } from '../printing/types'
 import { useCartStore } from '../store/cartStore'
+import type { Order } from '../types/order'
 import { App } from './App'
 import {
   LocalStorageTerminalConfigurationRepository,
@@ -11,6 +13,56 @@ import {
   LocalStorageResponsibleCredentialRepository,
   ResponsibleModeService,
 } from '../services/responsibleModeService'
+
+const printSuccess: PrintJobResult = {
+  ok: true,
+  bytesWritten: 100,
+  completedDocuments: ['preparationTicket'],
+  warnings: [],
+}
+
+function failedPrintingLifecycle(orders: Order[]) {
+  const ordersById = new Map(orders.map((order) => [order.id, order]))
+  return {
+    beginPrinting: vi.fn(async (id: string) => {
+      const order = ordersById.get(id)!
+      return {
+        ...order,
+        printing: {
+          ...order.printing,
+          status: 'unknown' as const,
+          customerReceipt:
+            order.printing.customerReceipt === 'not_requested'
+              ? ('not_requested' as const)
+              : ('unknown' as const),
+          preparationTicket: 'unknown' as const,
+          attempts: order.printing.attempts + 1,
+        },
+      }
+    }),
+    completePrinting: vi.fn(),
+    failPrinting: vi.fn(
+      async (id: string, _selection: unknown, _completed: unknown, message: string) => {
+        const order = ordersById.get(id)!
+        const failed = {
+          ...order,
+          printing: {
+            ...order.printing,
+            status: 'failed' as const,
+            customerReceipt:
+              order.printing.customerReceipt === 'not_requested'
+                ? ('not_requested' as const)
+                : ('failed' as const),
+            preparationTicket: 'failed' as const,
+            lastError: message,
+          },
+        }
+        ordersById.set(id, failed)
+        return failed
+      },
+    ),
+  }
+}
 
 describe('caisse', () => {
   beforeEach(() => {
@@ -304,6 +356,190 @@ describe('caisse', () => {
     expect(
       within(checkout).getByRole('button', { name: 'Reprendre l’impression' }),
     ).toBeInTheDocument()
+  })
+
+  it('vide le panier après une vente mise en attente et conserve sa bannière de reprise', async () => {
+    const failedOrder = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'failed' as const,
+        customerReceipt: 'failed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi.fn().mockRejectedValue(new Error('Imprimante déconnectée'))
+    const lifecycle = failedPrintingLifecycle([failedOrder])
+    const loadRecoverableOrders = vi.fn().mockResolvedValue([])
+
+    render(
+      <App
+        loadRecoverableOrders={loadRecoverableOrders}
+        checkoutDependencies={{ createOrder, printOrder, lifecycle }}
+      />,
+    )
+    await waitFor(() => expect(loadRecoverableOrders).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+
+    await screen.findByText(/Commande A-0001 enregistrée. Imprimante déconnectée/)
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+
+    expect(screen.getByText('Commande vide')).toBeInTheDocument()
+    expect(screen.getByText('1 impression(s) à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Commande A-0001 payée et enregistrée')).toBeInTheDocument()
+    expect(createOrder).toHaveBeenCalledOnce()
+  })
+
+  it('conserve plusieurs ventes mises en attente et leurs numéros distincts', async () => {
+    const orderA = { ...structuredClone(printPreviewOrder), id: 'order-a' }
+    const orderB = {
+      ...structuredClone(printPreviewOrder),
+      id: 'order-b',
+      orderNumber: 'A-0002',
+      receiptNumber: 'R-A-20260901-0002',
+      createdAt: '2026-09-01T18:16:00.000Z',
+      paidAt: '2026-09-01T18:16:00.000Z',
+    }
+    const failedOrders = [orderA, orderB].map((order) => ({
+      ...order,
+      printing: {
+        ...order.printing,
+        status: 'failed' as const,
+        customerReceipt: 'failed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }))
+    const createOrder = vi.fn().mockResolvedValueOnce(orderA).mockResolvedValueOnce(orderB)
+    const printOrder = vi.fn().mockRejectedValue(new Error('Imprimante déconnectée'))
+    const lifecycle = failedPrintingLifecycle(failedOrders)
+
+    render(
+      <App
+        loadRecoverableOrders={async () => []}
+        checkoutDependencies={{ createOrder, printOrder, lifecycle }}
+      />,
+    )
+
+    for (let sale = 0; sale < 2; sale += 1) {
+      fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+      fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+      fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+      await screen.findByText(/enregistrée. Imprimante déconnectée/)
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+    }
+
+    expect(screen.getByText('2 impression(s) à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Commande A-0001 payée et enregistrée')).toBeInTheDocument()
+    expect(createOrder).toHaveBeenCalledTimes(2)
+    expect(new Set(failedOrders.map((order) => order.id))).toEqual(new Set(['order-a', 'order-b']))
+  })
+
+  it('retire une reprise réussie et propose immédiatement la suivante sans recréer de vente', async () => {
+    const orderA = {
+      ...structuredClone(printPreviewOrder),
+      id: 'order-a',
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'partial' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }
+    const orderB = {
+      ...structuredClone(orderA),
+      id: 'order-b',
+      orderNumber: 'A-0002',
+      receiptNumber: 'R-A-20260901-0002',
+      createdAt: '2026-09-01T18:16:00.000Z',
+      paidAt: '2026-09-01T18:16:00.000Z',
+    }
+    const startedOrder = {
+      ...orderA,
+      printing: {
+        ...orderA.printing,
+        status: 'unknown' as const,
+        preparationTicket: 'unknown' as const,
+      },
+    }
+    const printedOrder = {
+      ...orderA,
+      printing: {
+        ...orderA.printing,
+        status: 'printed' as const,
+        preparationTicket: 'printed' as const,
+      },
+    }
+    const createOrder = vi.fn()
+    const lifecycle = {
+      beginPrinting: vi.fn().mockResolvedValue(startedOrder),
+      completePrinting: vi.fn().mockResolvedValue(printedOrder),
+      failPrinting: vi.fn(),
+    }
+
+    render(
+      <App
+        loadRecoverableOrders={async () => [orderA, orderB]}
+        checkoutDependencies={{
+          createOrder,
+          lifecycle,
+          printOrder: vi.fn().mockResolvedValue(printSuccess),
+        }}
+      />,
+    )
+
+    expect(await screen.findByText('2 impression(s) à reprendre')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Encaissement' })).getByRole('button', {
+        name: 'Reprendre l’impression',
+      }),
+    )
+    await screen.findByRole('heading', { name: 'Commande validée' })
+    fireEvent.click(screen.getByRole('button', { name: 'Nouvelle commande' }))
+
+    expect(screen.getByText('1 impression(s) à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Commande A-0002 payée et enregistrée')).toBeInTheDocument()
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('préserve le panier courant en mettant en attente la reprise d’une ancienne commande', async () => {
+    const partialOrder = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'partial' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }
+
+    render(<App loadRecoverableOrders={async () => [partialOrder]} />)
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+    expect(await screen.findByText('1 impression(s) à reprendre')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Encaissement' })).getByRole('button', {
+        name: 'Mettre en attente et nouvelle commande',
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
+
+    expect(
+      within(screen.getByLabelText('Commande en cours')).getByText('Omelette'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('1 impression(s) à reprendre')).toBeInTheDocument()
   })
 
   it('consulte une ancienne commande sans modifier la commande active', async () => {
