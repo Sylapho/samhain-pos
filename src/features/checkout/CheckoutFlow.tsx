@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import {
   getCompletedDocumentsFromPrintError,
   getUnknownDocumentsFromPrintError,
+  isProtectedCustomerReprint,
   printOrderTickets,
   type PrintOrderOptions,
 } from '../../printing/orderPrintService'
@@ -24,6 +25,7 @@ type Props = {
   lifecycle?: typeof persistedOrderLifecycle
   initialOrder?: Order
   onOrderUpdated?: (order: Order) => void
+  requestResponsibleAccess?: () => Promise<boolean>
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
@@ -43,6 +45,7 @@ export function CheckoutFlow({
   lifecycle = persistedOrderLifecycle,
   initialOrder,
   onOrderUpdated,
+  requestResponsibleAccess = async () => true,
 }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(
     initialOrder?.paymentMethod ?? null,
@@ -56,6 +59,7 @@ export function CheckoutFlow({
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const printingRef = useRef(false)
+  const authorizingRef = useRef(false)
   const displayedItems = order?.items ?? items
   const totalCents = displayedItems.reduce(
     (total, item) => total + item.unitPriceCents * item.quantity,
@@ -242,13 +246,19 @@ export function CheckoutFlow({
     })()
   }
 
-  const reprint = (selection: PrintSelection) => {
+  const reprint = async (selection: PrintSelection) => {
     if (!order) return
-    void runPrint(
-      order,
-      { selection, printCustomerReceipt: true, reprint: true },
-      order.printing.status !== 'printed',
-    )
+    const options = { selection, printCustomerReceipt: true, reprint: true } as const
+    if (isProtectedCustomerReprint(order, options)) {
+      if (authorizingRef.current) return
+      authorizingRef.current = true
+      try {
+        if (!(await requestResponsibleAccess())) return
+      } finally {
+        authorizingRef.current = false
+      }
+    }
+    await runPrint(order, options, order.printing.status !== 'printed')
   }
 
   return (
@@ -398,13 +408,13 @@ export function CheckoutFlow({
                 Réimpression — conserve les mêmes numéros
               </p>
               <div className="grid gap-2 sm:grid-cols-3">
-                <Button disabled={busy} onClick={() => reprint('both')}>
+                <Button disabled={busy} onClick={() => void reprint('both')}>
                   Les deux
                 </Button>
-                <Button disabled={busy} onClick={() => reprint('customer')}>
+                <Button disabled={busy} onClick={() => void reprint('customer')}>
                   Ticket client
                 </Button>
-                <Button disabled={busy} onClick={() => reprint('preparation')}>
+                <Button disabled={busy} onClick={() => void reprint('preparation')}>
                   Préparation
                 </Button>
               </div>

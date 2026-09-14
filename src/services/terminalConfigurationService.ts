@@ -4,6 +4,7 @@ import type {
   TerminalProvisioningInput,
 } from '../types/terminal'
 import { terminalCodes } from '../types/terminal'
+import { getResponsibleModeService } from './responsibleModeService'
 
 const TERMINAL_CONFIGURATION_KEY = 'samhain-pos.terminal-configuration.v1'
 
@@ -36,6 +37,8 @@ export class TerminalConfigurationService {
   constructor(
     private readonly repository: TerminalConfigurationRepository,
     private readonly createId: () => string = () => globalThis.crypto.randomUUID(),
+    private readonly requireResponsibleMode: () => void = () =>
+      getResponsibleModeService().requireUnlocked(),
   ) {}
 
   getConfiguration(): TerminalConfiguration | null {
@@ -60,6 +63,7 @@ export class TerminalConfigurationService {
   }
 
   rename(displayName: string): TerminalConfiguration {
+    this.requireResponsibleMode()
     const current = this.getRequiredConfiguration()
     const configuration = { ...current, displayName: normalizeDisplayName(displayName) }
     this.repository.save(configuration)
@@ -67,6 +71,7 @@ export class TerminalConfigurationService {
   }
 
   reprovision(input: TerminalProvisioningInput, provisionedAt = new Date()): TerminalConfiguration {
+    this.requireResponsibleMode()
     this.getRequiredConfiguration()
     return this.saveNewIdentity(input, provisionedAt)
   }

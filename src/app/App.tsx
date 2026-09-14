@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../components/ui/Button'
 import { CartPanel } from '../features/cart/CartPanel'
 import { CategoryTabs } from '../features/catalog/CategoryTabs'
@@ -7,12 +7,14 @@ import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
+import { ResponsibleModeDialog } from '../features/responsible/ResponsibleModeDialog'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
+import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
 import {
   getTerminalConfiguration,
   provisionTerminal,
@@ -36,6 +38,7 @@ type Props = {
     rename: (displayName: string) => TerminalConfiguration
     reprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
   }
+  responsibleMode?: ResponsibleMode
 }
 
 const defaultTerminalManagement = {
@@ -50,6 +53,7 @@ export function App({
   loadOrders = getPersistedOrders,
   probePrinterStatus,
   terminalManagement = defaultTerminalManagement,
+  responsibleMode = getResponsibleModeService(),
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
@@ -67,6 +71,10 @@ export function App({
     }
   })
   const [terminalConfigurationOpen, setTerminalConfigurationOpen] = useState(false)
+  const [responsibleRequest, setResponsibleRequest] = useState<{
+    requireSetup: boolean
+    resolve?: (authorized: boolean) => void
+  } | null>(null)
   const terminalConfiguration = terminalState.configuration
   const terminalConfigurationError = terminalState.error
   const setTerminalConfiguration = (configuration: TerminalConfiguration) =>
@@ -83,6 +91,28 @@ export function App({
   const items = useCartStore((state) => state.items)
   const addItem = useCartStore((state) => state.addItem)
   const clearCart = useCartStore((state) => state.clearCart)
+
+  const requestResponsibleAccess = useCallback((): Promise<boolean> => {
+    try {
+      responsibleMode.requireUnlocked()
+      return Promise.resolve(true)
+    } catch {
+      return new Promise((resolve) => {
+        setResponsibleRequest({ requireSetup: false, resolve })
+      })
+    }
+  }, [responsibleMode])
+
+  useEffect(() => {
+    const lockWhenHidden = () => {
+      if (document.visibilityState === 'hidden') {
+        responsibleMode.lock()
+        setTerminalConfigurationOpen(false)
+      }
+    }
+    document.addEventListener('visibilitychange', lockWhenHidden)
+    return () => document.removeEventListener('visibilitychange', lockWhenHidden)
+  }, [responsibleMode])
 
   useEffect(() => {
     if (!terminalConfiguration) return
@@ -178,7 +208,12 @@ export function App({
         onProvision={terminalManagement.provision}
         onRename={terminalManagement.rename}
         onReprovision={terminalManagement.reprovision}
-        onConfigured={setTerminalConfiguration}
+        onConfigured={(configuration) => {
+          setTerminalConfiguration(configuration)
+          if (!responsibleMode.hasCredential()) {
+            setResponsibleRequest({ requireSetup: true })
+          }
+        }}
       />
     )
   }
@@ -192,7 +227,11 @@ export function App({
             type="button"
             className="min-h-11 border-l border-stone-600 pl-3 text-left text-sm font-bold text-stone-200 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white"
             aria-label={`Configurer ${terminalConfiguration.displayName}`}
-            onClick={() => setTerminalConfigurationOpen(true)}
+            onClick={() => {
+              void requestResponsibleAccess().then((authorized) => {
+                if (authorized) setTerminalConfigurationOpen(true)
+              })
+            }}
           >
             {terminalConfiguration.displayName}
             <span className="block text-xs text-stone-400">
@@ -294,14 +333,19 @@ export function App({
           onNewOrder={startNewOrder}
           initialOrder={resumingOrder ?? undefined}
           onOrderUpdated={updateRecoveryOrder}
+          requestResponsibleAccess={requestResponsibleAccess}
         />
       ) : null}
 
       {historyOpen ? (
         <OrderHistory
-          onClose={() => setHistoryOpen(false)}
+          onClose={() => {
+            setHistoryOpen(false)
+            responsibleMode.lock()
+          }}
           loadOrders={loadOrders}
           onOrderUpdated={updateRecoveryOrder}
+          requestResponsibleAccess={requestResponsibleAccess}
         />
       ) : null}
 
@@ -314,8 +358,27 @@ export function App({
           onConfigured={(configuration) => {
             setTerminalConfiguration(configuration)
             setTerminalConfigurationOpen(false)
+            responsibleMode.lock()
           }}
-          onClose={() => setTerminalConfigurationOpen(false)}
+          onClose={() => {
+            setTerminalConfigurationOpen(false)
+            responsibleMode.lock()
+          }}
+        />
+      ) : null}
+
+      {responsibleRequest ? (
+        <ResponsibleModeDialog
+          responsibleMode={responsibleMode}
+          requireSetup={responsibleRequest.requireSetup}
+          onUnlocked={() => {
+            responsibleRequest.resolve?.(true)
+            setResponsibleRequest(null)
+          }}
+          onCancel={() => {
+            responsibleRequest.resolve?.(false)
+            setResponsibleRequest(null)
+          }}
         />
       ) : null}
     </div>

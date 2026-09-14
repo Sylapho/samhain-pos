@@ -86,7 +86,7 @@ describe('orchestration d’impression', () => {
       completedDocuments: ['customerReceipt'],
       warnings: [],
     })
-    const service = new OrderPrintService({ printJob })
+    const service = new OrderPrintService({ printJob }, () => {})
     const order = {
       ...printPreviewOrder,
       printing: {
@@ -127,6 +127,48 @@ describe('orchestration d’impression', () => {
       warnings: [],
     })
     await service.printOrder(order, { selection: 'preparation', reprint: true })
+    expect(printJob).toHaveBeenCalledOnce()
+  })
+
+  it('refuse une duplication client terminée avant tout appel au transport', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>()
+    const requireResponsibleMode = vi.fn(() => {
+      throw new Error('Mode responsable requis pour cette opération.')
+    })
+    const service = new OrderPrintService({ printJob }, requireResponsibleMode)
+    const order = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'printed' as const,
+      },
+    }
+
+    await expect(service.printOrder(order, { selection: 'both', reprint: true })).rejects.toThrow(
+      /Mode responsable requis/,
+    )
+    expect(requireResponsibleMode).toHaveBeenCalledOnce()
+    expect(printJob).not.toHaveBeenCalled()
+  })
+
+  it('ne protège pas la reprise d’un ticket client échoué', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>().mockResolvedValue({
+      ok: true,
+      bytesWritten: 50,
+      completedDocuments: ['customerReceipt'],
+      warnings: [],
+    })
+    const requireResponsibleMode = vi.fn()
+    const service = new OrderPrintService({ printJob }, requireResponsibleMode)
+    const order = {
+      ...printPreviewOrder,
+      printing: { ...printPreviewOrder.printing, customerReceipt: 'failed' as const },
+    }
+
+    await service.printOrder(order, { selection: 'customer', reprint: true })
+    expect(requireResponsibleMode).not.toHaveBeenCalled()
     expect(printJob).toHaveBeenCalledOnce()
   })
 })

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { useCartStore } from '../store/cartStore'
@@ -7,6 +7,10 @@ import {
   LocalStorageTerminalConfigurationRepository,
   TerminalConfigurationService,
 } from '../services/terminalConfigurationService'
+import {
+  LocalStorageResponsibleCredentialRepository,
+  ResponsibleModeService,
+} from '../services/responsibleModeService'
 
 describe('caisse', () => {
   beforeEach(() => {
@@ -29,7 +33,7 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Annuler la commande' })).toBeDisabled()
   })
 
-  it('bloque la caisse sur le provisioning initial quand la tablette est vierge', () => {
+  it('enchaîne le provisioning initial avec la création obligatoire du PIN responsable', async () => {
     const configured = {
       terminalId: 'terminal-c',
       terminalCode: 'C' as const,
@@ -37,6 +41,9 @@ describe('caisse', () => {
       provisionedAt: '2026-09-10T10:00:00.000Z',
     }
     const provision = vi.fn().mockReturnValue(configured)
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
 
     render(
       <App
@@ -46,6 +53,7 @@ describe('caisse', () => {
           rename: vi.fn(),
           reprovision: vi.fn(),
         }}
+        responsibleMode={responsibleMode}
       />,
     )
 
@@ -55,7 +63,56 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configurer la tablette' }))
 
     expect(provision).toHaveBeenCalledWith({ terminalCode: 'C', displayName: 'Caisse C' })
+    expect(
+      screen.getByRole('dialog', { name: 'Configurer le mode responsable' }),
+    ).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Nouveau PIN'), { target: { value: '4826' } })
+    fireEvent.change(screen.getByLabelText('Confirmer le PIN'), { target: { value: '4826' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Créer le PIN' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Configurer le mode responsable' }),
+      ).not.toBeInTheDocument(),
+    )
     expect(screen.getByRole('button', { name: 'Configurer Caisse C' })).toHaveTextContent('Code C')
+  })
+
+  it('demande le mode responsable avant d’ouvrir la configuration existante', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+    responsibleMode.lock()
+
+    render(<App responsibleMode={responsibleMode} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
+
+    expect(screen.getByRole('dialog', { name: 'Mode responsable' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: 'Configuration de la caisse' }),
+    ).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('PIN responsable'), { target: { value: '4826' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
+    expect(
+      await screen.findByRole('dialog', { name: 'Configuration de la caisse' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(responsibleMode.isUnlocked()).toBe(false)
+  })
+
+  it('laisse encaisser une ancienne installation sans PIN mais impose sa configuration pour administrer', () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    render(<App responsibleMode={responsibleMode} />)
+
+    expect(screen.getByRole('button', { name: 'Valider la commande' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /Mode responsable/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
+    expect(
+      screen.getByRole('dialog', { name: 'Configurer le mode responsable' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Annuler' })).toBeInTheDocument()
   })
 
   it('n’annonce pas l’imprimante prête avant la fin de la vérification réelle', async () => {
@@ -197,6 +254,7 @@ describe('caisse', () => {
     expect(screen.getByText('Dessert : Glace')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
     expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /Mode responsable/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Carte bancaire' })).toHaveAttribute(
       'aria-pressed',
       'false',

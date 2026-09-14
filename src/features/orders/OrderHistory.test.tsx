@@ -184,7 +184,7 @@ describe('historique des commandes', () => {
     fireEvent.click(reprintButton)
     fireEvent.click(reprintButton)
 
-    expect(printOrder).toHaveBeenCalledOnce()
+    await waitFor(() => expect(printOrder).toHaveBeenCalledOnce())
     const closeButton = screen.getByRole('button', { name: 'Fermer' })
     expect(closeButton).toBeDisabled()
     expect(screen.getByRole('button', { name: /Commande A-0001,/ })).toBeDisabled()
@@ -230,5 +230,94 @@ describe('historique des commandes', () => {
       await screen.findByText(/Aucun ticket n’a été lancé car l’état de reprise/),
     ).toBeInTheDocument()
     expect(printOrder).not.toHaveBeenCalled()
+  })
+
+  it.each(['Ticket client', 'Les deux tickets'])(
+    'demande le mode responsable avant « %s » quand le ticket client est déjà imprimé',
+    async (buttonName) => {
+      const printOrder = vi.fn()
+      const requestResponsibleAccess = vi.fn().mockResolvedValue(false)
+      render(
+        <OrderHistory
+          onClose={vi.fn()}
+          loadOrders={async () => [printedOrder]}
+          printOrder={printOrder}
+          requestResponsibleAccess={requestResponsibleAccess}
+        />,
+      )
+
+      await screen.findByRole('heading', { name: 'Commande A-0001' })
+      fireEvent.click(screen.getByRole('button', { name: buttonName }))
+
+      await waitFor(() => expect(requestResponsibleAccess).toHaveBeenCalledOnce())
+      expect(printOrder).not.toHaveBeenCalled()
+    },
+  )
+
+  it('imprime exactement une fois après une autorisation responsable réussie', async () => {
+    const printOrder = vi.fn().mockResolvedValue(success)
+    const requestResponsibleAccess = vi.fn().mockResolvedValue(true)
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        printOrder={printOrder}
+        requestResponsibleAccess={requestResponsibleAccess}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+
+    await screen.findByText('Réimpression terminée pour la commande A-0001.')
+    expect(requestResponsibleAccess).toHaveBeenCalledOnce()
+    expect(printOrder).toHaveBeenCalledOnce()
+  })
+
+  it('reprend un ticket client échoué sans demander le mode responsable', async () => {
+    const failedOrder = {
+      ...printedOrder,
+      printing: {
+        ...printedOrder.printing,
+        status: 'failed' as const,
+        customerReceipt: 'failed' as const,
+      },
+    }
+    const startedOrder = {
+      ...failedOrder,
+      printing: { ...failedOrder.printing, customerReceipt: 'unknown' as const },
+    }
+    const completedOrder = {
+      ...failedOrder,
+      printing: {
+        ...failedOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'printed' as const,
+      },
+    }
+    const lifecycle = {
+      beginPrinting: vi.fn().mockResolvedValue(startedOrder),
+      completePrinting: vi.fn().mockResolvedValue(completedOrder),
+      failPrinting: vi.fn(),
+    }
+    const requestResponsibleAccess = vi.fn()
+    const printOrder = vi.fn().mockResolvedValue(success)
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [failedOrder]}
+        printOrder={printOrder}
+        lifecycle={lifecycle}
+        requestResponsibleAccess={requestResponsibleAccess}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+
+    await screen.findByText('Réimpression terminée pour la commande A-0001.')
+    expect(requestResponsibleAccess).not.toHaveBeenCalled()
+    expect(lifecycle.beginPrinting).toHaveBeenCalledOnce()
+    expect(printOrder).toHaveBeenCalledOnce()
   })
 })

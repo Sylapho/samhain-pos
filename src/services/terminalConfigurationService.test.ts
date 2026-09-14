@@ -3,6 +3,11 @@ import {
   LocalStorageTerminalConfigurationRepository,
   TerminalConfigurationService,
 } from './terminalConfigurationService'
+import {
+  LocalStorageResponsibleCredentialRepository,
+  RESPONSIBLE_MODE_IDLE_TIMEOUT_MS,
+  ResponsibleModeService,
+} from './responsibleModeService'
 
 describe('configuration persistante du terminal', () => {
   beforeEach(() => localStorage.clear())
@@ -28,6 +33,7 @@ describe('configuration persistante du terminal', () => {
     const service = new TerminalConfigurationService(
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => 'terminal-a',
+      () => {},
     )
     const initial = service.provision(
       { terminalCode: 'A', displayName: 'Caisse A' },
@@ -44,6 +50,7 @@ describe('configuration persistante du terminal', () => {
     const service = new TerminalConfigurationService(
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => `terminal-${++nextId}`,
+      () => {},
     )
     service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
 
@@ -60,6 +67,75 @@ describe('configuration persistante du terminal', () => {
       terminalCode: 'B',
       displayName: 'Caisse B',
       provisionedAt: '2026-09-02T10:00:00.000Z',
+    })
+  })
+
+  it('refuse le reprovisionnement avant tout effet lorsque le mode responsable est verrouillé', () => {
+    const repository = new LocalStorageTerminalConfigurationRepository(localStorage)
+    const initialService = new TerminalConfigurationService(repository, () => 'terminal-a')
+    const initial = initialService.provision({ terminalCode: 'A', displayName: 'Caisse A' })
+    let idCalls = 0
+    const locked = new TerminalConfigurationService(
+      repository,
+      () => {
+        idCalls += 1
+        return 'terminal-b'
+      },
+      () => {
+        throw new Error('Mode responsable requis pour cette opération.')
+      },
+    )
+
+    expect(() => locked.reprovision({ terminalCode: 'B', displayName: 'Caisse B' })).toThrow(
+      /Mode responsable requis/,
+    )
+    expect(() => locked.rename('Caisse accueil')).toThrow(/Mode responsable requis/)
+    expect(idCalls).toBe(0)
+    expect(repository.get()).toEqual(initial)
+  })
+
+  it('refuse le reprovisionnement après expiration de la session responsable', async () => {
+    let now = 1_000
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+      globalThis.crypto,
+      () => now,
+    )
+    const service = new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => 'terminal-b',
+      () => responsibleMode.requireUnlocked(),
+    )
+    service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
+    await responsibleMode.setupPin('4826', '4826')
+    now += RESPONSIBLE_MODE_IDLE_TIMEOUT_MS + 1
+
+    expect(() => service.reprovision({ terminalCode: 'B', displayName: 'Caisse B' })).toThrow(
+      /expiré/,
+    )
+    expect(service.getRequiredConfiguration()).toMatchObject({
+      terminalId: 'terminal-b',
+      terminalCode: 'A',
+    })
+  })
+
+  it('reprovisionne après un déverrouillage responsable réussi', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    let nextId = 0
+    const service = new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => `terminal-${++nextId}`,
+      () => responsibleMode.requireUnlocked(),
+    )
+    service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
+    await responsibleMode.setupPin('4826', '4826')
+
+    expect(service.reprovision({ terminalCode: 'B', displayName: 'Caisse B' })).toMatchObject({
+      terminalId: 'terminal-2',
+      terminalCode: 'B',
+      displayName: 'Caisse B',
     })
   })
 

@@ -171,6 +171,7 @@ describe('encaissement et impression', () => {
       )
       .mockResolvedValue(success)
     const lifecycle = createLifecycle({ ...printPreviewOrder, paymentMethod: 'cash' })
+    const requestResponsibleAccess = vi.fn().mockResolvedValue(true)
 
     render(
       <CheckoutFlow
@@ -180,6 +181,7 @@ describe('encaissement et impression', () => {
         printOrder={printOrder}
         createOrder={createOrder}
         lifecycle={lifecycle}
+        requestResponsibleAccess={requestResponsibleAccess}
       />,
     )
 
@@ -209,6 +211,35 @@ describe('encaissement et impression', () => {
     )
     expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
     expect(createOrder).toHaveBeenCalledOnce()
+    expect(requestResponsibleAccess).not.toHaveBeenCalled()
+  })
+
+  it('demande le mode responsable avant de dupliquer un ticket client terminé', async () => {
+    const printedOrder = {
+      ...printPreviewOrder,
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'printed' as const,
+      },
+    }
+    const printOrder = vi.fn()
+    const requestResponsibleAccess = vi.fn().mockResolvedValue(false)
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={printedOrder}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        printOrder={printOrder}
+        requestResponsibleAccess={requestResponsibleAccess}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+    await waitFor(() => expect(requestResponsibleAccess).toHaveBeenCalledOnce())
+    expect(printOrder).not.toHaveBeenCalled()
   })
 
   it('n’imprime rien et autorise un nouvel essai si la persistance échoue', async () => {

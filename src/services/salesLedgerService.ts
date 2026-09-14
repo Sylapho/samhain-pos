@@ -15,6 +15,7 @@ import {
   verifySalesArchive,
 } from './orderRepository'
 import { getOrderDataRepository } from './orderRepositoryFactory'
+import { getResponsibleModeService } from './responsibleModeService'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 
 type LedgerDataRepository = OrderRepository & SalesLedgerRepository
@@ -27,14 +28,17 @@ export class SalesLedgerService {
     private readonly buildLedgerSource: (
       terminal: TerminalIdentity,
     ) => LedgerSource = createLedgerSource,
+    private readonly requireResponsibleMode: () => void = () =>
+      getResponsibleModeService().requireUnlocked(),
   ) {}
 
   async cancelSale(
     originalOrderId: string,
     reason: string,
-    operationId = this.createOperationId(),
+    operationId?: string,
     recordedAt = new Date(),
   ): Promise<CorrectionLedgerEntry> {
+    this.requireResponsibleMode()
     const order = (await this.repository.getOrders()).find(
       (candidate) => candidate.id === originalOrderId,
     )
@@ -44,7 +48,7 @@ export class SalesLedgerService {
       'cancellation',
       -order.totalCents,
       reason,
-      operationId,
+      operationId ?? this.createOperationId(),
       recordedAt,
     )
   }
@@ -53,9 +57,10 @@ export class SalesLedgerService {
     originalOrderId: string,
     amountCents: number,
     reason: string,
-    operationId = this.createOperationId(),
+    operationId?: string,
     recordedAt = new Date(),
   ): Promise<CorrectionLedgerEntry> {
+    this.requireResponsibleMode()
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
       throw new Error('Le montant remboursé doit être un entier positif en centimes.')
     }
@@ -64,7 +69,7 @@ export class SalesLedgerService {
       'refund',
       -amountCents,
       reason,
-      operationId,
+      operationId ?? this.createOperationId(),
       recordedAt,
     )
   }
@@ -73,15 +78,16 @@ export class SalesLedgerService {
     originalOrderId: string,
     amountDeltaCents: number,
     reason: string,
-    operationId = this.createOperationId(),
+    operationId?: string,
     recordedAt = new Date(),
   ): Promise<CorrectionLedgerEntry> {
+    this.requireResponsibleMode()
     return this.recordCorrection(
       originalOrderId,
       'adjustment',
       amountDeltaCents,
       reason,
-      operationId,
+      operationId ?? this.createOperationId(),
       recordedAt,
     )
   }
@@ -89,12 +95,13 @@ export class SalesLedgerService {
   closePeriod(
     periodStart: Date,
     periodEnd: Date,
-    operationId = this.createOperationId(),
+    operationId?: string,
     recordedAt = new Date(),
   ): Promise<ClosureLedgerEntry> {
+    this.requireResponsibleMode()
     const terminal = this.getTerminal()
     return this.repository.closePeriod({
-      operationId,
+      operationId: operationId ?? this.createOperationId(),
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
       recordedAt: recordedAt.toISOString(),
@@ -110,13 +117,11 @@ export class SalesLedgerService {
     return this.repository.verifyIntegrity()
   }
 
-  exportArchive(
-    archiveId = this.createOperationId(),
-    exportedAt = new Date(),
-  ): Promise<SalesArchive> {
+  exportArchive(archiveId?: string, exportedAt = new Date()): Promise<SalesArchive> {
+    this.requireResponsibleMode()
     const terminal = this.getTerminal()
     return this.repository.exportArchive(
-      archiveId,
+      archiveId ?? this.createOperationId(),
       exportedAt.toISOString(),
       this.buildLedgerSource(terminal),
     )
@@ -127,6 +132,7 @@ export class SalesLedgerService {
   }
 
   restoreArchive(archive: SalesArchive): Promise<ArchiveRestoreResult> {
+    this.requireResponsibleMode()
     return this.repository.restoreArchive(archive)
   }
 
