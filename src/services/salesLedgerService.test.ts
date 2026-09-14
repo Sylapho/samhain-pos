@@ -1,5 +1,5 @@
 import { IDBFactory } from 'fake-indexeddb'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { products } from '../mocks/products'
 import type { SalesArchive } from '../types/salesLedger'
@@ -32,6 +32,8 @@ function services(indexedDb: IDBFactory, databaseName: string) {
       repository,
       () => 'generated-operation',
       () => terminal,
+      undefined,
+      () => {},
     ),
   }
 }
@@ -78,6 +80,39 @@ async function seedVersionOneDatabase(indexedDb: IDBFactory, databaseName: strin
 }
 
 describe('journal local des encaissements', () => {
+  it('refuse toutes les opérations sensibles avant d’atteindre le repository', async () => {
+    const repository = {
+      getOrders: vi.fn(),
+      recordCorrection: vi.fn(),
+      closePeriod: vi.fn(),
+      exportArchive: vi.fn(),
+      restoreArchive: vi.fn(),
+    } as unknown as ConstructorParameters<typeof SalesLedgerService>[0]
+    const service = new SalesLedgerService(
+      repository,
+      vi.fn(() => 'operation-id'),
+      () => terminal,
+      undefined,
+      () => {
+        throw new Error('Mode responsable requis pour cette opération.')
+      },
+    )
+    const archive = { version: 1 } as unknown as SalesArchive
+
+    await expect(service.cancelSale('order-1', 'raison')).rejects.toThrow(/Mode responsable requis/)
+    expect(() => service.refundSale('order-1', 100, 'raison')).toThrow(/Mode responsable requis/)
+    expect(() => service.adjustSale('order-1', -100, 'raison')).toThrow(/Mode responsable requis/)
+    expect(() => service.closePeriod(new Date(0), new Date(1))).toThrow(/Mode responsable requis/)
+    expect(() => service.exportArchive()).toThrow(/Mode responsable requis/)
+    expect(() => service.restoreArchive(archive)).toThrow(/Mode responsable requis/)
+
+    expect(repository.getOrders).not.toHaveBeenCalled()
+    expect(repository.recordCorrection).not.toHaveBeenCalled()
+    expect(repository.closePeriod).not.toHaveBeenCalled()
+    expect(repository.exportArchive).not.toHaveBeenCalled()
+    expect(repository.restoreArchive).not.toHaveBeenCalled()
+  })
+
   it('scelle la vente et ne modifie que les métadonnées techniques lors de l’impression', async () => {
     const { repository, orders, ledger } = services(new IDBFactory(), 'immutable-sale')
     const order = await orders.createOrder([item], 'card', new Date('2026-09-01T10:00:00Z'))

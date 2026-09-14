@@ -4,6 +4,7 @@ import { formatTicketDateTime, paymentMethodLabels } from '../../printing/format
 import {
   getCompletedDocumentsFromPrintError,
   getUnknownDocumentsFromPrintError,
+  isProtectedCustomerReprint,
   printOrderTickets,
   type PrintOrderOptions,
 } from '../../printing/orderPrintService'
@@ -24,6 +25,7 @@ type Props = {
   printOrder?: (order: Order, options?: PrintOrderOptions) => Promise<PrintJobResult>
   lifecycle?: typeof persistedOrderLifecycle
   onOrderUpdated?: (order: Order) => void
+  requestResponsibleAccess?: () => Promise<boolean>
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
@@ -50,6 +52,7 @@ export function OrderHistory({
   printOrder = printOrderTickets,
   lifecycle = persistedOrderLifecycle,
   onOrderUpdated,
+  requestResponsibleAccess = async () => true,
 }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
@@ -97,10 +100,22 @@ export function OrderHistory({
     setPrinting(selection)
     setFeedback(null)
 
+    const options: PrintOrderOptions = {
+      selection,
+      printCustomerReceipt: true,
+      reprint: true,
+    }
+
     const trackLifecycle = selectedOrder.printing.status !== 'printed'
     let printingOrder = selectedOrder
 
     try {
+      if (
+        isProtectedCustomerReprint(selectedOrder, options) &&
+        !(await requestResponsibleAccess())
+      ) {
+        return
+      }
       if (trackLifecycle) {
         try {
           printingOrder = storeUpdatedOrder(
@@ -117,11 +132,7 @@ export function OrderHistory({
 
       let result: PrintJobResult
       try {
-        result = await printOrder(printingOrder, {
-          selection,
-          printCustomerReceipt: true,
-          reprint: true,
-        })
+        result = await printOrder(printingOrder, options)
       } catch (error) {
         const message =
           error instanceof Error

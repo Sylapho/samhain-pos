@@ -1,6 +1,7 @@
 import { assertReceiptBusinessInfoCanBePrinted } from '../config/organization'
 import { printerProfile } from '../config/printer'
 import type { Order } from '../types/order'
+import { getResponsibleModeService } from '../services/responsibleModeService'
 import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { bytesToBase64 } from './escPos'
@@ -111,9 +112,14 @@ export function buildOrderPrintJob(
 }
 
 export class OrderPrintService {
-  constructor(private readonly printer: ReceiptPrinter) {}
+  constructor(
+    private readonly printer: ReceiptPrinter,
+    private readonly requireResponsibleMode: () => void = () =>
+      getResponsibleModeService().requireUnlocked(),
+  ) {}
 
   async printOrder(order: Order, options: PrintOrderOptions = {}): Promise<PrintJobResult> {
+    if (isProtectedCustomerReprint(order, options)) this.requireResponsibleMode()
     let selectedOptions = options
     if (!options.reprint) {
       const selection = options.selection ?? 'both'
@@ -137,7 +143,15 @@ export class OrderPrintService {
   }
 }
 
-const orderPrintService = new OrderPrintService(new CapacitorReceiptPrinter())
+export function isProtectedCustomerReprint(order: Order, options: PrintOrderOptions): boolean {
+  if (!options.reprint || order.printing.customerReceipt !== 'printed') return false
+  const selection = options.selection ?? 'both'
+  return (options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')
+}
+
+const orderPrintService = new OrderPrintService(new CapacitorReceiptPrinter(), () =>
+  getResponsibleModeService().requireUnlocked(),
+)
 
 export function printOrderTickets(
   order: Order,

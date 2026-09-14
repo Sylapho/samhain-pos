@@ -12,6 +12,7 @@ Le catalogue actuellement embarqué dans `src/mocks/products.ts` reste constitu�
 - journal d’encaissement append-only avec ventes scellées, corrections liées et chaîne SHA-256 ;
 - numéros de commande et de reçu alloués dans la même transaction que la commande ;
 - historique local des commandes et réimpression avec les numéros d'origine ;
+- mode responsable local pour les opérations administratives et les duplications de ticket client ;
 - suivi indépendant du ticket client et du ticket de préparation, y compris en cas d'échec partiel ;
 - reprise prudente des impressions incomplètes après redémarrage ;
 - transport USB Android natif, permission USB et contrôle de l'état ESC/POS de l'imprimante.
@@ -21,6 +22,8 @@ Une commande confirmée n'est pas annulée par une erreur d'impression. Avant ch
 Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Room/SQLite fonctionne entièrement hors ligne ; IndexedDB reste le stockage web et la source de migration des anciennes installations Android. La migration et le versioning natifs sont détaillés dans [`docs/android-persistence.md`](docs/android-persistence.md). Il n'existe pas encore de synchronisation entre appareils ni de backend.
 
 Le journal, les clôtures et les archives vérifiables sont décrits dans [`docs/sales-ledger.md`](docs/sales-ledger.md). Cette protection technique ne vaut pas, à elle seule, attestation ou certification de conformité pour une exploitation réelle.
+
+Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hors ligne. Il n’est jamais stocké en clair : seul un dérivé PBKDF2-SHA-256 versionné, avec sel aléatoire propre à l’installation, est conservé dans le stockage local. La session déverrouillée reste exclusivement en mémoire, expire après cinq minutes d’inactivité administrative et est verrouillée lorsque l’application passe en arrière-plan. Cette barrière vise les manipulations accidentelles ; elle ne protège pas contre un accès physique privilégié à la tablette.
 
 ## Prérequis
 
@@ -153,6 +156,8 @@ src/services/roomOrderRepository.ts    repository Android et migration legacy
 src/services/orderRepositoryFactory.ts sélection Capacitor Room/IndexedDB
 src/services/orderService.ts           commandes, séquences et cycle d'impression
 src/services/salesLedgerService.ts      corrections, clôtures, contrôle et archives
+src/services/responsibleModeService.ts  credential local et session responsable en mémoire
+src/features/responsible/*              saisie et création du PIN responsable
 src/features/orders/OrderHistory.tsx   historique et réimpression
 src/printing/*                         rendu des tickets et orchestration des jobs
 src/native/epsonUsbPrinter.ts          pont Capacitor TypeScript
