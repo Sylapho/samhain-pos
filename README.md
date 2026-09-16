@@ -13,6 +13,7 @@ Le catalogue embarqué reste, pour des raisons historiques, dans `src/mocks/prod
 - numéros de commande et de reçu alloués dans la même transaction que la commande ;
 - historique local des commandes et réimpression avec les numéros d'origine ;
 - mode responsable local pour les opérations administratives et les duplications de ticket client ;
+- clôture et sauvegarde JSON vérifiée hors du stockage privé via le sélecteur Android ;
 - suivi indépendant du ticket client et du ticket de préparation, y compris en cas d'échec partiel ;
 - reprise prudente des impressions incomplètes après redémarrage ;
 - transport USB Android natif, permission USB et contrôle de l'état ESC/POS de l'imprimante.
@@ -81,7 +82,7 @@ Le mode `android-test` est destiné aux essais sur tablette. Il conserve le pann
 pnpm android:add:test
 ```
 
-La commande construit les ressources web en mode `android-test`, crée le projet Capacitor Android puis installe les plugins locaux Epson et Room. Le dossier `android/` est versionné ; cette commande est nécessaire lorsqu'il n'existe pas encore.
+La commande construit les ressources web en mode `android-test`, crée le projet Capacitor Android puis installe les plugins locaux Epson, Room et export de documents. Le dossier `android/` est versionné ; cette commande est nécessaire lorsqu'il n'existe pas encore.
 
 ### Synchronisation après une modification web
 
@@ -127,7 +128,7 @@ Ces commandes :
 2. refusent la build si les informations administratives confirmées ne sont pas renseignées ;
 3. excluent le panneau de développement ;
 4. synchronisent Capacitor ;
-5. installent ou réappliquent les plugins locaux USB Epson et stockage Room.
+5. installent ou réappliquent les plugins locaux USB Epson, stockage Room et export SAF.
 
 Pour vérifier uniquement les ressources web qui seront embarquées :
 
@@ -148,7 +149,7 @@ Avant toute exploitation, suivre la checklist matériel du guide de release : pa
 
 ## Intégration native Android
 
-Les plugins Capacitor locaux sont fournis dans `native/android/` et copiés dans le projet Android par l'installateur commun. `EpsonUsbPrinterPlugin` et `OrderStoragePlugin` sont enregistrés dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor les rende disponibles.
+Les plugins Capacitor locaux sont fournis dans `native/android/` et copiés dans le projet Android par l'installateur commun. `EpsonUsbPrinterPlugin`, `OrderStoragePlugin` et `DocumentExporterPlugin` sont enregistrés dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor les rende disponibles. `DocumentExporterPlugin` utilise `ACTION_CREATE_DOCUMENT` et ne demande aucune permission globale de stockage.
 
 Si `MainActivity.kt` ou le manifeste ont été régénérés, réinstaller uniquement l'intégration native :
 
@@ -168,6 +169,8 @@ src/services/roomOrderRepository.ts    repository Android et migration legacy
 src/services/orderRepositoryFactory.ts sélection Capacitor Room/IndexedDB
 src/services/orderService.ts           commandes, séquences et cycle d'impression
 src/services/salesLedgerService.ts      corrections, clôtures, contrôle et archives
+src/services/salesBackupService.ts      écriture, relecture et validation des sauvegardes
+src/features/ledger/*                   interface responsable de clôture et sauvegarde
 src/services/responsibleModeService.ts  credential local et session responsable en mémoire
 src/features/responsible/*              saisie et création du PIN responsable
 src/features/orders/OrderHistory.tsx   historique et réimpression

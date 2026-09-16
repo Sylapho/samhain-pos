@@ -163,7 +163,7 @@ if (!fs.existsSync(mainActivityKotlinPath)) {
 
   fs.writeFileSync(
     mainActivityKotlinPath,
-    `package ${appId}\n\nimport android.os.Bundle\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}\n`,
+    `package ${appId}\n\nimport android.os.Bundle\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        registerPlugin(DocumentExporterPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}\n`,
   )
   fs.rmSync(mainActivityJavaPath)
 }
@@ -181,18 +181,18 @@ const mainActivityLineEnding = mainActivity.includes('\r\n') ? '\r\n' : '\n'
 if (/class\s+MainActivity\s*:\s*BridgeActivity\(\)\s*\{\s*\}/s.test(mainActivity)) {
   mainActivity = mainActivity.replace(
     /class\s+MainActivity\s*:\s*BridgeActivity\(\)\s*\{\s*\}/s,
-    `class MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}`,
+    `class MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        registerPlugin(DocumentExporterPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}`,
   )
 } else if (mainActivity.includes('super.onCreate(savedInstanceState)')) {
   // Capacitor construit et charge le Bridge pendant super.onCreate().
   // Un plugin local doit donc être enregistré AVANT cet appel.
   mainActivity = mainActivity.replace(
-    /^[ \t]*registerPlugin\((?:EpsonUsbPrinterPlugin|OrderStoragePlugin)::class\.java\)\r?\n/gm,
+    /^[ \t]*registerPlugin\((?:EpsonUsbPrinterPlugin|OrderStoragePlugin|DocumentExporterPlugin)::class\.java\)\r?\n/gm,
     '',
   )
   mainActivity = mainActivity.replace(
     /(^[ \t]*)super\.onCreate\(savedInstanceState\)/m,
-    '$1registerPlugin(EpsonUsbPrinterPlugin::class.java)\n$1registerPlugin(OrderStoragePlugin::class.java)\n$1super.onCreate(savedInstanceState)',
+    '$1registerPlugin(EpsonUsbPrinterPlugin::class.java)\n$1registerPlugin(OrderStoragePlugin::class.java)\n$1registerPlugin(DocumentExporterPlugin::class.java)\n$1super.onCreate(savedInstanceState)',
   )
 } else {
   console.error(
