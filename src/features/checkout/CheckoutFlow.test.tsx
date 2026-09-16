@@ -7,6 +7,7 @@ import { IndexedDbOrderRepository } from '../../services/orderRepository'
 import { OrderService } from '../../services/orderService'
 import { CheckoutFlow } from './CheckoutFlow'
 import type { TerminalConfiguration } from '../../types/terminal'
+import type { CheckoutIntent } from '../../types/checkout'
 
 const success: PrintJobResult = {
   ok: true,
@@ -878,5 +879,121 @@ describe('encaissement et impression', () => {
     expect(printOrder.mock.calls[0]?.[1]).toMatchObject({ selection: 'preparation' })
     expect(await restarted.getRecoverableOrders()).toEqual([])
     await restartedRepository.close()
+  })
+
+  it('ne lance aucune impression quand la finalisation après paiement confirmé échoue', async () => {
+    const pending: CheckoutIntent = {
+      id: 'intent-ui-failure',
+      cartSnapshot: structuredClone(printPreviewOrder.items),
+      itemCount: printPreviewOrder.itemCount,
+      totalCents: printPreviewOrder.totalCents,
+      paymentMethod: 'card',
+      status: 'pending_payment',
+      terminal: terminalA,
+      ledgerSource: {
+        softwareVersion: '1.0.0',
+        buildMode: 'test',
+        terminal: terminalA,
+        organization: {} as CheckoutIntent['ledgerSource']['organization'],
+      },
+      orderNumberPrefix: 'A',
+      receiptNumberPrefix: 'R-A-20260901',
+      printCustomerReceipt: true,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+    }
+    const checkout = {
+      createIntent: vi.fn().mockResolvedValue(pending),
+      beginPayment: vi.fn().mockResolvedValue({ ...pending, status: 'payment_to_verify' }),
+      confirmPayment: vi.fn().mockResolvedValue({
+        ...pending,
+        status: 'payment_confirmed',
+        paymentConfirmedAt: '2026-09-01T10:01:00.000Z',
+      }),
+      finalize: vi.fn().mockRejectedValue(new Error('Room indisponible')),
+      abandon: vi.fn(),
+      getRecoverableIntents: vi.fn(),
+    }
+    const printOrder = vi.fn()
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        checkout={checkout}
+        printOrder={printOrder}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
+    await screen.findByRole('button', { name: 'Paiement TPE accepté' })
+    fireEvent.click(screen.getByRole('button', { name: 'Paiement TPE accepté' }))
+
+    await screen.findByText(/Le paiement est marqué comme effectué, mais la vente/)
+    expect(checkout.finalize).toHaveBeenCalledOnce()
+    expect(printOrder).not.toHaveBeenCalled()
+  })
+
+  it('imprime uniquement après que la finalisation a retourné la vente persistée', async () => {
+    const pending: CheckoutIntent = {
+      id: 'intent-ui-success',
+      cartSnapshot: structuredClone(printPreviewOrder.items),
+      itemCount: printPreviewOrder.itemCount,
+      totalCents: printPreviewOrder.totalCents,
+      paymentMethod: 'card',
+      status: 'pending_payment',
+      terminal: terminalA,
+      ledgerSource: {
+        softwareVersion: '1.0.0',
+        buildMode: 'test',
+        terminal: terminalA,
+        organization: {} as CheckoutIntent['ledgerSource']['organization'],
+      },
+      orderNumberPrefix: 'A',
+      receiptNumberPrefix: 'R-A-20260901',
+      printCustomerReceipt: true,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+    }
+    let finalized = false
+    const checkout = {
+      createIntent: vi.fn().mockResolvedValue(pending),
+      beginPayment: vi.fn().mockResolvedValue({ ...pending, status: 'payment_to_verify' }),
+      confirmPayment: vi.fn().mockResolvedValue({
+        ...pending,
+        status: 'payment_confirmed',
+        paymentConfirmedAt: '2026-09-01T10:01:00.000Z',
+      }),
+      finalize: vi.fn(async () => {
+        finalized = true
+        return printPreviewOrder
+      }),
+      abandon: vi.fn(),
+      getRecoverableIntents: vi.fn(),
+    }
+    const printOrder = vi.fn(async () => {
+      expect(finalized).toBe(true)
+      return success
+    })
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        checkout={checkout}
+        lifecycle={createLifecycle(printPreviewOrder)}
+        printOrder={printOrder}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
+    await screen.findByRole('button', { name: 'Paiement TPE accepté' })
+    fireEvent.click(screen.getByRole('button', { name: 'Paiement TPE accepté' }))
+
+    await screen.findByRole('heading', { name: 'Commande validée' })
+    expect(checkout.finalize).toHaveBeenCalledOnce()
+    expect(printOrder).toHaveBeenCalledOnce()
   })
 })

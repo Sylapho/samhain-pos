@@ -34,6 +34,37 @@ class OrderStoragePlugin : Plugin() {
         }
 
     @PluginMethod
+    fun createCheckoutIntent(call: PluginCall) =
+        execute(call) { store.createCheckoutIntent(call.requiredObject("intent")) }
+
+    @PluginMethod
+    fun getCheckoutIntents(call: PluginCall) = execute(call) { store.checkoutIntents() }
+
+    @PluginMethod
+    fun markCheckoutPaymentToVerify(call: PluginCall) =
+        execute(call) {
+            store.markCheckoutPaymentToVerify(call.requiredString("id"), call.requiredString("updatedAt"))
+        }
+
+    @PluginMethod
+    fun confirmCheckoutPayment(call: PluginCall) =
+        execute(call) {
+            store.confirmCheckoutPayment(call.requiredString("id"), call.requiredString("confirmedAt"))
+        }
+
+    @PluginMethod
+    fun abandonCheckoutIntent(call: PluginCall) =
+        execute(call) {
+            store.abandonCheckoutIntent(call.requiredString("id"), call.requiredString("abandonedAt"))
+        }
+
+    @PluginMethod
+    fun finalizeCheckoutIntent(call: PluginCall) =
+        execute(call) {
+            store.finalizeCheckoutIntent(call.requiredString("id"), call.requiredString("updatedAt"))
+        }
+
+    @PluginMethod
     fun getSnapshot(call: PluginCall) = execute(call) { store.snapshot() }
 
     @PluginMethod
@@ -75,6 +106,10 @@ class OrderStoragePlugin : Plugin() {
 
     private fun PluginCall.requiredObject(name: String): JSONObject =
         getObject(name) ?: throw IllegalArgumentException("Le champ $name est requis.")
+
+    private fun PluginCall.requiredString(name: String): String =
+        getString(name)?.takeIf { it.isNotBlank() }
+            ?: throw IllegalArgumentException("Le champ $name est requis.")
 
     override fun handleOnDestroy() {
         databaseExecutor.shutdown()

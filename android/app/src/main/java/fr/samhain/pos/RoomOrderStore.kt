@@ -10,6 +10,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     private val printing = database.orderPrintingDao()
     private val ledger = database.salesLedgerDao()
     private val metadata = database.metadataDao()
+    private val checkoutIntents = database.checkoutIntentDao()
 
     fun legacyMigrationStatus(): JSONObject =
         transaction {
@@ -23,61 +24,111 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     fun createOrder(request: JSONObject, source: JSONObject): JSONObject {
         val validatedRequest = JSONObject(request.toString())
         validateNewOrderRequest(validatedRequest)
+        return transaction { createOrderInTransaction(validatedRequest, source) }
+    }
+
+    fun createCheckoutIntent(intent: JSONObject): JSONObject {
+        val validated = JSONObject(intent.toString())
+        validateCheckoutIntent(validated)
+        require(validated.getString("status") == "pending_payment") {
+            "Un nouvel encaissement doit être en attente de paiement."
+        }
         return transaction {
-            var state = currentMetadata()
-            validateSequence(state.nextOrderSequence)
-            validateSequence(state.nextReceiptSequence)
-            validateSequence(state.nextJournalSequence)
+            checkoutIntents.insert(toCheckoutIntentEntity(validated))
+            validated
+        }
+    }
 
-            val order = validatedRequest
-            val orderPrefix = order.takeRequiredString("orderNumberPrefix")
-            val receiptPrefix = order.takeRequiredString("receiptNumberPrefix")
-            order.put("orderNumber", "$orderPrefix-${formatSequence(state.nextOrderSequence)}")
-            order.put("receiptNumber", "$receiptPrefix-${formatSequence(state.nextReceiptSequence)}")
-            validateOrder(order)
-            if (state.lastClosureEnd != null && order.getString("paidAt") < state.lastClosureEnd) {
-                throw IllegalStateException(
-                    "Impossible d’enregistrer une vente dans une période déjà clôturée.",
-                )
+    fun checkoutIntents(): JSONObject =
+        transaction {
+            JSONObject().put(
+                "intents",
+                JSONArray().also { result ->
+                    checkoutIntents.getAll().forEach { result.put(JSONObject(it.payloadJson)) }
+                },
+            )
+        }
+
+    fun markCheckoutPaymentToVerify(id: String, updatedAt: String): JSONObject =
+        transitionCheckoutIntent(id, setOf("pending_payment", "payment_to_verify")) { intent ->
+            requireIsoTimestamp(updatedAt, "updatedAt")
+            intent.put("status", "payment_to_verify")
+            intent.put("updatedAt", updatedAt)
+        }
+
+    fun confirmCheckoutPayment(id: String, confirmedAt: String): JSONObject =
+        transitionCheckoutIntent(id, setOf("payment_to_verify", "payment_confirmed")) { intent ->
+            requireIsoTimestamp(confirmedAt, "paymentConfirmedAt")
+            intent.put("status", "payment_confirmed")
+            if (!intent.has("paymentConfirmedAt")) intent.put("paymentConfirmedAt", confirmedAt)
+            intent.put("updatedAt", confirmedAt)
+        }
+
+    fun abandonCheckoutIntent(id: String, abandonedAt: String): JSONObject =
+        transitionCheckoutIntent(id, setOf("pending_payment", "payment_to_verify", "abandoned")) { intent ->
+            requireIsoTimestamp(abandonedAt, "abandonedAt")
+            intent.put("status", "abandoned")
+            if (!intent.has("abandonedAt")) intent.put("abandonedAt", abandonedAt)
+            intent.put("updatedAt", abandonedAt)
+        }
+
+    fun finalizeCheckoutIntent(id: String, updatedAt: String): JSONObject {
+        requireIsoTimestamp(updatedAt, "updatedAt")
+        return transaction {
+            val entity = checkoutIntents.findById(id)
+                ?: throw IllegalArgumentException("Encaissement local $id introuvable.")
+            val intent = JSONObject(entity.payloadJson)
+            validateCheckoutIntent(intent)
+            if (intent.getString("status") == "finalized") {
+                val orderId = intent.requireNonBlank("finalizedOrderId")
+                val stored = orders.findById(orderId)
+                    ?: throw IllegalStateException("La vente finalisée associée est introuvable.")
+                val technical = printing.findByOrderId(orderId)
+                    ?: throw IllegalStateException("L’état d’impression associé est introuvable.")
+                return@transaction hydrateOrder(storedOrderJson(stored), printingJson(technical))
             }
-
-            val immutable = immutableOrder(order)
-            val entryWithoutHash =
+            require(intent.getString("status") == "payment_confirmed") {
+                "Le paiement doit être explicitement confirmé avant la vente."
+            }
+            val paidAt = intent.requireNonBlank("paymentConfirmedAt")
+            val request =
                 JSONObject().apply {
-                    put("schemaVersion", 1)
-                    put("id", "sale:${order.getString("id")}")
-                    put("sequence", state.nextJournalSequence)
-                    put("kind", "sale")
-                    put("recordedAt", order.getString("createdAt"))
-                    putNullable("previousHash", state.lastJournalHash)
-                    put("source", JSONObject(source.toString()))
-                    put("orderId", order.getString("id"))
-                    put("order", immutable)
+                    put("id", intent.getString("id"))
+                    put("terminal", JSONObject(intent.getJSONObject("terminal").toString()))
+                    put("paymentMethod", intent.getString("paymentMethod"))
+                    put("paymentStatus", "paid")
+                    put("paidAt", paidAt)
+                    put("items", JSONArray(intent.getJSONArray("cartSnapshot").toString()))
+                    put("itemCount", intent.getLong("itemCount"))
+                    put("totalCents", intent.getLong("totalCents"))
+                    put("createdAt", paidAt)
+                    put("status", "confirmed")
+                    put("orderNumberPrefix", intent.getString("orderNumberPrefix"))
+                    put("receiptNumberPrefix", intent.getString("receiptNumberPrefix"))
+                    put(
+                        "printing",
+                        JSONObject().apply {
+                            put("status", "pending")
+                            put(
+                                "customerReceipt",
+                                if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested",
+                            )
+                            put("preparationTicket", "pending")
+                            put("attempts", 0)
+                            put("updatedAt", paidAt)
+                        },
+                    )
                 }
-            val hash = CanonicalJson.sha256(entryWithoutHash)
-            val entry = JSONObject(entryWithoutHash.toString()).apply { put("hash", hash) }
-            val integrity =
-                JSONObject().apply {
-                    put("algorithm", "SHA-256")
-                    put("journalEntryId", entry.getString("id"))
-                    put("journalSequence", state.nextJournalSequence)
-                    put("hash", hash)
-                }
-            val stored = JSONObject(immutable.toString()).apply { put("integrity", integrity) }
-            val technical = order.getJSONObject("printing")
-
-            orders.insert(toOrderEntity(stored))
-            printing.insert(toPrintingEntity(order.getString("id"), technical))
-            ledger.insert(toLedgerEntity(entry))
-            state =
-                state.copy(
-                    nextOrderSequence = state.nextOrderSequence + 1,
-                    nextReceiptSequence = state.nextReceiptSequence + 1,
-                    nextJournalSequence = state.nextJournalSequence + 1,
-                    lastJournalHash = hash,
-                )
-            require(metadata.update(state) == 1) { "Mise à jour des séquences impossible." }
-            hydrateOrder(stored, technical)
+            validateNewOrderRequest(request)
+            val order = createOrderInTransaction(request, intent.getJSONObject("ledgerSource"))
+            intent.put("status", "finalized")
+            intent.put("finalizedOrderId", order.getString("id"))
+            intent.put("updatedAt", updatedAt)
+            validateCheckoutIntent(intent)
+            require(checkoutIntents.update(toCheckoutIntentEntity(intent)) == 1) {
+                "Mise à jour de l'encaissement impossible."
+            }
+            order
         }
     }
 
@@ -392,6 +443,95 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         return metadata.get() ?: throw IllegalStateException("Métadonnées Room introuvables.")
     }
 
+    private fun createOrderInTransaction(request: JSONObject, source: JSONObject): JSONObject {
+        var state = currentMetadata()
+        validateSequence(state.nextOrderSequence)
+        validateSequence(state.nextReceiptSequence)
+        validateSequence(state.nextJournalSequence)
+        val order = JSONObject(request.toString())
+        val orderPrefix = order.takeRequiredString("orderNumberPrefix")
+        val receiptPrefix = order.takeRequiredString("receiptNumberPrefix")
+        order.put("orderNumber", "$orderPrefix-${formatSequence(state.nextOrderSequence)}")
+        order.put("receiptNumber", "$receiptPrefix-${formatSequence(state.nextReceiptSequence)}")
+        validateOrder(order)
+        if (state.lastClosureEnd != null && order.getString("paidAt") < state.lastClosureEnd) {
+            throw IllegalStateException(
+                "Impossible d’enregistrer une vente dans une période déjà clôturée.",
+            )
+        }
+        val immutable = immutableOrder(order)
+        val entryWithoutHash =
+            JSONObject().apply {
+                put("schemaVersion", 1)
+                put("id", "sale:${order.getString("id")}")
+                put("sequence", state.nextJournalSequence)
+                put("kind", "sale")
+                put("recordedAt", order.getString("createdAt"))
+                putNullable("previousHash", state.lastJournalHash)
+                put("source", JSONObject(source.toString()))
+                put("orderId", order.getString("id"))
+                put("order", immutable)
+            }
+        val hash = CanonicalJson.sha256(entryWithoutHash)
+        val entry = JSONObject(entryWithoutHash.toString()).apply { put("hash", hash) }
+        val integrity =
+            JSONObject().apply {
+                put("algorithm", "SHA-256")
+                put("journalEntryId", entry.getString("id"))
+                put("journalSequence", state.nextJournalSequence)
+                put("hash", hash)
+            }
+        val stored = JSONObject(immutable.toString()).apply { put("integrity", integrity) }
+        val technical = order.getJSONObject("printing")
+        orders.insert(toOrderEntity(stored))
+        printing.insert(toPrintingEntity(order.getString("id"), technical))
+        ledger.insert(toLedgerEntity(entry))
+        state =
+            state.copy(
+                nextOrderSequence = state.nextOrderSequence + 1,
+                nextReceiptSequence = state.nextReceiptSequence + 1,
+                nextJournalSequence = state.nextJournalSequence + 1,
+                lastJournalHash = hash,
+            )
+        require(metadata.update(state) == 1) { "Mise à jour des séquences impossible." }
+        return hydrateOrder(stored, technical)
+    }
+
+    private fun transitionCheckoutIntent(
+        id: String,
+        allowedStatuses: Set<String>,
+        update: (JSONObject) -> Unit,
+    ): JSONObject =
+        transaction {
+            val entity = checkoutIntents.findById(id)
+                ?: throw IllegalArgumentException("Encaissement local $id introuvable.")
+            val intent = JSONObject(entity.payloadJson)
+            validateCheckoutIntent(intent)
+            require(intent.getString("status") in allowedStatuses) {
+                "Transition impossible depuis l’état d’encaissement « ${intent.getString("status")} »."
+            }
+            update(intent)
+            validateCheckoutIntent(intent)
+            require(checkoutIntents.update(toCheckoutIntentEntity(intent)) == 1) {
+                "Mise à jour de l'encaissement impossible."
+            }
+            intent
+        }
+
+    private fun toCheckoutIntentEntity(intent: JSONObject): CheckoutIntentEntity {
+        validateCheckoutIntent(intent)
+        return CheckoutIntentEntity(
+            id = intent.getString("id"),
+            status = intent.getString("status"),
+            createdAt = intent.getString("createdAt"),
+            updatedAt = intent.getString("updatedAt"),
+            paymentMethod = intent.getString("paymentMethod"),
+            totalCents = intent.getLong("totalCents"),
+            finalizedOrderId = intent.optNullableString("finalizedOrderId"),
+            payloadJson = intent.toString(),
+        )
+    }
+
     private fun immutableOrder(order: JSONObject): JSONObject =
         JSONObject(order.toString()).apply {
             remove("printing")
@@ -657,6 +797,71 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         return closure.optString("operationId") == request.optString("operationId") &&
             closure.optString("periodStart") == request.optString("periodStart") &&
             closure.optString("periodEnd") == request.optString("periodEnd")
+    }
+
+    private fun validateCheckoutIntent(intent: JSONObject) {
+        val id = intent.requireNonBlank("id")
+        val status = intent.getString("status")
+        require(
+            status in
+                setOf(
+                    "pending_payment",
+                    "payment_to_verify",
+                    "payment_confirmed",
+                    "finalized",
+                    "abandoned",
+                ),
+        ) { "État d’encaissement invalide." }
+        val createdAt = intent.requireNonBlank("createdAt")
+        requireIsoTimestamp(createdAt, "createdAt")
+        requireIsoTimestamp(intent.requireNonBlank("updatedAt"), "updatedAt")
+        val paymentConfirmedAt = intent.optNullableString("paymentConfirmedAt")
+        paymentConfirmedAt?.let { requireIsoTimestamp(it, "paymentConfirmedAt") }
+        val abandonedAt = intent.optNullableString("abandonedAt")
+        abandonedAt?.let { requireIsoTimestamp(it, "abandonedAt") }
+        require(status != "payment_confirmed" || paymentConfirmedAt != null) {
+            "Un paiement confirmé doit conserver sa date de confirmation."
+        }
+        require(
+            status != "finalized" ||
+                (paymentConfirmedAt != null && intent.optNullableString("finalizedOrderId") != null),
+        ) { "Un encaissement finalisé doit référencer sa vente et son paiement." }
+        require(status != "abandoned" || abandonedAt != null) {
+            "Un encaissement abandonné doit conserver sa date d'abandon."
+        }
+        require(intent.get("printCustomerReceipt") is Boolean) {
+            "Le choix d'impression du ticket client doit être booléen."
+        }
+        val terminal = intent.getJSONObject("terminal")
+        val ledgerTerminal = intent.getJSONObject("ledgerSource").getJSONObject("terminal")
+        require(terminal.getString("terminalId") == ledgerTerminal.getString("terminalId")) {
+            "La source du journal ne correspond pas au terminal de l'encaissement."
+        }
+        val validationRequest =
+            JSONObject().apply {
+                put("id", id)
+                put("terminal", JSONObject(terminal.toString()))
+                put("paymentMethod", intent.getString("paymentMethod"))
+                put("paymentStatus", "paid")
+                put("paidAt", paymentConfirmedAt ?: createdAt)
+                put("items", JSONArray(intent.getJSONArray("cartSnapshot").toString()))
+                put("itemCount", intent.getLong("itemCount"))
+                put("totalCents", intent.getLong("totalCents"))
+                put("createdAt", createdAt)
+                put("status", "confirmed")
+                put("orderNumberPrefix", intent.getString("orderNumberPrefix"))
+                put("receiptNumberPrefix", intent.getString("receiptNumberPrefix"))
+                put(
+                    "printing",
+                    JSONObject()
+                        .put("status", "pending")
+                        .put("customerReceipt", "pending")
+                        .put("preparationTicket", "pending")
+                        .put("attempts", 0)
+                        .put("updatedAt", createdAt),
+                )
+            }
+        validateNewOrderRequest(validationRequest)
     }
 
     private fun validateOrder(order: JSONObject) {

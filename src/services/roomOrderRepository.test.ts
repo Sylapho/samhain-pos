@@ -40,6 +40,12 @@ function nativeStorage(initialStatus = false) {
       }
     }),
     createOrder: vi.fn(),
+    createCheckoutIntent: vi.fn(),
+    getCheckoutIntents: vi.fn(async () => ({ intents: [] })),
+    markCheckoutPaymentToVerify: vi.fn(),
+    confirmCheckoutPayment: vi.fn(),
+    abandonCheckoutIntent: vi.fn(),
+    finalizeCheckoutIntent: vi.fn(),
     getSnapshot: vi.fn(async () => structuredClone(snapshot)),
     compareAndSetPrinting: vi.fn(),
     recordCorrection: vi.fn(),

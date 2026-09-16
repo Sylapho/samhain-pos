@@ -40,7 +40,7 @@ function services(indexedDb: IDBFactory, databaseName: string) {
 
 async function alterStoredOrder(indexedDb: IDBFactory, databaseName: string): Promise<void> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDb.open(databaseName, 2)
+    const request = indexedDb.open(databaseName, 3)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })

@@ -130,6 +130,77 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun checkoutIntentDoesNotConsumeSequencesAndFinalizesIdempotently() = onDatabaseThread {
+        val created = store.createCheckoutIntent(checkoutIntent("intent-1"))
+        assertEquals("pending_payment", created.getString("status"))
+        val before = store.snapshot()
+        assertEquals(0, before.getJSONArray("orders").length())
+        assertEquals(0, before.getJSONArray("entries").length())
+        assertEquals(1L, before.getJSONObject("metadata").getLong("nextOrderSequence"))
+        assertEquals(1L, before.getJSONObject("metadata").getLong("nextReceiptSequence"))
+        assertEquals(1L, before.getJSONObject("metadata").getLong("nextJournalSequence"))
+
+        store.markCheckoutPaymentToVerify("intent-1", "2026-09-01T12:01:00.000Z")
+        store.confirmCheckoutPayment("intent-1", "2026-09-01T12:02:00.000Z")
+        val first = store.finalizeCheckoutIntent("intent-1", "2026-09-01T12:03:00.000Z")
+        val repeated = store.finalizeCheckoutIntent("intent-1", "2026-09-01T12:04:00.000Z")
+        assertEquals(first.getString("id"), repeated.getString("id"))
+        assertEquals("A-0001", first.getString("orderNumber"))
+
+        val after = store.snapshot()
+        assertEquals(1, after.getJSONArray("orders").length())
+        assertEquals(1, after.getJSONArray("entries").length())
+        assertEquals(2L, after.getJSONObject("metadata").getLong("nextOrderSequence"))
+        assertEquals(2L, after.getJSONObject("metadata").getLong("nextReceiptSequence"))
+        assertEquals(2L, after.getJSONObject("metadata").getLong("nextJournalSequence"))
+        assertEquals(
+            "finalized",
+            store.checkoutIntents().getJSONArray("intents").getJSONObject(0).getString("status"),
+        )
+    }
+
+    @Test
+    fun abandonedCheckoutIntentCreatesNoFinancialRecord() = onDatabaseThread {
+        store.createCheckoutIntent(checkoutIntent("abandoned-intent"))
+        store.markCheckoutPaymentToVerify("abandoned-intent", "2026-09-01T12:01:00.000Z")
+        store.abandonCheckoutIntent("abandoned-intent", "2026-09-01T12:02:00.000Z")
+        val snapshot = store.snapshot()
+        assertEquals(0, snapshot.getJSONArray("orders").length())
+        assertEquals(0, snapshot.getJSONArray("entries").length())
+        assertEquals(1L, snapshot.getJSONObject("metadata").getLong("nextOrderSequence"))
+        assertEquals(1L, snapshot.getJSONObject("metadata").getLong("nextReceiptSequence"))
+        assertEquals(1L, snapshot.getJSONObject("metadata").getLong("nextJournalSequence"))
+    }
+
+    @Test
+    fun failedCheckoutFinalizationRollsBackAndRemainsRetryable() = onDatabaseThread {
+        store.createCheckoutIntent(checkoutIntent("retryable-intent"))
+        store.markCheckoutPaymentToVerify("retryable-intent", "2026-09-01T12:01:00.000Z")
+        store.confirmCheckoutPayment("retryable-intent", "2026-09-01T12:02:00.000Z")
+        store.snapshot()
+        database.metadataDao().update(
+            PosMetadataEntity(nextOrderSequence = 9_007_199_254_740_991L),
+        )
+
+        assertThrows(Exception::class.java) {
+            store.finalizeCheckoutIntent("retryable-intent", "2026-09-01T12:03:00.000Z")
+        }
+        val failedSnapshot = store.snapshot()
+        assertEquals(0, failedSnapshot.getJSONArray("orders").length())
+        assertEquals(0, failedSnapshot.getJSONArray("entries").length())
+        assertEquals(
+            "payment_confirmed",
+            store.checkoutIntents().getJSONArray("intents").getJSONObject(0).getString("status"),
+        )
+
+        database.metadataDao().update(PosMetadataEntity())
+        val retried =
+            store.finalizeCheckoutIntent("retryable-intent", "2026-09-01T12:04:00.000Z")
+        assertEquals("A-0001", retried.getString("orderNumber"))
+        assertEquals(1, store.snapshot().getJSONArray("orders").length())
+    }
+
+    @Test
     fun persistsAllPrintingRecoveryStatesWithCompareAndSet() = onDatabaseThread {
         val states = listOf("pending", "unknown", "printed", "partial", "failed")
         states.forEachIndexed { index, status ->
@@ -389,6 +460,52 @@ class RoomOrderStoreTest {
         database = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
     }
 
+    @Test
+    fun migrationTwoToThreePreservesFinancialTablesAndCreatesCheckoutIntents() {
+        database.close()
+        val name = "migration-checkout-${UUID.randomUUID()}.db"
+        val helper =
+            FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(name)
+                    .callback(
+                        object : SupportSQLiteOpenHelper.Callback(2) {
+                            override fun onCreate(db: SupportSQLiteDatabase) {
+                                db.execSQL("CREATE TABLE orders (id TEXT NOT NULL PRIMARY KEY)")
+                                db.execSQL("CREATE TABLE order_printing (order_id TEXT NOT NULL PRIMARY KEY)")
+                                db.execSQL("CREATE TABLE sales_ledger (id TEXT NOT NULL PRIMARY KEY)")
+                                db.execSQL("CREATE TABLE pos_metadata (id INTEGER NOT NULL PRIMARY KEY)")
+                                db.execSQL("INSERT INTO orders VALUES ('kept-order')")
+                                db.execSQL("INSERT INTO order_printing VALUES ('kept-order')")
+                                db.execSQL("INSERT INTO sales_ledger VALUES ('sale:kept-order')")
+                                db.execSQL("INSERT INTO pos_metadata VALUES (1)")
+                            }
+
+                            override fun onUpgrade(
+                                db: SupportSQLiteDatabase,
+                                oldVersion: Int,
+                                newVersion: Int,
+                            ) = Unit
+                        },
+                    ).build(),
+            )
+        val sqlite = helper.writableDatabase
+        SamhainPosDatabase.MIGRATION_2_3.migrate(sqlite)
+        for (table in listOf("orders", "order_printing", "sales_ledger", "pos_metadata")) {
+            sqlite.query("SELECT COUNT(*) FROM $table").use {
+                assertTrue(it.moveToFirst())
+                assertEquals(1, it.getInt(0))
+            }
+        }
+        sqlite.query("SELECT COUNT(*) FROM checkout_intents").use {
+            assertTrue(it.moveToFirst())
+            assertEquals(0, it.getInt(0))
+        }
+        helper.close()
+        context.deleteDatabase(name)
+        database = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
+    }
+
     private fun request(
         id: String,
         paymentMethod: String = "cash",
@@ -425,6 +542,25 @@ class RoomOrderStoreTest {
                     .put("updatedAt", "2026-09-01T12:00:00.000Z"),
             )
         }
+
+    private fun checkoutIntent(id: String): JSONObject {
+        val order = request(id)
+        return JSONObject().apply {
+            put("id", id)
+            put("cartSnapshot", JSONArray(order.getJSONArray("items").toString()))
+            put("itemCount", order.getLong("itemCount"))
+            put("totalCents", order.getLong("totalCents"))
+            put("paymentMethod", order.getString("paymentMethod"))
+            put("status", "pending_payment")
+            put("terminal", JSONObject(order.getJSONObject("terminal").toString()))
+            put("ledgerSource", source())
+            put("orderNumberPrefix", order.getString("orderNumberPrefix"))
+            put("receiptNumberPrefix", order.getString("receiptNumberPrefix"))
+            put("printCustomerReceipt", true)
+            put("createdAt", order.getString("createdAt"))
+            put("updatedAt", order.getString("createdAt"))
+        }
+    }
 
     private fun JSONObject.mutateFirstItem(key: String, value: Any): JSONObject =
         apply { getJSONArray("items").getJSONObject(0).put(key, value) }

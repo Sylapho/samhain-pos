@@ -1,4 +1,5 @@
 import type { Order, OrderPrinting } from '../types/order'
+import type { CheckoutIntent } from '../types/checkout'
 import {
   SALES_ARCHIVE_SCHEMA_VERSION,
   type ArchiveRestoreResult,
@@ -14,7 +15,7 @@ import {
 } from '../types/salesLedger'
 import { hashCanonicalValue } from '../utils/integrity'
 import { orderStorage, type NativeOrderStorageBridge } from '../native/orderStorage'
-import { validateOrderDraft } from './orderValidation'
+import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 import {
   ARCHIVE_NOTICE,
   IndexedDbOrderRepository,
@@ -23,6 +24,7 @@ import {
   type OrderCreationRequest,
   type OrderPersistenceSnapshot,
   type OrderRepository,
+  type CheckoutRepository,
   type SalesLedgerRepository,
   type StoredOrder,
   toImmutableOrderSnapshot,
@@ -36,6 +38,12 @@ type NativeStorage = {
     snapshot: OrderPersistenceSnapshot,
   ): ReturnType<NativeOrderStorageBridge['importLegacySnapshot']>
   createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order>
+  createCheckoutIntent(intent: CheckoutIntent): Promise<CheckoutIntent>
+  getCheckoutIntents(): Promise<{ intents: CheckoutIntent[] }>
+  markCheckoutPaymentToVerify(id: string, updatedAt: string): Promise<CheckoutIntent>
+  confirmCheckoutPayment(id: string, confirmedAt: string): Promise<CheckoutIntent>
+  abandonCheckoutIntent(id: string, abandonedAt: string): Promise<CheckoutIntent>
+  finalizeCheckoutIntent(id: string, updatedAt: string): Promise<Order>
   getSnapshot(): Promise<OrderPersistenceSnapshot>
   compareAndSetPrinting(
     orderId: string,
@@ -68,7 +76,9 @@ function hydrateOrder(stored: StoredOrder, technical?: StoredOrderTechnicalState
   }
 }
 
-export class RoomOrderRepository implements OrderRepository, SalesLedgerRepository {
+export class RoomOrderRepository
+  implements OrderRepository, CheckoutRepository, SalesLedgerRepository
+{
   private initialization: Promise<void> | null = null
 
   constructor(
@@ -81,6 +91,40 @@ export class RoomOrderRepository implements OrderRepository, SalesLedgerReposito
     validateOrderDraft(request)
     await this.ensureInitialized()
     return this.nativeStorage.createOrder(request, source)
+  }
+
+  async createCheckoutIntent(intent: CheckoutIntent): Promise<CheckoutIntent> {
+    const validated = validateCheckoutIntent(intent)
+    await this.ensureInitialized()
+    return this.nativeStorage.createCheckoutIntent(validated)
+  }
+
+  async getCheckoutIntents(): Promise<CheckoutIntent[]> {
+    await this.ensureInitialized()
+    const result = await this.nativeStorage.getCheckoutIntents()
+    return result.intents.map((intent) => validateCheckoutIntent(intent))
+  }
+
+  async markCheckoutPaymentToVerify(id: string, updatedAt: string): Promise<CheckoutIntent> {
+    await this.ensureInitialized()
+    return validateCheckoutIntent(
+      await this.nativeStorage.markCheckoutPaymentToVerify(id, updatedAt),
+    )
+  }
+
+  async confirmCheckoutPayment(id: string, confirmedAt: string): Promise<CheckoutIntent> {
+    await this.ensureInitialized()
+    return validateCheckoutIntent(await this.nativeStorage.confirmCheckoutPayment(id, confirmedAt))
+  }
+
+  async abandonCheckoutIntent(id: string, abandonedAt: string): Promise<CheckoutIntent> {
+    await this.ensureInitialized()
+    return validateCheckoutIntent(await this.nativeStorage.abandonCheckoutIntent(id, abandonedAt))
+  }
+
+  async finalizeCheckoutIntent(id: string, updatedAt: string): Promise<Order> {
+    await this.ensureInitialized()
+    return this.nativeStorage.finalizeCheckoutIntent(id, updatedAt)
   }
 
   async getOrders(): Promise<Order[]> {
