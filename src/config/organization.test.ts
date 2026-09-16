@@ -6,10 +6,17 @@ import {
 } from './organization'
 
 describe('configuration administrative de production', () => {
-  it('refuse les données de démonstration actuelles', () => {
-    expect(() => assertReceiptBusinessInfoReadyForProduction()).toThrow(
-      'Configuration de production invalide',
-    )
+  it('accepte les informations administratives réelles configurées', () => {
+    expect(() => assertReceiptBusinessInfoReadyForProduction()).not.toThrow()
+  })
+
+  it('refuse un marqueur de démonstration actif', () => {
+    expect(() =>
+      assertReceiptBusinessInfoReadyForProduction({
+        ...receiptBusinessInfo,
+        usesDemoPlaceholders: true,
+      }),
+    ).toThrow('usesDemoPlaceholders')
   })
 
   it('refuse un placeholder connu même si le marqueur de démonstration est désactivé', () => {
@@ -22,17 +29,27 @@ describe('configuration administrative de production', () => {
     ).toThrow('siret')
   })
 
-  it('accepte une configuration explicitement déclarée comme réelle sans placeholder connu', () => {
-    const configuredBusinessInfo: ReceiptBusinessInfo = {
-      organizationName: 'Organisation configurée',
-      eventName: 'Événement configuré',
-      city: 'Ville configurée',
-      address: 'Adresse configurée',
-      siret: 'SIRET configuré',
-      vatNumber: 'TVA configurée',
-      usesDemoPlaceholders: false,
+  it('refuse un placeholder textuel manifeste', () => {
+    expect(() =>
+      assertReceiptBusinessInfoReadyForProduction({
+        ...receiptBusinessInfo,
+        organizationName: 'Association de démonstration',
+      }),
+    ).toThrow('organizationName (valeur manifestement fictive)')
+  })
+
+  it('refuse les valeurs vides et les identifiants administratifs invalides', () => {
+    const invalidBusinessInfo: ReceiptBusinessInfo = {
+      ...receiptBusinessInfo,
+      address: ' ',
+      siret: '123',
+      vatNumber: 'FR00 000000000',
     }
 
-    expect(() => assertReceiptBusinessInfoReadyForProduction(configuredBusinessInfo)).not.toThrow()
+    expect(() => assertReceiptBusinessInfoReadyForProduction(invalidBusinessInfo)).toThrowError(
+      expect.objectContaining({
+        message: expect.stringMatching(/address.*siret.*vatNumber/),
+      }),
+    )
   })
 })
