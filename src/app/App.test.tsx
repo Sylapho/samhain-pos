@@ -152,6 +152,57 @@ describe('caisse', () => {
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
 
+  it('autorise le reprovisionnement après vérification sans impression à reprendre', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+
+    render(<App responsibleMode={responsibleMode} loadRecoverableOrders={vi.fn(async () => [])} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Reprovisionner cette tablette' })).toBeEnabled(),
+    )
+  })
+
+  it('bloque le reprovisionnement lorsqu’une impression est à reprendre', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+    const partialOrder = {
+      ...structuredClone(printPreviewOrder),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'partial' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'failed' as const,
+      },
+    }
+
+    render(
+      <App
+        responsibleMode={responsibleMode}
+        loadRecoverableOrders={vi.fn(async () => [partialOrder])}
+      />,
+    )
+    await screen.findByText('1 impression(s) à reprendre')
+    fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Reprovisionner cette tablette' }),
+    ).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent(/impressions sont à reprendre/)
+  })
+
+  it('bloque l’encaissement lorsqu’un remplacement interrompu doit être repris', () => {
+    render(<App loadPendingTabletReplacement={() => true} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/remplacement de tablette a été interrompu/)
+    expect(screen.queryByRole('button', { name: 'Valider la commande' })).not.toBeInTheDocument()
+  })
+
   it('laisse encaisser une ancienne installation sans PIN mais impose sa configuration pour administrer', () => {
     const responsibleMode = new ResponsibleModeService(
       new LocalStorageResponsibleCredentialRepository(localStorage),

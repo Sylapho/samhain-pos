@@ -76,6 +76,34 @@ export class TerminalConfigurationService {
     return this.saveNewIdentity(input, provisionedAt)
   }
 
+  adoptRestoredIdentity(
+    identity: Pick<TerminalConfiguration, 'terminalId' | 'terminalCode' | 'displayName'>,
+    provisionedAt = new Date(),
+  ): TerminalConfiguration {
+    this.requireResponsibleMode()
+    const current = this.getConfiguration()
+    if (current) {
+      if (
+        current.terminalId === identity.terminalId &&
+        current.terminalCode === identity.terminalCode
+      ) {
+        return current
+      }
+      throw new Error('Cette tablette possède déjà une autre identité de caisse.')
+    }
+    if (!identity.terminalId.trim()) {
+      throw new Error('L’identifiant technique restauré est invalide.')
+    }
+    const configuration: TerminalConfiguration = {
+      terminalId: identity.terminalId,
+      terminalCode: identity.terminalCode,
+      displayName: normalizeDisplayName(identity.displayName),
+      provisionedAt: provisionedAt.toISOString(),
+    }
+    this.repository.save(configuration)
+    return configuration
+  }
+
   private saveNewIdentity(
     input: TerminalProvisioningInput,
     provisionedAt: Date,

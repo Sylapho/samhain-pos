@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { IDBFactory } from 'fake-indexeddb'
+import { createValidOrderItems } from '../test/orderFixtures'
+import { IndexedDbOrderRepository } from './orderRepository'
+import { OrderService } from './orderService'
 import {
   LocalStorageTerminalConfigurationRepository,
   TerminalConfigurationService,
@@ -137,6 +141,60 @@ describe('configuration persistante du terminal', () => {
       terminalCode: 'B',
       displayName: 'Caisse B',
     })
+  })
+
+  it('conserve les anciennes ventes et poursuit les séquences lors de A vers B', async () => {
+    let nextId = 0
+    const terminalService = new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => `terminal-${++nextId}`,
+      () => {},
+    )
+    terminalService.provision({ terminalCode: 'A', displayName: 'Caisse A' })
+    const repository = new IndexedDbOrderRepository(new IDBFactory(), 'reprovision-a-b')
+    let orderId = 0
+    const orders = new OrderService(
+      repository,
+      () => `order-${++orderId}`,
+      () => terminalService.getRequiredConfiguration(),
+    )
+
+    const first = await orders.createOrder(
+      createValidOrderItems(),
+      'cash',
+      new Date('2026-09-01T10:00:00Z'),
+    )
+    terminalService.reprovision(
+      { terminalCode: 'B', displayName: 'Caisse B' },
+      new Date('2026-09-01T11:00:00Z'),
+    )
+    const second = await orders.createOrder(
+      createValidOrderItems(),
+      'card',
+      new Date('2026-09-01T12:00:00Z'),
+    )
+
+    expect(first).toMatchObject({
+      orderNumber: 'A-0001',
+      terminal: { terminalId: 'terminal-1', terminalCode: 'A', displayName: 'Caisse A' },
+    })
+    expect(second).toMatchObject({
+      orderNumber: 'B-0002',
+      terminal: { terminalId: 'terminal-2', terminalCode: 'B', displayName: 'Caisse B' },
+    })
+    expect(await orders.getOrders()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: first.id,
+          terminal: { terminalId: 'terminal-1', terminalCode: 'A', displayName: 'Caisse A' },
+        }),
+        expect.objectContaining({
+          id: second.id,
+          terminal: { terminalId: 'terminal-2', terminalCode: 'B', displayName: 'Caisse B' },
+        }),
+      ]),
+    )
+    await repository.close()
   })
 
   it('refuse un nom visible vide', () => {

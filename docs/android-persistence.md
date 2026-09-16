@@ -9,9 +9,20 @@ La couche métier dépend de `OrderRepository`, pas d'un moteur de base de donn�
 
 L'existence de `indexedDB` n'est pas utilisée pour conclure que l'application est web : un WebView Android expose aussi IndexedDB. Android natif est identifié par `Capacitor.isNativePlatform()` et `Capacitor.getPlatform() === 'android'`.
 
-Room s'appuie sur le moteur SQLite local d'Android. La lecture et l'écriture des ventes ne nécessitent aucune connexion Internet. La base de production est un fichier privé de l'application nommé `samhain-pos-room.db`, normalement situé sous `/data/data/fr.samhain.pos/databases/`. Il disparaît uniquement si les données de l'application sont explicitement effacées ou si l'application est désinstallée sans restauration de sauvegarde.
+Room s'appuie sur le moteur SQLite local d'Android. La lecture et l'écriture des ventes ne nécessitent aucune connexion Internet. La base de production est un fichier privé de l'application nommé `samhain-pos-room.db`, normalement situé sous `/data/data/fr.samhain.pos/databases/`. Effacer les données de l'application ou la désinstaller supprime cet état local ; aucune restauration Android automatique ne doit le recréer.
 
 IndexedDB reste volontairement présent pour le navigateur et comme source de la migration des anciennes installations Android.
+
+## Politique Android Backup
+
+Android Backup n'est pas un mécanisme de sauvegarde supporté pour Samhain POS. Le manifeste impose `android:allowBackup="false"` et référence deux politiques complémentaires :
+
+- `@xml/data_extraction_rules` pour Android 12 et versions ultérieures, avec des sections explicites `cloud-backup` et `device-transfer` ;
+- `@xml/backup_rules` au format `full-backup-content` pour Android 11 et versions antérieures supportées (`minSdk 24`).
+
+Chaque politique exclut globalement les domaines `root`, `file`, `database`, `sharedpref`, `external`, `device_root`, `device_file`, `device_database` et `device_sharedpref`. Cette exclusion couvre Room/SQLite, les métadonnées de séquence, le journal, les états d'impression, l'ancien IndexedDB, le `localStorage` WebView, `terminalId`, `terminalCode`, le marqueur de remplacement et le credential responsable. Elle protège également les futurs stockages privés, sans déplacer artificiellement Room dans `noBackupFilesDir`.
+
+Cette défense en profondeur est nécessaire car, selon le fabricant et la version Android, `allowBackup=false` peut ne pas suffire à désactiver un transfert direct entre appareils. L'archive Samhain vérifiée reste la seule sauvegarde métier supportée. Copier `samhain-pos-room.db` ou `/data/data/fr.samhain.pos/` n'est pas une procédure de restauration.
 
 ## Chemin d'une commande
 
@@ -111,3 +122,5 @@ pnpm android:sync:production
 Cette commande conserve le garde-fou existant : elle échoue tant que les informations administratives de démonstration n'ont pas été remplacées par des données confirmées.
 
 Les tests Room couvrent création, contraintes UUID, rollback transactionnel des séquences, états d'impression, fermeture/réouverture, migration IndexedDB idempotente et conflictuelle, et migration de schéma. Une validation finale sur la tablette reste nécessaire pour le cycle de vie réel du processus Android et l'impression USB.
+
+Les tests couvrent aussi le rollback complet d'une restauration Room interrompue et la conservation exacte des métadonnées d'archive. Le test Robolectric de politique Android vérifie que l'application construite n'expose pas `ApplicationInfo.FLAG_ALLOW_BACKUP`. Les règles XML sont validées par AAPT pendant l'assemblage. Les protocoles matériels et les opérations de mise à jour/désinstallation sont détaillés dans [`tablet-replacement-and-backup.md`](tablet-replacement-and-backup.md).

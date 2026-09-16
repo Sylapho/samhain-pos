@@ -324,8 +324,40 @@ describe('journal local des encaissements', () => {
     expect(source.ledger.verifyArchive(altered).valid).toBe(false)
 
     const target = services(indexedDb, 'archive-target')
-    await expect(target.ledger.restoreArchive(altered)).rejects.toThrow(/Restauration refusée/)
-    await expect(target.ledger.restoreArchive(archive)).resolves.toEqual({
+    expect(() => target.ledger.restoreArchive(altered)).toThrow(/Restauration refusée/)
+    const wrongTerminal = new SalesLedgerService(
+      target.repository,
+      () => 'unused',
+      () => ({
+        terminalId: 'terminal-b',
+        terminalCode: 'B',
+        displayName: 'Caisse B',
+        provisionedAt: '2026-09-01T00:00:00.000Z',
+      }),
+      undefined,
+      () => {},
+    )
+    expect(() => wrongTerminal.restoreArchive(archive)).toThrow(/appartient à Caisse A.*Caisse B/)
+    const wrongTechnicalIdentity = new SalesLedgerService(
+      target.repository,
+      () => 'unused',
+      () => ({ ...terminal, terminalId: 'another-terminal-a' }),
+      undefined,
+      () => {},
+    )
+    expect(() => wrongTechnicalIdentity.restoreArchive(archive)).toThrow(/autre identité technique/)
+    expect(await target.orders.getOrders()).toEqual([])
+    expect(await target.ledger.getEntries()).toEqual([])
+    expect(await target.repository.getArchiveRestoreTargetState(archive)).toBe('empty')
+
+    const renamedSameTerminal = new SalesLedgerService(
+      target.repository,
+      () => 'unused',
+      () => ({ ...terminal, displayName: 'Caisse accueil' }),
+      undefined,
+      () => {},
+    )
+    await expect(renamedSameTerminal.restoreArchive(archive)).resolves.toEqual({
       restoredOrders: 1,
       restoredEntries: 2,
     })

@@ -76,9 +76,41 @@ describe('configuration de la caisse', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Reprovisionner cette tablette' }))
     expect(screen.getByText(/nouvel identifiant technique/)).toBeInTheDocument()
+    expect(screen.getByText('Nom : Caisse A')).toBeInTheDocument()
+    expect(screen.getByText('Code : A')).toBeInTheDocument()
+    expect(screen.getByText(/Identifiant technique : terminal-a/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'B' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmer le reprovisionnement' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+
+    expect(onReprovision).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('dialog', { name: 'Changer cette tablette de Caisse A vers Caisse B ?' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(onReprovision).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+    const confirm = screen.getByRole('button', { name: 'Confirmer le reprovisionnement' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
 
     expect(onReprovision).toHaveBeenCalledWith({ terminalCode: 'B', displayName: 'Caisse B' })
+    expect(onReprovision).toHaveBeenCalledTimes(1)
+  })
+
+  it('bloque le reprovisionnement lorsqu’une impression doit être reprise', () => {
+    render(
+      <TerminalConfigurationDialog
+        configuration={configuration}
+        onProvision={vi.fn()}
+        onRename={vi.fn()}
+        onReprovision={vi.fn()}
+        onConfigured={vi.fn()}
+        reprovisioningBlockReason="Impossible de reprovisionner cette caisse tant que des impressions sont à reprendre ou à vérifier."
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Reprovisionner cette tablette' })).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent(/impressions sont à reprendre/)
   })
 })

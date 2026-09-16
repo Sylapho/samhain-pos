@@ -218,6 +218,61 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun restoresSnapshotMetadataWithoutReconstructingSequences() = onDatabaseThread {
+        val sourceDatabase = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
+        try {
+            val sourceStore = RoomOrderStore(sourceDatabase)
+            sourceStore.createOrder(request("archived-order"), source())
+            val snapshot = sourceStore.snapshot()
+            snapshot.getJSONObject("metadata")
+                .put("nextOrderSequence", 9)
+                .put("nextReceiptSequence", 12)
+                .put("nextJournalSequence", 2)
+
+            val result = store.restoreSnapshot(snapshot)
+
+            assertEquals(1, result.getInt("restoredOrders"))
+            assertEquals(1, result.getInt("restoredEntries"))
+            val restoredMetadata = store.snapshot().getJSONObject("metadata")
+            assertEquals(9L, restoredMetadata.getLong("nextOrderSequence"))
+            assertEquals(12L, restoredMetadata.getLong("nextReceiptSequence"))
+            assertEquals(2L, restoredMetadata.getLong("nextJournalSequence"))
+            assertEquals(
+                snapshot.getJSONObject("metadata").getString("lastJournalHash"),
+                restoredMetadata.getString("lastJournalHash"),
+            )
+        } finally {
+            sourceDatabase.close()
+        }
+    }
+
+    @Test
+    fun restoreSnapshotRollsBackEveryTableAndMetadataOnMidRestoreFailure() = onDatabaseThread {
+        val sourceDatabase = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
+        try {
+            val sourceStore = RoomOrderStore(sourceDatabase)
+            sourceStore.createOrder(request("duplicate-on-restore"), source())
+            val brokenSnapshot = sourceStore.snapshot()
+            val duplicate = JSONObject(brokenSnapshot.getJSONArray("orders").getJSONObject(0).toString())
+            brokenSnapshot.getJSONArray("orders").put(duplicate)
+
+            assertThrows(Exception::class.java) { store.restoreSnapshot(brokenSnapshot) }
+
+            val afterFailure = store.snapshot()
+            assertEquals(0, afterFailure.getJSONArray("orders").length())
+            assertEquals(0, afterFailure.getJSONArray("technicalStates").length())
+            assertEquals(0, afterFailure.getJSONArray("entries").length())
+            val metadata = afterFailure.getJSONObject("metadata")
+            assertEquals(1L, metadata.getLong("nextOrderSequence"))
+            assertEquals(1L, metadata.getLong("nextReceiptSequence"))
+            assertEquals(1L, metadata.getLong("nextJournalSequence"))
+            assertTrue(metadata.isNull("lastJournalHash"))
+        } finally {
+            sourceDatabase.close()
+        }
+    }
+
+    @Test
     fun importsSeveralOrdersAndAcceptsAnIdenticalExistingUuid() = onDatabaseThread {
         val legacyDb = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
         try {

@@ -8,6 +8,7 @@ import type {
   SalesLedgerEntry,
 } from '../types/salesLedger'
 import type { TerminalConfiguration, TerminalIdentity } from '../types/terminal'
+import { terminalCodes } from '../types/terminal'
 import { createLedgerSource } from './ledgerSource'
 import {
   type OrderRepository,
@@ -133,6 +134,22 @@ export class SalesLedgerService {
 
   restoreArchive(archive: SalesArchive): Promise<ArchiveRestoreResult> {
     this.requireResponsibleMode()
+    const verification = verifySalesArchive(archive)
+    if (!verification.valid) {
+      throw new Error(`Restauration refusée : ${verification.errors.join(' ')}`)
+    }
+    const current = this.getTerminal()
+    const source = requireArchiveTerminalIdentity(archive)
+    if (current.terminalCode !== source.terminalCode) {
+      throw new Error(
+        `Cette archive appartient à Caisse ${source.terminalCode} et ne peut pas être restaurée sur Caisse ${current.terminalCode}.`,
+      )
+    }
+    if (current.terminalId !== source.terminalId) {
+      throw new Error(
+        `Cette archive utilise une autre identité technique pour Caisse ${source.terminalCode}.`,
+      )
+    }
     return this.repository.restoreArchive(archive)
   }
 
@@ -164,6 +181,21 @@ export class SalesLedgerService {
       displayName: terminal.displayName,
     }
   }
+}
+
+export function requireArchiveTerminalIdentity(archive: SalesArchive): TerminalIdentity {
+  const terminal = archive.source?.terminal
+  if (
+    !terminal ||
+    typeof terminal.terminalId !== 'string' ||
+    !terminal.terminalId.trim() ||
+    !terminalCodes.includes(terminal.terminalCode) ||
+    typeof terminal.displayName !== 'string' ||
+    !terminal.displayName.trim()
+  ) {
+    throw new Error('Restauration refusée : l’identité terminal de l’archive est invalide.')
+  }
+  return terminal
 }
 
 let defaultSalesLedgerService: SalesLedgerService | null = null
