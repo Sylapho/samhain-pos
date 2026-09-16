@@ -152,6 +152,36 @@ describe('caisse', () => {
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
 
+  it('protège l’écran de clôture et sauvegarde par le mode responsable', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+    responsibleMode.lock()
+
+    render(
+      <App
+        responsibleMode={responsibleMode}
+        ledgerManagementDependencies={{
+          ledgerService: {
+            getLastClosureEnd: vi.fn(async () => null),
+          } as never,
+          backupService: {} as never,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Clôture & sauvegarde' }))
+
+    expect(screen.getByRole('dialog', { name: 'Mode responsable' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Clôture et sauvegarde' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('PIN responsable'), { target: { value: '4826' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Clôture et sauvegarde' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+    expect(responsibleMode.isUnlocked()).toBe(false)
+  })
+
   it('autorise le reprovisionnement après vérification sans impression à reprendre', async () => {
     const responsibleMode = new ResponsibleModeService(
       new LocalStorageResponsibleCredentialRepository(localStorage),

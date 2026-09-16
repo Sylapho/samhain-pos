@@ -1,6 +1,8 @@
 import type {
   ArchiveRestoreResult,
   ClosureLedgerEntry,
+  ClosurePreview,
+  ClosureVatBreakdown,
   CorrectionLedgerEntry,
   IntegrityVerification,
   LedgerSource,
@@ -11,6 +13,7 @@ import type { TerminalConfiguration, TerminalIdentity } from '../types/terminal'
 import { terminalCodes } from '../types/terminal'
 import { createLedgerSource } from './ledgerSource'
 import {
+  calculateClosureTotals,
   type OrderRepository,
   type SalesLedgerRepository,
   verifySalesArchive,
@@ -100,6 +103,7 @@ export class SalesLedgerService {
     recordedAt = new Date(),
   ): Promise<ClosureLedgerEntry> {
     this.requireResponsibleMode()
+    validateClosurePeriod(periodStart, periodEnd, recordedAt)
     const terminal = this.getTerminal()
     return this.repository.closePeriod({
       operationId: operationId ?? this.createOperationId(),
@@ -108,6 +112,52 @@ export class SalesLedgerService {
       recordedAt: recordedAt.toISOString(),
       source: this.buildLedgerSource(terminal),
     })
+  }
+
+  async previewClosure(
+    periodStart: Date,
+    periodEnd: Date,
+    currentTime = new Date(),
+  ): Promise<ClosurePreview> {
+    this.requireResponsibleMode()
+    validateClosurePeriod(periodStart, periodEnd, currentTime)
+    const [integrity, entries] = await Promise.all([
+      this.repository.verifyIntegrity(),
+      this.repository.getLedgerEntries(),
+    ])
+    if (!integrity.valid) {
+      throw new Error(`Prévisualisation refusée : ${integrity.errors.join(' ')}`)
+    }
+
+    const periodStartIso = periodStart.toISOString()
+    const periodEndIso = periodEnd.toISOString()
+    const lastClosureEnd = entries
+      .filter((entry): entry is ClosureLedgerEntry => entry.kind === 'closure')
+      .at(-1)?.closure.periodEnd
+    if (lastClosureEnd && periodStartIso !== lastClosureEnd) {
+      throw new Error('La nouvelle clôture doit commencer à la fin de la précédente.')
+    }
+
+    const totals = calculateClosureTotals(entries, periodStartIso, periodEndIso)
+    const vat = calculateClosureVat(entries, periodStartIso, periodEndIso, totals.correctionCount)
+    return {
+      periodStart: periodStartIso,
+      periodEnd: periodEndIso,
+      terminal: this.getTerminal(),
+      totals,
+      integrity,
+      vatBreakdown: vat.breakdown,
+      ...(vat.unavailableReason ? { vatUnavailableReason: vat.unavailableReason } : {}),
+    }
+  }
+
+  async getLastClosureEnd(): Promise<string | null> {
+    this.requireResponsibleMode()
+    return (
+      (await this.repository.getLedgerEntries())
+        .filter((entry): entry is ClosureLedgerEntry => entry.kind === 'closure')
+        .at(-1)?.closure.periodEnd ?? null
+    )
   }
 
   getEntries(): Promise<SalesLedgerEntry[]> {
@@ -181,6 +231,69 @@ export class SalesLedgerService {
       displayName: terminal.displayName,
     }
   }
+}
+
+function validateClosurePeriod(periodStart: Date, periodEnd: Date, currentTime: Date): void {
+  if (
+    Number.isNaN(periodStart.getTime()) ||
+    Number.isNaN(periodEnd.getTime()) ||
+    Number.isNaN(currentTime.getTime())
+  ) {
+    throw new Error('Les dates de clôture sont invalides.')
+  }
+  if (periodStart.getTime() >= periodEnd.getTime()) {
+    throw new Error('La fin de période doit être postérieure à son début.')
+  }
+  if (periodEnd.getTime() > currentTime.getTime()) {
+    throw new Error('Une période future ne peut pas être clôturée.')
+  }
+}
+
+function calculateClosureVat(
+  entries: SalesLedgerEntry[],
+  periodStart: string,
+  periodEnd: string,
+  correctionCount: number,
+): { breakdown: ClosureVatBreakdown[] | null; unavailableReason?: string } {
+  if (correctionCount > 0) {
+    return {
+      breakdown: null,
+      unavailableReason:
+        'Ventilation TVA indisponible : les corrections ne contiennent pas de ventilation par taux.',
+    }
+  }
+
+  const byRate = new Map<number, ClosureVatBreakdown>()
+  for (const entry of entries) {
+    if (
+      entry.kind !== 'sale' ||
+      entry.order.paidAt < periodStart ||
+      entry.order.paidAt >= periodEnd
+    ) {
+      continue
+    }
+    for (const item of entry.order.items) {
+      if (!Number.isFinite(item.vatRate)) {
+        return {
+          breakdown: null,
+          unavailableReason: 'Ventilation TVA indisponible pour certaines données persistées.',
+        }
+      }
+      const grossCents = item.unitPriceCents * item.quantity
+      const vatCents = Math.round((grossCents * item.vatRate) / (100 + item.vatRate))
+      const current = byRate.get(item.vatRate) ?? {
+        rate: item.vatRate,
+        grossCents: 0,
+        netCents: 0,
+        vatCents: 0,
+      }
+      current.grossCents += grossCents
+      current.vatCents += vatCents
+      current.netCents += grossCents - vatCents
+      byRate.set(item.vatRate, current)
+    }
+  }
+  return { breakdown: [...byRate.values()].sort((left, right) => left.rate - right.rate) }
 }
 
 export function requireArchiveTerminalIdentity(archive: SalesArchive): TerminalIdentity {

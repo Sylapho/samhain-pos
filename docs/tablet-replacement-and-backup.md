@@ -67,7 +67,58 @@ Procédure lorsque l'ancienne tablette fonctionne encore :
 
 `TabletReplacementService` restaure d'abord le repository puis adopte l'identité. Un marqueur local rend la reprise idempotente entre Room et `localStorage`. Si l'opération est interrompue, l'application bloque provisioning et encaissement ; reprendre avec **la même archive**. Ne jamais lancer un provisioning normal pour contourner ce blocage.
 
-La version actuelle ne fournit pas encore d'écran générique d'import/export d'archive. Le service de domaine et ses contrôles sont prêts pour un outil d'exploitation dédié ; tant que cet outil n'est pas livré et validé, une reprise doit être exécutée par la procédure technique autorisée, jamais improvisée pendant l'encaissement.
+La version actuelle fournit l’export vérifié dans **Clôture & sauvegarde**, après déverrouillage du mode responsable. Elle ne fournit pas encore l’interface de restauration #61. Une reprise reste donc une procédure technique autorisée tant que cet écran d’import n’est pas livré et validé.
+
+## Effectuer une sauvegarde vérifiée
+
+La sauvegarde et la clôture sont deux opérations distinctes. Une sauvegarde peut et doit pouvoir être faite sans clôturer :
+
+1. ouvrir **Clôture & sauvegarde** et saisir le PIN responsable ;
+2. choisir **Sauvegarde** puis **Vérifier l’intégrité** ;
+3. lire le nombre d’entrées, le nombre de ventes scellées, les avertissements, erreurs et l’empreinte de tête ;
+4. si le journal est valide, toucher **Choisir où enregistrer** ;
+5. dans le sélecteur Android, choisir un emplacement réellement extérieur à l’espace privé de Samhain POS (clé USB visible par Android, dossier Documents, ou emplacement contrôlé du fournisseur de documents) ;
+6. attendre le message **Sauvegarde vérifiée** ;
+7. relever le nom, l’archive ID et l’`archiveHash`, puis conserver au moins une copie sur un autre appareil ou support.
+
+Le JSON `SalesArchive` est la sauvegarde de référence. Un CSV, une capture d’écran, l’ouverture d’un menu de partage ou une copie de la base Room ne le remplace pas. Le succès signifie que l’URI choisie a été écrite puis relue et que l’archive relue est valide et identique. Une annulation du sélecteur est signalée comme une annulation, jamais comme un succès. Les données Room/IndexedDB, ventes, corrections, clôtures et archives déjà présentes ne sont jamais supprimées après l’export.
+
+L’`archiveHash` protège l’intégrité globale du JSON et sera utilisé par le futur flux de restauration #61. Il ne prouve pas, à lui seul, qui a créé le fichier ; la copie hors tablette et la consignation opérationnelle restent nécessaires.
+
+## Clôturer puis sauvegarder
+
+Dans le même écran responsable :
+
+1. vérifier l’intégrité ;
+2. ouvrir **Clôture** ;
+3. sélectionner le début et la fin de la période ; le début proposé reprend la fin de la dernière clôture lorsqu’elle existe ;
+4. prévisualiser les totaux issus du ledger persistant ;
+5. contrôler ventes, brut, corrections, net, CB, espèces et TVA disponible ;
+6. confirmer la clôture ;
+7. contrôler les totaux officiels renvoyés par l’entrée de clôture ;
+8. choisir **Enregistrer maintenant une sauvegarde**.
+
+La clôture ajoute une entrée append-only. Elle ne déplace, ne purge et ne supprime aucune vente. La sauvegarde proposée après clôture reste une opération séparée et peut être annulée ou recommencée.
+
+## Validation manuelle sur une tablette Android
+
+Effectuer ce scénario avec des données de test et une destination dont le fichier est récupérable :
+
+1. lancer Samhain POS sur la tablette en mode avion ;
+2. créer plusieurs ventes, dont au moins une en CB et une en espèces ;
+3. effectuer une correction avec le flux responsable disponible ;
+4. ouvrir **Clôture & sauvegarde** et vérifier le ledger ;
+5. créer une sauvegarde sans clôturer et choisir une destination dans le sélecteur Android ;
+6. confirmer le statut **Sauvegarde vérifiée** ;
+7. retrouver le fichier hors de l’application, le copier sur un PC ou un autre appareil et ouvrir son JSON ;
+8. vérifier qu’il contient `schemaVersion`, `archiveId`, `archiveHash`, `source`, `metadata`, `orders`, `technicalStates` et `entries` ;
+9. revenir dans Samhain POS, prévisualiser puis confirmer une clôture ;
+10. contrôler le total brut, les corrections, le net, CB et espèces ;
+11. enregistrer une nouvelle sauvegarde et vérifier que son ledger contient l’entrée `closure` ;
+12. contrôler dans l’historique que toutes les ventes sont toujours présentes ;
+13. recommencer une fois en annulant le sélecteur et une fois avec une destination indisponible : aucun de ces essais ne doit afficher **Sauvegarde vérifiée**.
+
+La compilation et les tests automatisés ne valident pas le comportement d’un fournisseur de documents OEM, d’une clé USB particulière ni la conservation physique du fichier après retrait du support. Consigner le modèle de tablette, la version Android et la destination testée.
 
 ## Tablette perdue ou totalement hors service
 

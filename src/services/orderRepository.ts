@@ -246,7 +246,7 @@ function compareClosureRequest(entry: ClosureLedgerEntry, request: ClosureReques
   )
 }
 
-function calculateClosureTotals(
+export function calculateClosureTotals(
   entries: SalesLedgerEntry[],
   periodStart: string,
   periodEnd: string,

@@ -369,4 +369,83 @@ describe('journal local des encaissements', () => {
     expect(target.ledger.verifyArchive(serializable).valid).toBe(true)
     await Promise.all([source.repository.close(), target.repository.close()])
   })
+
+  it('exporte sans clôture préalable sans supprimer les ventes locales', async () => {
+    const { repository, orders, ledger } = services(new IDBFactory(), 'archive-without-closure')
+    const order = await orders.createOrder([item], 'card', new Date('2026-09-01T10:00:00Z'))
+
+    const archive = await ledger.exportArchive(
+      'archive-without-closure',
+      new Date('2026-09-01T11:00:00Z'),
+    )
+
+    expect(ledger.verifyArchive(archive).valid).toBe(true)
+    expect(archive.entries.some((entry) => entry.kind === 'closure')).toBe(false)
+    expect((await orders.getOrders()).map((stored) => stored.id)).toEqual([order.id])
+    expect(await ledger.getEntries()).toHaveLength(1)
+    await repository.close()
+  })
+
+  it('prévisualise depuis le ledger persisté avec corrections, CB et espèces', async () => {
+    const { repository, orders, ledger } = services(new IDBFactory(), 'closure-preview')
+    const cashOrder = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
+    const cardOrder = await orders.createOrder([item], 'card', new Date('2026-09-01T10:30:00Z'))
+    await ledger.refundSale(
+      cardOrder.id,
+      250,
+      'Remboursement partiel',
+      'refund-preview',
+      new Date('2026-09-01T11:00:00Z'),
+    )
+
+    const preview = await ledger.previewClosure(
+      new Date('2026-09-01T09:00:00Z'),
+      new Date('2026-09-01T12:00:00Z'),
+      new Date('2026-09-01T13:00:00Z'),
+    )
+
+    expect(preview.totals).toEqual({
+      saleCount: 2,
+      grossSalesCents: cashOrder.totalCents + cardOrder.totalCents,
+      correctionCount: 1,
+      correctionTotalCents: -250,
+      netTotalCents: cashOrder.totalCents + cardOrder.totalCents - 250,
+      cumulativeNetTotalCents: cashOrder.totalCents + cardOrder.totalCents - 250,
+      paymentTotalsCents: {
+        cash: cashOrder.totalCents,
+        card: cardOrder.totalCents - 250,
+      },
+    })
+    expect(preview.vatBreakdown).toBeNull()
+    expect(preview.vatUnavailableReason).toMatch(/corrections/)
+
+    const closure = await ledger.closePeriod(
+      new Date(preview.periodStart),
+      new Date(preview.periodEnd),
+      'preview-closure',
+      new Date('2026-09-01T13:00:00Z'),
+    )
+    expect(closure.closure.totals).toEqual(preview.totals)
+    expect(await orders.getOrders()).toHaveLength(2)
+    expect((await ledger.getEntries()).map((entry) => entry.kind)).toEqual([
+      'sale',
+      'sale',
+      'correction',
+      'closure',
+    ])
+    await repository.close()
+  })
+
+  it('refuse explicitement les périodes de clôture invalides', async () => {
+    const { repository, ledger } = services(new IDBFactory(), 'invalid-closure-period')
+    const start = new Date('2026-09-01T12:00:00Z')
+
+    await expect(
+      ledger.previewClosure(start, start, new Date('2026-09-01T13:00:00Z')),
+    ).rejects.toThrow(/postérieure/)
+    expect(() =>
+      ledger.closePeriod(new Date('invalid'), new Date('2026-09-01T12:00:00Z'), 'invalid-date'),
+    ).toThrow(/dates.*invalides/i)
+    await repository.close()
+  })
 })

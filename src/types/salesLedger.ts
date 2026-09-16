@@ -71,6 +71,23 @@ export type ClosureLedgerEntry = LedgerEntryBase & {
   closure: SalesClosure
 }
 
+export type ClosureVatBreakdown = {
+  rate: number
+  grossCents: number
+  netCents: number
+  vatCents: number
+}
+
+export type ClosurePreview = {
+  periodStart: string
+  periodEnd: string
+  terminal: TerminalIdentity
+  totals: ClosureTotals
+  integrity: IntegrityVerification
+  vatBreakdown: ClosureVatBreakdown[] | null
+  vatUnavailableReason?: string
+}
+
 export type SalesLedgerEntry = SaleLedgerEntry | CorrectionLedgerEntry | ClosureLedgerEntry
 
 export type CorrectionRequest = {

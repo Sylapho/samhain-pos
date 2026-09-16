@@ -52,9 +52,17 @@ Les API existent dans `SalesLedgerService`. Aucun bouton d’annulation ou de re
 
 L’horloge de la tablette reste une source de confiance. Avant exploitation, Android doit empêcher une modification non autorisée de la date et la procédure de caisse doit prévoir le traitement d’une horloge incorrecte.
 
+L’écran responsable **Clôture & sauvegarde** permet de prévisualiser une période à partir du journal persisté. La confirmation relit et vérifie le journal, puis appelle `closePeriod()` ; les chiffres affichés après succès proviennent exclusivement de la `ClosureLedgerEntry` réellement ajoutée. Les boutons sont verrouillés pendant l’opération afin d’éviter deux clôtures concurrentes.
+
+La ventilation TVA est calculée depuis les lignes de vente persistées avec la même règle d’arrondi que les tickets. Comme une correction historique ne contient actuellement qu’un montant global et pas sa répartition par taux, l’écran annonce explicitement que la ventilation est indisponible dès qu’une correction appartient à la période. Aucune TVA n’est estimée ou inventée.
+
 ## Archive, conservation et restauration
 
 `exportArchive()` produit un objet JSON ouvert et autonome contenant : notice française, version de schéma, identifiant et date d’export, source logicielle/configuration, séquences, ventes ligne par ligne, états techniques, journal complet et empreinte globale `archiveHash`. L’export est refusé si le journal local est déjà incohérent. `verifyArchive()` fonctionne après un aller-retour JSON.
+
+L’écran responsable peut générer cette archive sans clôture préalable. Sur Android, **Choisir où enregistrer** ouvre le Storage Access Framework (`ACTION_CREATE_DOCUMENT`) sans permission globale de stockage. Le plugin écrit le JSON UTF-8 dans l’URI choisie, rouvre cette même URI et renvoie les octets relus. `SalesBackupService` parse et vérifie alors l’archive relue, compare `archiveId`, `archiveHash` et le contenu sérialisé, puis seulement affiche **Sauvegarde vérifiée**. Une annulation, une permission refusée, une erreur d’écriture ou de relecture ne produit jamais ce statut.
+
+Le nom suit la forme `samhain-pos-backup-caisse-A-AAAAMMJJ-HHMMSS-identifiant.json`. Le fichier JSON est la sauvegarde de référence et conserve directement le format `SalesArchive` attendu par la restauration #61. `archiveHash` est l’empreinte SHA-256 du contenu métier de l’archive hors champ `archiveHash` ; il permet de détecter une archive modifiée, mais ne remplace pas une signature externe.
 
 `restoreArchive()` vérifie d’abord l’empreinte globale, toute la chaîne et les ventes. Le service compare ensuite `archive.source.terminal.terminalId` et `terminalCode` à l'identité technique courante ; le nom visible peut différer après un renommage. Une archive invalide ou issue d'une autre identité est refusée avant toute mutation. Le repository restaure enfin atomiquement uniquement dans une base vide. Cette restriction évite une fusion silencieuse de deux journaux.
 
@@ -79,7 +87,6 @@ Le BOFiP précise notamment que les données élémentaires, les cumuls et les p
 - obtenir la certification ou l’attestation applicable à la version réellement livrée ;
 - remplacer les données administratives et le catalogue de démonstration ;
 - définir les rôles autorisés à corriger, clôturer, exporter et restaurer, puis journaliser leur identité ;
-- fournir un écran ou outil d’exploitation pour la clôture, l’export sur support externe et la vérification ;
 - déployer et valider le runbook de sauvegarde/remplacement sur les modèles Android réellement utilisés ;
 - décider comment ancrer périodiquement l’empreinte de tête sur un support indépendant ;
 - concevoir la synchronisation multi-tablettes en conservant une chaîne par terminal et sans réécrire les événements locaux ;

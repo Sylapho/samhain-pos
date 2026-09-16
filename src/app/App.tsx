@@ -7,6 +7,7 @@ import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
+import { LedgerManagement, type LedgerManagementProps } from '../features/ledger/LedgerManagement'
 import { ResponsibleModeDialog } from '../features/responsible/ResponsibleModeDialog'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
@@ -45,6 +46,10 @@ type Props = {
     ComponentProps<typeof CheckoutFlow>,
     'createOrder' | 'lifecycle' | 'printOrder'
   >
+  ledgerManagementDependencies?: Pick<
+    LedgerManagementProps,
+    'ledgerService' | 'backupService' | 'now'
+  >
 }
 
 const defaultTerminalManagement = {
@@ -62,12 +67,14 @@ export function App({
   responsibleMode = getResponsibleModeService(),
   loadPendingTabletReplacement = hasPendingTabletReplacement,
   checkoutDependencies,
+  ledgerManagementDependencies,
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [ledgerManagementOpen, setLedgerManagementOpen] = useState(false)
   const [terminalState, setTerminalState] = useState<{
     configuration: TerminalConfiguration | null
     error: boolean
@@ -124,6 +131,7 @@ export function App({
       if (document.visibilityState === 'hidden') {
         responsibleMode.lock()
         setTerminalConfigurationOpen(false)
+        setLedgerManagementOpen(false)
       }
     }
     document.addEventListener('visibilitychange', lockWhenHidden)
@@ -291,6 +299,16 @@ export function App({
         <div className="flex items-center gap-3">
           <Button
             className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
+            onClick={() => {
+              void requestResponsibleAccess().then((authorized) => {
+                if (authorized) setLedgerManagementOpen(true)
+              })
+            }}
+          >
+            Clôture & sauvegarde
+          </Button>
+          <Button
+            className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
             onClick={() => setHistoryOpen(true)}
           >
             Historique
@@ -415,6 +433,16 @@ export function App({
             setTerminalConfigurationOpen(false)
             responsibleMode.lock()
           }}
+        />
+      ) : null}
+
+      {ledgerManagementOpen ? (
+        <LedgerManagement
+          onClose={() => {
+            setLedgerManagementOpen(false)
+            responsibleMode.lock()
+          }}
+          {...ledgerManagementDependencies}
         />
       ) : null}
 
