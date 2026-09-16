@@ -55,11 +55,16 @@ export function CheckoutFlow({
     initialOrder?.printing.customerReceipt !== 'not_requested',
   )
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
-  const [completed, setCompleted] = useState(initialOrder?.printing.status === 'printed')
+  const [printingComplete, setPrintingComplete] = useState(
+    initialOrder?.printing.status === 'printed',
+  )
+  const [manualReprintMode, setManualReprintMode] = useState(false)
+  const [deferConfirmationOpen, setDeferConfirmationOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const printingRef = useRef(false)
   const authorizingRef = useRef(false)
+  const deferringRef = useRef(false)
   const displayedItems = order?.items ?? items
   const totalCents = displayedItems.reduce(
     (total, item) => total + item.unitPriceCents * item.quantity,
@@ -106,7 +111,8 @@ export function CheckoutFlow({
             ),
           )
           if (failedOrder.printing.status === 'printed') {
-            setCompleted(true)
+            setPrintingComplete(true)
+            setManualReprintMode(false)
             setFeedback({
               kind: 'warning',
               text: `Tickets imprimés, mais la coupe a échoué. Détachez-les manuellement. ${message}`,
@@ -130,7 +136,10 @@ export function CheckoutFlow({
         throw new PrintStatePersistenceError(true)
       }
     }
-    setCompleted(!trackLifecycle || updatedOrder.printing.status === 'printed')
+    setPrintingComplete(!trackLifecycle || updatedOrder.printing.status === 'printed')
+    if (!trackLifecycle || updatedOrder.printing.status === 'printed') {
+      setManualReprintMode(false)
+    }
     if (trackLifecycle && updatedOrder.printing.status !== 'printed') {
       setFeedback({
         kind: 'warning',
@@ -190,7 +199,7 @@ export function CheckoutFlow({
   const checkoutAndPrint = () => {
     if (order) {
       if (order.printing.status === 'unknown') {
-        setCompleted(true)
+        setManualReprintMode(true)
         setFeedback({
           kind: 'warning',
           text: 'L’état de certains tickets est incertain. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
@@ -199,7 +208,8 @@ export function CheckoutFlow({
       }
       const selection = getPendingSelection(order)
       if (!selection) {
-        setCompleted(true)
+        if (order.printing.status === 'printed') setPrintingComplete(true)
+        else setManualReprintMode(true)
         return
       }
       void runPrint(order, { printCustomerReceipt, selection })
@@ -261,6 +271,24 @@ export function CheckoutFlow({
     await runPrint(order, options, order.printing.status !== 'printed')
   }
 
+  const continueWithNextOrder = () => {
+    if (busy || deferringRef.current || !order || order.printing.status === 'printed') return
+    deferringRef.current = true
+    setDeferConfirmationOpen(false)
+    onNewOrder()
+  }
+
+  const deferPrintingAndStartNewOrder = () => {
+    if (busy || deferringRef.current || !order || order.printing.status === 'printed') return
+    if (order.printing.preparationTicket !== 'printed') {
+      setDeferConfirmationOpen(true)
+      return
+    }
+    continueWithNextOrder()
+  }
+
+  const canDeferPrinting = order !== null && order.printing.status !== 'printed'
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-stone-950/70 p-4"
@@ -269,7 +297,7 @@ export function CheckoutFlow({
       aria-labelledby="checkout-title"
     >
       <section className="my-auto w-full max-w-2xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
-        {!completed ? (
+        {!printingComplete && !manualReprintMode ? (
           <>
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -358,6 +386,7 @@ export function CheckoutFlow({
                 </p>
                 <p className="mt-1 text-sm">Paiement enregistré · {printStatusLabel(order)}</p>
                 <DocumentStatuses order={order} />
+                <PreparationWarning order={order} />
               </div>
             ) : null}
 
@@ -388,7 +417,62 @@ export function CheckoutFlow({
                     : 'Encaisser et imprimer'}
               </Button>
             </div>
+            {canDeferPrinting ? (
+              <Button
+                fullWidth
+                className="mt-3 min-h-14"
+                disabled={busy}
+                onClick={deferPrintingAndStartNewOrder}
+              >
+                Mettre en attente et nouvelle commande
+              </Button>
+            ) : null}
           </>
+        ) : manualReprintMode && !printingComplete ? (
+          <div className="text-center">
+            <h2 id="checkout-title" className="text-3xl font-black">
+              Vérifier les tickets
+            </h2>
+            <p className="mt-3 text-lg font-black text-[#1f6a4b]">
+              Commande {order?.orderNumber} · reçu {order?.receiptNumber}
+            </p>
+            <p className="mt-1 font-bold text-stone-700">
+              Paiement enregistré · aucune nouvelle vente à créer
+            </p>
+            {feedback ? <FeedbackBox feedback={feedback} /> : null}
+
+            <div className="mt-5 border-t border-stone-300 pt-5 text-left">
+              {order ? (
+                <>
+                  <DocumentStatuses order={order} />
+                  <PreparationWarning order={order} />
+                </>
+              ) : null}
+              <p className="mt-4 mb-3 text-sm font-black text-stone-600">
+                Choisissez uniquement un ticket dont la sortie a été vérifiée.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Button disabled={busy} onClick={() => void reprint('both')}>
+                  Les deux
+                </Button>
+                <Button disabled={busy} onClick={() => void reprint('customer')}>
+                  Ticket client
+                </Button>
+                <Button disabled={busy} onClick={() => void reprint('preparation')}>
+                  Préparation
+                </Button>
+              </div>
+            </div>
+
+            <Button
+              fullWidth
+              className="mt-6 min-h-14"
+              disabled={busy}
+              onClick={deferPrintingAndStartNewOrder}
+            >
+              Mettre en attente et nouvelle commande
+            </Button>
+          </div>
         ) : (
           <div className="text-center">
             <h2 id="checkout-title" className="text-3xl font-black">
@@ -432,6 +516,33 @@ export function CheckoutFlow({
           </div>
         )}
       </section>
+
+      {deferConfirmationOpen && order ? (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-stone-950/70 p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="defer-printing-title"
+        >
+          <div className="w-full max-w-lg rounded-[12px] border border-amber-300 bg-[#fffdf8] p-6">
+            <h2 id="defer-printing-title" className="text-2xl font-black">
+              Mettre l’impression en attente ?
+            </h2>
+            <p className="mt-3 font-bold text-stone-800">
+              La commande {order.orderNumber} est payée et enregistrée, mais le ticket de
+              préparation n’est pas terminé. Elle restera dans les impressions à reprendre.
+            </p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <Button disabled={busy} onClick={() => setDeferConfirmationOpen(false)}>
+                Continuer l’impression
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={continueWithNextOrder}>
+                Mettre en attente
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -557,6 +668,19 @@ function DocumentStatuses({ order }: { order: Order }) {
     <div className="mt-2 text-sm text-stone-800" aria-live="polite">
       <p>Ticket client : {labels[order.printing.customerReceipt]}</p>
       <p>Ticket de préparation : {labels[order.printing.preparationTicket]}</p>
+    </div>
+  )
+}
+
+function PreparationWarning({ order }: { order: Order }) {
+  if (order.printing.preparationTicket === 'printed') return null
+  return (
+    <div
+      className="mt-4 border-2 border-amber-500 bg-amber-100 p-3 font-black text-amber-950"
+      role="alert"
+    >
+      Attention : le ticket de préparation n’a pas été imprimé. La cuisine peut ne pas avoir reçu
+      cette commande.
     </div>
   )
 }

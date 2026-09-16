@@ -277,6 +277,68 @@ describe('service de commandes persistantes', () => {
     await restarted.repository.close()
   })
 
+  it('conserve la vente différée et n’alloue un nouveau numéro que pour la vente suivante', async () => {
+    const indexedDb = new IDBFactory()
+    const first = createService(indexedDb, 'deferred-numbering', 'order-1')
+    const firstOrder = await first.service.createOrder(createValidOrderItems(), 'cash', createdAt)
+    await first.service.beginPrinting(firstOrder.id, 'both', createdAt)
+    const deferredOrder = await first.service.failPrinting(
+      firstOrder.id,
+      'both',
+      ['customerReceipt'],
+      'Préparation interrompue.',
+      createdAt,
+    )
+    await first.repository.close()
+
+    const restarted = createService(indexedDb, 'deferred-numbering', 'order-2')
+    const [recovered] = await restarted.service.getRecoverableOrders()
+    expect(recovered).toMatchObject({
+      id: deferredOrder.id,
+      orderNumber: deferredOrder.orderNumber,
+      receiptNumber: deferredOrder.receiptNumber,
+      terminal: deferredOrder.terminal,
+      paymentMethod: deferredOrder.paymentMethod,
+      paymentStatus: 'paid',
+      paidAt: deferredOrder.paidAt,
+      createdAt: deferredOrder.createdAt,
+      items: deferredOrder.items,
+      printing: deferredOrder.printing,
+    })
+
+    const secondOrder = await restarted.service.createOrder(
+      createValidOrderItems(),
+      'card',
+      new Date('2026-09-01T12:01:00Z'),
+    )
+    expect(secondOrder.orderNumber).toBe('A-0002')
+    expect(secondOrder.receiptNumber).toBe('R-A-20260901-0002')
+
+    await restarted.service.beginPrinting(firstOrder.id, 'preparation', createdAt)
+    const completedFirstOrder = await restarted.service.completePrinting(
+      firstOrder.id,
+      'preparation',
+      ['preparationTicket'],
+      createdAt,
+    )
+    expect(completedFirstOrder).toMatchObject({
+      id: firstOrder.id,
+      orderNumber: 'A-0001',
+      receiptNumber: 'R-A-20260901-0001',
+      paymentMethod: 'cash',
+      printing: {
+        status: 'printed',
+        customerReceipt: 'printed',
+        preparationTicket: 'printed',
+      },
+    })
+    expect((await restarted.service.getOrders()).map((order) => order.orderNumber).sort()).toEqual([
+      'A-0001',
+      'A-0002',
+    ])
+    await restarted.repository.close()
+  })
+
   it('persiste un transfert partiel comme inconnu sans perdre le ticket terminé', async () => {
     const indexedDb = new IDBFactory()
     const first = createService(indexedDb, 'unknown-transfer', 'order-1')
