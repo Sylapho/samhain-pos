@@ -1,6 +1,8 @@
 import type { CartItem, SelectedOption, SelectedVariant } from '../types/cart'
+import type { CheckoutIntent, CheckoutIntentStatus } from '../types/checkout'
 import type { DataConfidence, ProductIngredient, VatRate } from '../types/catalog'
 import type { PaymentMethod, PaymentStatus } from '../types/order'
+import type { LedgerSource } from '../types/salesLedger'
 import {
   terminalCodes,
   type TerminalCode,
@@ -63,6 +65,11 @@ function safeInteger(value: unknown, label: string, minimum?: number): number {
   if (minimum !== undefined && value < minimum) {
     throw new Error(`${label} doit être supérieur ou égal à ${minimum}.`)
   }
+  return value
+}
+
+function boolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${label} doit être booléen.`)
   return value
 }
 
@@ -282,4 +289,102 @@ export function validateOrderDraft(draft: OrderDraftValidationInput): ValidatedO
     createdAt: validateIsoTimestamp(draft.createdAt, 'La date de création'),
     status: 'confirmed',
   }
+}
+
+const checkoutIntentStatuses = [
+  'pending_payment',
+  'payment_to_verify',
+  'payment_confirmed',
+  'finalized',
+  'abandoned',
+] as const satisfies readonly CheckoutIntentStatus[]
+
+function validateLedgerSource(value: unknown, terminal: TerminalIdentity): LedgerSource {
+  const source = record(value, 'La source du journal')
+  const sourceTerminal = validateTerminalIdentity(source.terminal)
+  if (
+    sourceTerminal.terminalId !== terminal.terminalId ||
+    sourceTerminal.terminalCode !== terminal.terminalCode
+  ) {
+    throw new Error("La source du journal ne correspond pas au terminal de l'encaissement.")
+  }
+  nonBlankString(source.softwareVersion, 'La version logicielle')
+  nonBlankString(source.buildMode, 'Le mode de compilation')
+  record(source.organization, "L'organisation du journal")
+  return structuredClone(value) as LedgerSource
+}
+
+export function validateCheckoutIntent(value: unknown): CheckoutIntent {
+  const candidate = record(value, "L'intention d'encaissement")
+  const id = nonBlankString(candidate.id, "L'identifiant de l'encaissement")
+  const terminal = validateTerminalIdentity(candidate.terminal)
+  const createdAt = validateIsoTimestamp(candidate.createdAt, 'La date de création')
+  const updatedAt = validateIsoTimestamp(candidate.updatedAt, 'La date de mise à jour')
+  const status = candidate.status
+  if (!checkoutIntentStatuses.some((allowed) => allowed === status)) {
+    throw new Error(`L’état d’encaissement « ${String(status)} » est invalide.`)
+  }
+  const validatedOrder = validateOrderDraft({
+    id,
+    terminal,
+    paymentMethod: candidate.paymentMethod,
+    paymentStatus: 'paid',
+    paidAt: candidate.paymentConfirmedAt ?? createdAt,
+    items: candidate.cartSnapshot,
+    itemCount: candidate.itemCount,
+    totalCents: candidate.totalCents,
+    createdAt,
+    status: 'confirmed',
+  })
+  const intent: CheckoutIntent = {
+    id,
+    cartSnapshot: validatedOrder.items,
+    itemCount: validatedOrder.itemCount,
+    totalCents: validatedOrder.totalCents,
+    paymentMethod: validatedOrder.paymentMethod,
+    status: status as CheckoutIntentStatus,
+    terminal,
+    ledgerSource: validateLedgerSource(candidate.ledgerSource, terminal),
+    orderNumberPrefix: nonBlankString(candidate.orderNumberPrefix, 'Le préfixe de commande'),
+    receiptNumberPrefix: nonBlankString(candidate.receiptNumberPrefix, 'Le préfixe de reçu'),
+    printCustomerReceipt: boolean(
+      candidate.printCustomerReceipt,
+      "Le choix d'impression du ticket client",
+    ),
+    createdAt,
+    updatedAt,
+  }
+  if (intent.orderNumberPrefix !== terminal.terminalCode) {
+    throw new Error('Le préfixe de commande ne correspond pas au terminal.')
+  }
+  if (!intent.receiptNumberPrefix.startsWith(`R-${terminal.terminalCode}-`)) {
+    throw new Error('Le préfixe de reçu ne correspond pas au terminal.')
+  }
+
+  if (candidate.paymentConfirmedAt !== undefined) {
+    intent.paymentConfirmedAt = validateIsoTimestamp(
+      candidate.paymentConfirmedAt,
+      'La date de confirmation du paiement',
+    )
+  }
+  if (candidate.finalizedOrderId !== undefined) {
+    intent.finalizedOrderId = nonBlankString(
+      candidate.finalizedOrderId,
+      "L'identifiant de la vente finalisée",
+    )
+  }
+  if (candidate.abandonedAt !== undefined) {
+    intent.abandonedAt = validateIsoTimestamp(candidate.abandonedAt, "La date d'abandon")
+  }
+
+  if (status === 'payment_confirmed' && !intent.paymentConfirmedAt) {
+    throw new Error('Un paiement confirmé doit conserver sa date de confirmation.')
+  }
+  if (status === 'finalized' && (!intent.paymentConfirmedAt || !intent.finalizedOrderId)) {
+    throw new Error('Un encaissement finalisé doit référencer sa vente et son paiement.')
+  }
+  if (status === 'abandoned' && !intent.abandonedAt) {
+    throw new Error("Un encaissement abandonné doit conserver sa date d'abandon.")
+  }
+  return intent
 }

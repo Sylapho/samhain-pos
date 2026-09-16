@@ -12,7 +12,9 @@ import {
   createOrder as persistOrder,
   orderLifecycle as persistedOrderLifecycle,
 } from '../../services/orderService'
+import { checkoutService as persistedCheckoutService } from '../../services/checkoutService'
 import type { CartItem } from '../../types/cart'
+import type { CheckoutIntent } from '../../types/checkout'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
 
@@ -22,9 +24,12 @@ type Props = {
   onNewOrder: () => void
   printOrder?: (order: Order, options?: PrintOrderOptions) => Promise<PrintJobResult>
   createOrder?: typeof persistOrder
+  checkout?: typeof persistedCheckoutService
   lifecycle?: typeof persistedOrderLifecycle
   initialOrder?: Order
+  initialIntent?: CheckoutIntent
   onOrderUpdated?: (order: Order) => void
+  onIntentUpdated?: (intent: CheckoutIntent) => void
   requestResponsibleAccess?: () => Promise<boolean>
 }
 
@@ -41,20 +46,24 @@ export function CheckoutFlow({
   onCancel,
   onNewOrder,
   printOrder = printOrderTickets,
-  createOrder = persistOrder,
+  createOrder,
+  checkout = persistedCheckoutService,
   lifecycle = persistedOrderLifecycle,
   initialOrder,
+  initialIntent,
   onOrderUpdated,
+  onIntentUpdated,
   requestResponsibleAccess = async () => true,
 }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(
-    initialOrder?.paymentMethod ?? null,
+    initialOrder?.paymentMethod ?? initialIntent?.paymentMethod ?? null,
   )
   const [cashReceivedCents, setCashReceivedCents] = useState<number | null>(null)
   const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
     initialOrder?.printing.customerReceipt !== 'not_requested',
   )
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
+  const [intent, setIntent] = useState<CheckoutIntent | null>(initialIntent ?? null)
   const [printingComplete, setPrintingComplete] = useState(
     initialOrder?.printing.status === 'printed',
   )
@@ -65,7 +74,7 @@ export function CheckoutFlow({
   const printingRef = useRef(false)
   const authorizingRef = useRef(false)
   const deferringRef = useRef(false)
-  const displayedItems = order?.items ?? items
+  const displayedItems = order?.items ?? intent?.cartSnapshot ?? items
   const totalCents = displayedItems.reduce(
     (total, item) => total + item.unitPriceCents * item.quantity,
     0,
@@ -76,6 +85,12 @@ export function CheckoutFlow({
     setOrder(updatedOrder)
     onOrderUpdated?.(updatedOrder)
     return updatedOrder
+  }
+
+  const storeUpdatedIntent = (updatedIntent: CheckoutIntent) => {
+    setIntent(updatedIntent)
+    onIntentUpdated?.(updatedIntent)
+    return updatedIntent
   }
 
   const performPrint = async (
@@ -223,6 +238,78 @@ export function CheckoutFlow({
     setFeedback(null)
     void (async () => {
       try {
+        if (!createOrder) {
+          try {
+            let activeIntent = intent
+            if (!activeIntent) {
+              activeIntent = storeUpdatedIntent(
+                await checkout.createIntent(items, paymentMethod, printCustomerReceipt),
+              )
+            }
+            if (activeIntent.status === 'pending_payment') {
+              activeIntent = storeUpdatedIntent(await checkout.beginPayment(activeIntent.id))
+              setFeedback({
+                kind: 'warning',
+                text:
+                  activeIntent.paymentMethod === 'card'
+                    ? `Effectuez maintenant le paiement de ${formatMoney(activeIntent.totalCents)} sur le TPE, puis confirmez son résultat.`
+                    : `Encaissez ${formatMoney(activeIntent.totalCents)}, rendez la monnaie indiquée, puis confirmez que les espèces ont été reçues.`,
+              })
+              return
+            }
+            if (activeIntent.status === 'payment_to_verify') {
+              activeIntent = storeUpdatedIntent(await checkout.confirmPayment(activeIntent.id))
+            }
+            if (activeIntent.status !== 'payment_confirmed') return
+
+            let persistedOrder: Order
+            try {
+              persistedOrder = await checkout.finalize(activeIntent.id)
+            } catch {
+              setFeedback({
+                kind: 'error',
+                text: 'Le paiement est marqué comme effectué, mais la vente n’a pas pu être finalisée. Ne faites pas payer le client une deuxième fois. Réessayez la finalisation.',
+              })
+              return
+            }
+            storeUpdatedIntent({
+              ...activeIntent,
+              status: 'finalized',
+              finalizedOrderId: persistedOrder.id,
+              updatedAt: new Date().toISOString(),
+            })
+            storeUpdatedOrder(persistedOrder)
+            try {
+              await performPrint(persistedOrder, { printCustomerReceipt }, true)
+            } catch (error) {
+              if (error instanceof PrintStatePersistenceError) {
+                setFeedback({
+                  kind: 'error',
+                  text: error.printMayHaveStarted
+                    ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                    : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+                })
+              } else {
+                reportPrintFailure(persistedOrder, error)
+              }
+            }
+            return
+          } catch {
+            if (!intent) {
+              setFeedback({
+                kind: 'error',
+                text: 'Impossible de préparer l’encaissement. Aucun paiement ne doit être effectué.',
+              })
+            } else {
+              setFeedback({
+                kind: 'error',
+                text: 'L’encaissement reste enregistré sur cette tablette. Vérifiez son état avant de continuer.',
+              })
+            }
+            return
+          }
+        }
+
         let persistedOrder: Order
         try {
           persistedOrder = await createOrder(items, paymentMethod, new Date(), printCustomerReceipt)
@@ -254,6 +341,29 @@ export function CheckoutFlow({
         setBusy(false)
       }
     })()
+  }
+
+  const abandonPayment = () => {
+    if (!intent || intent.status === 'payment_confirmed' || busy || printingRef.current) return
+    printingRef.current = true
+    setBusy(true)
+    setFeedback(null)
+    void checkout
+      .abandon(intent.id)
+      .then((abandoned) => {
+        storeUpdatedIntent(abandoned)
+        onNewOrder()
+      })
+      .catch(() => {
+        setFeedback({
+          kind: 'error',
+          text: 'Impossible d’enregistrer l’annulation. L’encaissement reste à vérifier.',
+        })
+      })
+      .finally(() => {
+        printingRef.current = false
+        setBusy(false)
+      })
   }
 
   const reprint = async (selection: PrintSelection) => {
@@ -317,7 +427,7 @@ export function CheckoutFlow({
                 <Button
                   className={`min-h-20 text-xl ${paymentMethod === 'card' ? 'outline-3 outline-offset-2 outline-[#1f6a4b]' : ''}`}
                   variant={paymentMethod === 'card' ? 'primary' : 'secondary'}
-                  disabled={busy || order !== null}
+                  disabled={busy || order !== null || intent !== null}
                   aria-pressed={paymentMethod === 'card'}
                   onClick={() => setPaymentMethod('card')}
                 >
@@ -326,7 +436,7 @@ export function CheckoutFlow({
                 <Button
                   className={`min-h-20 text-xl ${paymentMethod === 'cash' ? 'outline-3 outline-offset-2 outline-[#1f6a4b]' : ''}`}
                   variant={paymentMethod === 'cash' ? 'primary' : 'secondary'}
-                  disabled={busy || order !== null}
+                  disabled={busy || order !== null || intent !== null}
                   aria-pressed={paymentMethod === 'cash'}
                   onClick={() => setPaymentMethod('cash')}
                 >
@@ -344,7 +454,7 @@ export function CheckoutFlow({
               </p>
             </fieldset>
 
-            {paymentMethod === 'cash' && order === null ? (
+            {paymentMethod === 'cash' && order === null && intent === null ? (
               <CashPayment
                 totalCents={totalCents}
                 receivedCents={cashReceivedCents}
@@ -370,7 +480,7 @@ export function CheckoutFlow({
                 type="checkbox"
                 className="size-6 accent-[#1f6a4b]"
                 checked={printCustomerReceipt}
-                disabled={busy || order !== null}
+                disabled={busy || order !== null || intent !== null}
                 onChange={(event) => setPrintCustomerReceipt(event.target.checked)}
               />
               Imprimer le ticket client
@@ -390,31 +500,78 @@ export function CheckoutFlow({
               </div>
             ) : null}
 
+            {intent && !order ? (
+              <div
+                className="mt-5 border-2 border-amber-500 bg-amber-50 p-4 text-amber-950"
+                role="status"
+              >
+                <p className="text-lg font-black">
+                  {intent.status === 'pending_payment'
+                    ? 'Paiement prêt à démarrer'
+                    : intent.status === 'payment_confirmed'
+                      ? 'Paiement confirmé — vente à finaliser'
+                      : 'Paiement à vérifier'}
+                </p>
+                <p className="mt-1 font-bold">
+                  {intent.status === 'pending_payment'
+                    ? 'Aucun paiement ne doit être effectué avant d’appuyer sur le bouton ci-dessous.'
+                    : intent.status === 'payment_confirmed'
+                      ? 'Ne faites pas payer le client une deuxième fois. Réessayez uniquement l’enregistrement de la vente.'
+                      : intent.paymentMethod === 'card'
+                        ? 'Vérifiez le TPE. Samhain ne peut pas connaître automatiquement le résultat.'
+                        : 'Vérifiez que les espèces ont bien été reçues et la monnaie rendue.'}
+                </p>
+              </div>
+            ) : null}
+
             {feedback ? <FeedbackBox feedback={feedback} /> : null}
 
             <div className="mt-6 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
-              <Button disabled={busy || order !== null} onClick={onCancel}>
-                Retour
-              </Button>
+              {intent && !order && intent.status !== 'payment_confirmed' ? (
+                <Button disabled={busy} onClick={abandonPayment}>
+                  Paiement non effectué / annulé
+                </Button>
+              ) : (
+                <Button disabled={busy || order !== null || intent !== null} onClick={onCancel}>
+                  Retour
+                </Button>
+              )}
               <Button
                 variant="primary"
                 className="min-h-16 text-xl"
                 disabled={
                   busy ||
                   (order === null &&
+                    intent === null &&
                     (paymentMethod === null || (paymentMethod === 'cash' && !hasSufficientCash)))
                 }
                 onClick={checkoutAndPrint}
               >
                 {busy
-                  ? 'Impression en cours…'
+                  ? createOrder
+                    ? 'Impression en cours…'
+                    : 'Traitement en cours…'
                   : order
                     ? order.printing.status === 'unknown'
                       ? 'Vérifier les tickets'
                       : initialOrder
                         ? 'Reprendre l’impression'
                         : 'Réessayer l’impression'
-                    : 'Encaisser et imprimer'}
+                    : intent?.status === 'pending_payment'
+                      ? 'Commencer le paiement'
+                      : intent?.status === 'payment_to_verify'
+                        ? intent.paymentMethod === 'card'
+                          ? 'Paiement TPE accepté'
+                          : 'Espèces reçues'
+                        : intent?.status === 'payment_confirmed'
+                          ? 'Finaliser la vente'
+                          : paymentMethod === 'card'
+                            ? createOrder
+                              ? 'Encaisser et imprimer'
+                              : 'Préparer le paiement TPE'
+                            : createOrder
+                              ? 'Encaisser et imprimer'
+                              : 'Préparer l’encaissement'}
               </Button>
             </div>
             {canDeferPrinting ? (

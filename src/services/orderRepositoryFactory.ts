@@ -2,12 +2,13 @@ import { Capacitor } from '@capacitor/core'
 import { orderStorage } from '../native/orderStorage'
 import {
   IndexedDbOrderRepository,
+  type CheckoutRepository,
   type OrderRepository,
   type SalesLedgerRepository,
 } from './orderRepository'
 import { RoomOrderRepository } from './roomOrderRepository'
 
-export type OrderDataRepository = OrderRepository & SalesLedgerRepository
+export type OrderDataRepository = OrderRepository & CheckoutRepository & SalesLedgerRepository
 
 export type RepositoryEnvironment = {
   platform?: string

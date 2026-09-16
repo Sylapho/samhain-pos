@@ -14,6 +14,7 @@ import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/us
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
+import { checkoutService } from '../services/checkoutService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
 import { hasPendingTabletReplacement } from '../services/tabletReplacementService'
 import {
@@ -24,14 +25,17 @@ import {
 } from '../services/terminalConfigurationService'
 import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
+import type { CheckoutIntent } from '../types/checkout'
 import type { Order } from '../types/order'
 import type { NetworkStatus, PrinterStatus } from '../types/system'
 import type { TerminalConfiguration, TerminalProvisioningInput } from '../types/terminal'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
+import { formatMoney } from '../utils/money'
 
 type Props = {
   loadRecoverableOrders?: typeof getRecoverableOrders
   loadOrders?: typeof getPersistedOrders
+  loadRecoverableIntents?: typeof checkoutService.getRecoverableIntents
   probePrinterStatus?: PrinterStatusProbe
   terminalManagement?: {
     load: () => TerminalConfiguration | null
@@ -43,7 +47,7 @@ type Props = {
   loadPendingTabletReplacement?: () => boolean
   checkoutDependencies?: Pick<
     ComponentProps<typeof CheckoutFlow>,
-    'createOrder' | 'lifecycle' | 'printOrder'
+    'createOrder' | 'checkout' | 'lifecycle' | 'printOrder'
   >
 }
 
@@ -57,6 +61,7 @@ const defaultTerminalManagement = {
 export function App({
   loadRecoverableOrders = getRecoverableOrders,
   loadOrders = getPersistedOrders,
+  loadRecoverableIntents,
   probePrinterStatus,
   terminalManagement = defaultTerminalManagement,
   responsibleMode = getResponsibleModeService(),
@@ -88,7 +93,9 @@ export function App({
   const setTerminalConfiguration = (configuration: TerminalConfiguration) =>
     setTerminalState({ configuration, error: false })
   const [recoveryOrders, setRecoveryOrders] = useState<Order[]>([])
+  const [recoveryIntents, setRecoveryIntents] = useState<CheckoutIntent[]>([])
   const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
+  const [resumingIntent, setResumingIntent] = useState<CheckoutIntent | null>(null)
   const [recoveryError, setRecoveryError] = useState(false)
   const [recoveryCheckedTerminalId, setRecoveryCheckedTerminalId] = useState<string | null>(null)
   const [tabletReplacementPending] = useState(() => {
@@ -107,6 +114,14 @@ export function App({
   const items = useCartStore((state) => state.items)
   const addItem = useCartStore((state) => state.addItem)
   const clearCart = useCartStore((state) => state.clearCart)
+  const recoverableIntentLoader = useMemo(
+    () =>
+      loadRecoverableIntents ??
+      (loadRecoverableOrders === getRecoverableOrders
+        ? checkoutService.getRecoverableIntents
+        : async () => [] as CheckoutIntent[]),
+    [loadRecoverableIntents, loadRecoverableOrders],
+  )
 
   const requestResponsibleAccess = useCallback((): Promise<boolean> => {
     try {
@@ -135,9 +150,13 @@ export function App({
     let active = true
     void (async () => {
       try {
-        const orders = await loadRecoverableOrders()
+        const [orders, intents] = await Promise.all([
+          loadRecoverableOrders(),
+          recoverableIntentLoader(),
+        ])
         if (active) {
           setRecoveryOrders(orders)
+          setRecoveryIntents(intents)
           setRecoveryError(false)
           setRecoveryCheckedTerminalId(terminalConfiguration.terminalId)
         }
@@ -151,7 +170,7 @@ export function App({
     return () => {
       active = false
     }
-  }, [loadRecoverableOrders, terminalConfiguration])
+  }, [loadRecoverableOrders, recoverableIntentLoader, terminalConfiguration])
 
   const filteredProducts = useMemo(
     () => products.filter((product) => product.categoryId === category),
@@ -191,9 +210,10 @@ export function App({
   }
 
   const startNewOrder = () => {
-    if (!resumingOrder) clearCart()
+    if (!resumingOrder && !resumingIntent) clearCart()
     setCheckoutOpen(false)
     setResumingOrder(null)
+    setResumingIntent(null)
     setCategory('menus')
   }
 
@@ -211,15 +231,29 @@ export function App({
     if (resumingOrder?.id === updatedOrder.id) setResumingOrder(updatedOrder)
   }
 
+  const updateRecoveryIntent = (updatedIntent: CheckoutIntent) => {
+    setRecoveryIntents((intents) => {
+      if (['finalized', 'abandoned'].includes(updatedIntent.status)) {
+        return intents.filter((intent) => intent.id !== updatedIntent.id)
+      }
+      const exists = intents.some((intent) => intent.id === updatedIntent.id)
+      const updated = exists
+        ? intents.map((intent) => (intent.id === updatedIntent.id ? updatedIntent : intent))
+        : [...intents, updatedIntent]
+      return updated.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    })
+    if (resumingIntent?.id === updatedIntent.id) setResumingIntent(updatedIntent)
+  }
+
   const recoveryCheckPending = Boolean(
     terminalConfiguration && recoveryCheckedTerminalId !== terminalConfiguration.terminalId,
   )
   const reprovisioningBlockReason = recoveryCheckPending
-    ? 'Impossible de reprovisionner tant que la vérification des impressions n’est pas terminée.'
+    ? 'Impossible de reprovisionner tant que la vérification des opérations locales n’est pas terminée.'
     : recoveryError
       ? 'Impossible de reprovisionner car les impressions à reprendre n’ont pas pu être vérifiées.'
-      : recoveryOrders.length > 0
-        ? 'Impossible de reprovisionner cette caisse tant que des impressions sont à reprendre ou à vérifier.'
+      : recoveryOrders.length > 0 || recoveryIntents.length > 0
+        ? 'Impossible de reprovisionner cette caisse tant que des encaissements ou impressions sont à reprendre.'
         : null
 
   if (tabletReplacementPending) {
@@ -312,8 +346,27 @@ export function App({
           className="border-b border-rose-300 bg-rose-50 px-5 py-3 font-bold text-rose-950"
           role="alert"
         >
-          Impossible de vérifier les impressions en attente. Redémarrez l’application avant
+          Impossible de vérifier les opérations en attente. Redémarrez l’application avant
           d’encaisser.
+        </div>
+      ) : recoveryIntents.length ? (
+        <div className="flex items-center justify-between gap-4 border-b border-rose-300 bg-rose-50 px-5 py-3 text-rose-950">
+          <div>
+            <p className="font-black">{recoveryIntents.length} encaissement(s) à vérifier</p>
+            <p className="text-sm font-bold">
+              {recoveryIntents[0]?.totalCents !== undefined
+                ? `${formatMoney(recoveryIntents[0].totalCents)} · ${recoveryIntents[0].paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces'} · vérifiez le paiement avant de continuer`
+                : 'Une action du caissier est nécessaire'}
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setResumingIntent(recoveryIntents[0] ?? null)
+              setCheckoutOpen(true)
+            }}
+          >
+            Vérifier le paiement
+          </Button>
         </div>
       ) : recoveryOrders.length ? (
         <div className="flex items-center justify-between gap-4 border-b border-amber-300 bg-amber-50 px-5 py-3 text-amber-950">
@@ -381,7 +434,9 @@ export function App({
           onCancel={() => setCheckoutOpen(false)}
           onNewOrder={startNewOrder}
           initialOrder={resumingOrder ?? undefined}
+          initialIntent={resumingIntent ?? undefined}
           onOrderUpdated={updateRecoveryOrder}
+          onIntentUpdated={updateRecoveryIntent}
           requestResponsibleAccess={requestResponsibleAccess}
           {...checkoutDependencies}
         />

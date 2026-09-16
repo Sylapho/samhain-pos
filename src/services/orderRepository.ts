@@ -1,4 +1,5 @@
 import type { Order, OrderIntegrity, OrderPrinting, PaymentMethod } from '../types/order'
+import type { CheckoutIntent } from '../types/checkout'
 import type { TerminalIdentity } from '../types/terminal'
 import {
   SALES_ARCHIVE_SCHEMA_VERSION,
@@ -18,13 +19,14 @@ import {
   type StoredOrderTechnicalState,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
-import { validateOrderDraft } from './orderValidation'
+import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 
-const DATABASE_VERSION = 2
+const DATABASE_VERSION = 3
 const ORDERS_STORE = 'orders'
 const ORDER_TECHNICAL_STORE = 'orderTechnicalState'
 const SALES_LEDGER_STORE = 'salesLedger'
 const METADATA_STORE = 'metadata'
+const CHECKOUT_INTENTS_STORE = 'checkoutIntents'
 const SEQUENCES_KEY = 'sequences'
 export const ARCHIVE_NOTICE =
   'Archive JSON Samhain POS. Les montants sont exprimés en centimes. Les entrées sont ordonnées par sequence et chaînées par previousHash/hash en SHA-256. Vérifier archiveHash puis chaque entrée avant consultation ou restauration.'
@@ -78,6 +80,15 @@ export interface OrderRepository {
     id: string,
     update: (printing: OrderPrinting) => OrderPrinting,
   ): Promise<Order>
+}
+
+export interface CheckoutRepository {
+  createCheckoutIntent(intent: CheckoutIntent): Promise<CheckoutIntent>
+  getCheckoutIntents(): Promise<CheckoutIntent[]>
+  markCheckoutPaymentToVerify(id: string, updatedAt: string): Promise<CheckoutIntent>
+  confirmCheckoutPayment(id: string, confirmedAt: string): Promise<CheckoutIntent>
+  abandonCheckoutIntent(id: string, abandonedAt: string): Promise<CheckoutIntent>
+  finalizeCheckoutIntent(id: string, updatedAt: string): Promise<Order>
 }
 
 export interface SalesLedgerRepository {
@@ -424,13 +435,297 @@ export function verifySalesArchive(archive: SalesArchive): IntegrityVerification
   return verification
 }
 
-export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRepository {
+export class IndexedDbOrderRepository
+  implements OrderRepository, CheckoutRepository, SalesLedgerRepository
+{
   private databasePromise: Promise<IDBDatabase> | null = null
 
   constructor(
     private readonly indexedDb: IDBFactory,
     private readonly databaseName = 'samhain-pos',
   ) {}
+
+  createCheckoutIntent(intent: CheckoutIntent): Promise<CheckoutIntent> {
+    const validated = validateCheckoutIntent(intent)
+    if (validated.status !== 'pending_payment') {
+      throw new Error('Un nouvel encaissement doit être en attente de paiement.')
+    }
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<CheckoutIntent>((resolve, reject) => {
+          const transaction = database.transaction(CHECKOUT_INTENTS_STORE, 'readwrite')
+          const request = transaction.objectStore(CHECKOUT_INTENTS_STORE).add(validated)
+          let operationError: unknown
+          request.onerror = () => {
+            operationError = requestFailure(
+              request,
+              "L'encaissement existe déjà ou n'a pas pu être préparé.",
+            )
+          }
+          transaction.oncomplete = () => resolve(structuredClone(validated))
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
+        }),
+    )
+  }
+
+  getCheckoutIntents(): Promise<CheckoutIntent[]> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<CheckoutIntent[]>((resolve, reject) => {
+          const transaction = database.transaction(CHECKOUT_INTENTS_STORE, 'readonly')
+          const request = transaction.objectStore(CHECKOUT_INTENTS_STORE).getAll()
+          let operationError: unknown
+          request.onerror = () => {
+            operationError = requestFailure(request, 'Lecture des encaissements impossible.')
+          }
+          transaction.oncomplete = () => {
+            try {
+              resolve(
+                (request.result as unknown[]).map((intent) =>
+                  structuredClone(validateCheckoutIntent(intent)),
+                ),
+              )
+            } catch (error) {
+              reject(error)
+            }
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Lecture locale impossible.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Lecture locale annulée.'))
+        }),
+    )
+  }
+
+  markCheckoutPaymentToVerify(id: string, updatedAt: string): Promise<CheckoutIntent> {
+    return this.transitionCheckoutIntent(
+      id,
+      updatedAt,
+      ['pending_payment', 'payment_to_verify'],
+      (intent) => ({
+        ...intent,
+        status: 'payment_to_verify',
+        updatedAt,
+      }),
+    )
+  }
+
+  confirmCheckoutPayment(id: string, confirmedAt: string): Promise<CheckoutIntent> {
+    return this.transitionCheckoutIntent(
+      id,
+      confirmedAt,
+      ['payment_to_verify', 'payment_confirmed'],
+      (intent) => ({
+        ...intent,
+        status: 'payment_confirmed',
+        paymentConfirmedAt: intent.paymentConfirmedAt ?? confirmedAt,
+        updatedAt: confirmedAt,
+      }),
+    )
+  }
+
+  abandonCheckoutIntent(id: string, abandonedAt: string): Promise<CheckoutIntent> {
+    return this.transitionCheckoutIntent(
+      id,
+      abandonedAt,
+      ['pending_payment', 'payment_to_verify', 'abandoned'],
+      (intent) => ({
+        ...intent,
+        status: 'abandoned',
+        abandonedAt: intent.abandonedAt ?? abandonedAt,
+        updatedAt: abandonedAt,
+      }),
+    )
+  }
+
+  finalizeCheckoutIntent(id: string, updatedAt: string): Promise<Order> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<Order>((resolve, reject) => {
+          const transaction = database.transaction(
+            [
+              CHECKOUT_INTENTS_STORE,
+              ORDERS_STORE,
+              ORDER_TECHNICAL_STORE,
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+            ],
+            'readwrite',
+          )
+          const intents = transaction.objectStore(CHECKOUT_INTENTS_STORE)
+          const orders = transaction.objectStore(ORDERS_STORE)
+          const technicalStates = transaction.objectStore(ORDER_TECHNICAL_STORE)
+          const ledger = transaction.objectStore(SALES_LEDGER_STORE)
+          const metadataStore = transaction.objectStore(METADATA_STORE)
+          const intentRequest = intents.get(id)
+          let result: Order | null = null
+          let operationError: unknown
+
+          intentRequest.onsuccess = () => {
+            try {
+              if (!intentRequest.result) throw new Error(`Encaissement local ${id} introuvable.`)
+              const intent = validateCheckoutIntent(intentRequest.result)
+              if (intent.status === 'finalized') {
+                const finalizedOrderId = intent.finalizedOrderId
+                if (!finalizedOrderId) {
+                  throw new Error('La vente finalisée associée est invalide.')
+                }
+                const orderRequest = orders.get(finalizedOrderId)
+                orderRequest.onsuccess = () => {
+                  if (!orderRequest.result) {
+                    operationError = new Error('La vente finalisée associée est introuvable.')
+                    transaction.abort()
+                    return
+                  }
+                  const technicalRequest = technicalStates.get(finalizedOrderId)
+                  technicalRequest.onsuccess = () => {
+                    result = toOrder(
+                      orderRequest.result as StoredOrder,
+                      technicalRequest.result as StoredOrderTechnicalState | undefined,
+                    )
+                  }
+                  technicalRequest.onerror = () => {
+                    operationError = requestFailure(
+                      technicalRequest,
+                      "Lecture de l'état d'impression impossible.",
+                    )
+                  }
+                }
+                orderRequest.onerror = () => {
+                  operationError = requestFailure(orderRequest, 'Lecture de la vente impossible.')
+                }
+                return
+              }
+              if (intent.status !== 'payment_confirmed' || !intent.paymentConfirmedAt) {
+                throw new Error('Le paiement doit être explicitement confirmé avant la vente.')
+              }
+              const paymentConfirmedAt = intent.paymentConfirmedAt
+              const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
+              sequenceRequest.onsuccess = () => {
+                try {
+                  let metadata = normalizeSequences(
+                    sequenceRequest.result as StoredSequences | undefined,
+                  )
+                  const order = buildPersistedOrder(
+                    {
+                      id: intent.id,
+                      terminal: intent.terminal,
+                      paymentMethod: intent.paymentMethod,
+                      paymentStatus: 'paid',
+                      paidAt: paymentConfirmedAt,
+                      items: structuredClone(intent.cartSnapshot),
+                      itemCount: intent.itemCount,
+                      totalCents: intent.totalCents,
+                      createdAt: paymentConfirmedAt,
+                      status: 'confirmed',
+                      orderNumberPrefix: intent.orderNumberPrefix,
+                      receiptNumberPrefix: intent.receiptNumberPrefix,
+                      printing: {
+                        status: 'pending',
+                        customerReceipt: intent.printCustomerReceipt ? 'pending' : 'not_requested',
+                        preparationTicket: 'pending',
+                        attempts: 0,
+                        updatedAt: paymentConfirmedAt,
+                      },
+                    },
+                    {
+                      orderSequence: metadata.nextOrderSequence,
+                      receiptSequence: metadata.nextReceiptSequence,
+                    },
+                  )
+                  validateOrderDraft({
+                    id: order.id,
+                    terminal: order.terminal,
+                    paymentMethod: order.paymentMethod,
+                    paymentStatus: order.paymentStatus,
+                    paidAt: order.paidAt,
+                    items: order.items,
+                    itemCount: order.itemCount,
+                    totalCents: order.totalCents,
+                    createdAt: order.createdAt,
+                    status: order.status,
+                  })
+                  if (metadata.lastClosureEnd && order.paidAt < metadata.lastClosureEnd) {
+                    throw new Error(
+                      'Impossible d’enregistrer une vente dans une période déjà clôturée.',
+                    )
+                  }
+                  const entryWithoutDigest: Omit<SaleLedgerEntry, 'hash'> = {
+                    schemaVersion: SALES_LEDGER_SCHEMA_VERSION,
+                    id: `sale:${order.id}`,
+                    sequence: metadata.nextJournalSequence,
+                    kind: 'sale',
+                    recordedAt: order.createdAt,
+                    previousHash: metadata.lastJournalHash,
+                    source: structuredClone(intent.ledgerSource),
+                    orderId: order.id,
+                    order: toImmutableOrderSnapshot(order),
+                  }
+                  const entry: SaleLedgerEntry = {
+                    ...entryWithoutDigest,
+                    hash: hashLedgerEntry(entryWithoutDigest),
+                  }
+                  const integrity: OrderIntegrity = {
+                    algorithm: 'SHA-256',
+                    journalEntryId: entry.id,
+                    journalSequence: entry.sequence,
+                    hash: entry.hash,
+                  }
+                  const storedOrder = toStoredOrder(order, integrity)
+                  orders.add(storedOrder)
+                  technicalStates.add({
+                    orderId: order.id,
+                    printing: order.printing,
+                  } satisfies StoredOrderTechnicalState)
+                  ledger.add(entry)
+                  metadata = {
+                    ...appendEntryMetadata(metadata, entry),
+                    nextOrderSequence: metadata.nextOrderSequence + 1,
+                    nextReceiptSequence: metadata.nextReceiptSequence + 1,
+                  }
+                  metadataStore.put(metadata)
+                  intents.put(
+                    validateCheckoutIntent({
+                      ...intent,
+                      status: 'finalized',
+                      finalizedOrderId: order.id,
+                      updatedAt,
+                    }),
+                  )
+                  result = toOrder(storedOrder, { orderId: order.id, printing: order.printing })
+                } catch (error) {
+                  operationError = error
+                  transaction.abort()
+                }
+              }
+              sequenceRequest.onerror = () => {
+                operationError = requestFailure(sequenceRequest, 'Échec de la séquence locale.')
+              }
+            } catch (error) {
+              operationError = error
+              transaction.abort()
+            }
+          }
+          intentRequest.onerror = () => {
+            operationError = requestFailure(intentRequest, "Lecture de l'encaissement impossible.")
+          }
+          transaction.oncomplete = () => {
+            if (result) resolve(result)
+            else reject(new Error("L'encaissement n'a pas été finalisé."))
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
+        }),
+    )
+  }
 
   createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order> {
     validateOrderDraft(request)
@@ -895,6 +1190,55 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
     return this.readAuditSnapshot()
   }
 
+  private transitionCheckoutIntent(
+    id: string,
+    updatedAt: string,
+    allowedStatuses: CheckoutIntent['status'][],
+    transition: (intent: CheckoutIntent) => CheckoutIntent,
+  ): Promise<CheckoutIntent> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<CheckoutIntent>((resolve, reject) => {
+          const transaction = database.transaction(CHECKOUT_INTENTS_STORE, 'readwrite')
+          const store = transaction.objectStore(CHECKOUT_INTENTS_STORE)
+          const request = store.get(id)
+          let result: CheckoutIntent | null = null
+          let operationError: unknown
+          request.onsuccess = () => {
+            try {
+              if (!request.result) throw new Error(`Encaissement local ${id} introuvable.`)
+              const current = validateCheckoutIntent(request.result)
+              if (!allowedStatuses.includes(current.status)) {
+                throw new Error(
+                  `Transition impossible depuis l’état d’encaissement « ${current.status} ».`,
+                )
+              }
+              result = validateCheckoutIntent(transition(current))
+              if (result.updatedAt !== updatedAt) {
+                throw new Error("La date de transition de l'encaissement est incohérente.")
+              }
+              store.put(result)
+            } catch (error) {
+              operationError = error
+              transaction.abort()
+            }
+          }
+          request.onerror = () => {
+            operationError = requestFailure(request, "Lecture de l'encaissement impossible.")
+          }
+          transaction.oncomplete = () => {
+            if (result) resolve(structuredClone(result))
+            else reject(new Error("L'encaissement n'a pas été mis à jour."))
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
+        }),
+    )
+  }
+
   private validateCorrection(
     request: CorrectionRequest,
     order: StoredOrder,
@@ -1001,6 +1345,11 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
         }
         if (!database.objectStoreNames.contains(SALES_LEDGER_STORE)) {
           database.createObjectStore(SALES_LEDGER_STORE, { keyPath: 'id' })
+        }
+        if (!database.objectStoreNames.contains(CHECKOUT_INTENTS_STORE)) {
+          const intents = database.createObjectStore(CHECKOUT_INTENTS_STORE, { keyPath: 'id' })
+          intents.createIndex('status', 'status', { unique: false })
+          intents.createIndex('updatedAt', 'updatedAt', { unique: false })
         }
       }
       request.onsuccess = () => {
