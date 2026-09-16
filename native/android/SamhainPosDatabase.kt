@@ -117,6 +117,26 @@ data class PosMetadataEntity(
     }
 }
 
+@Entity(
+    tableName = "checkout_intents",
+    indices = [
+        Index(value = ["status"]),
+        Index(value = ["created_at"]),
+        Index(value = ["updated_at"]),
+        Index(value = ["finalized_order_id"], unique = true),
+    ],
+)
+data class CheckoutIntentEntity(
+    @PrimaryKey val id: String,
+    val status: String,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String,
+    @ColumnInfo(name = "payment_method") val paymentMethod: String,
+    @ColumnInfo(name = "total_cents") val totalCents: Long,
+    @ColumnInfo(name = "finalized_order_id") val finalizedOrderId: String?,
+    @ColumnInfo(name = "payload_json") val payloadJson: String,
+)
+
 @Dao
 interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -177,14 +197,30 @@ interface PosMetadataDao {
     fun get(): PosMetadataEntity?
 }
 
+@Dao
+interface CheckoutIntentDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insert(intent: CheckoutIntentEntity)
+
+    @Update
+    fun update(intent: CheckoutIntentEntity): Int
+
+    @Query("SELECT * FROM checkout_intents WHERE id = :id")
+    fun findById(id: String): CheckoutIntentEntity?
+
+    @Query("SELECT * FROM checkout_intents ORDER BY created_at ASC, id ASC")
+    fun getAll(): List<CheckoutIntentEntity>
+}
+
 @Database(
     entities = [
         OrderEntity::class,
         OrderPrintingEntity::class,
         SalesLedgerEntity::class,
         PosMetadataEntity::class,
+        CheckoutIntentEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
@@ -195,6 +231,8 @@ abstract class SamhainPosDatabase : RoomDatabase() {
     abstract fun salesLedgerDao(): SalesLedgerDao
 
     abstract fun metadataDao(): PosMetadataDao
+
+    abstract fun checkoutIntentDao(): CheckoutIntentDao
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
@@ -222,6 +260,38 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                 }
             }
 
+        val MIGRATION_2_3 =
+            object : Migration(2, 3) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS checkout_intents (
+                            id TEXT NOT NULL PRIMARY KEY,
+                            status TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            payment_method TEXT NOT NULL,
+                            total_cents INTEGER NOT NULL,
+                            finalized_order_id TEXT,
+                            payload_json TEXT NOT NULL
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_checkout_intents_status ON checkout_intents(status)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_checkout_intents_created_at ON checkout_intents(created_at)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_checkout_intents_updated_at ON checkout_intents(updated_at)",
+                    )
+                    db.execSQL(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS index_checkout_intents_finalized_order_id ON checkout_intents(finalized_order_id)",
+                    )
+                }
+            }
+
         @Volatile private var instance: SamhainPosDatabase? = null
 
         fun getInstance(context: Context): SamhainPosDatabase =
@@ -230,7 +300,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
