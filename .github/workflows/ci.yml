@@ -21,6 +21,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -39,5 +46,9 @@ jobs:
         run: pnpm lint
 
       # Production builds intentionally enforce confirmed administrative data.
-      - name: Build Android test resources
-        run: pnpm build:android:test
+      - name: Build and sync Android test app
+        run: pnpm android:sync:test
+
+      - name: Run Android unit tests and assemble debug APK
+        working-directory: android
+        run: ./gradlew testDebugUnitTest assembleDebug --no-daemon
