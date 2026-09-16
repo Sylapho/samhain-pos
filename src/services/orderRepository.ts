@@ -57,6 +57,8 @@ export type OrderCreationRequest = Omit<
 
 export type OrderPersistenceSnapshot = AuditSnapshot
 
+export type ArchiveRestoreTargetState = 'empty' | 'matches-archive' | 'occupied'
+
 export function buildPersistedOrder(
   request: OrderCreationRequest,
   sequences: AllocatedOrderSequences,
@@ -84,7 +86,45 @@ export interface SalesLedgerRepository {
   getLedgerEntries(): Promise<SalesLedgerEntry[]>
   verifyIntegrity(): Promise<IntegrityVerification>
   exportArchive(archiveId: string, exportedAt: string, source: LedgerSource): Promise<SalesArchive>
+  getArchiveRestoreTargetState(archive: SalesArchive): Promise<ArchiveRestoreTargetState>
   restoreArchive(archive: SalesArchive): Promise<ArchiveRestoreResult>
+}
+
+function comparableSnapshot(snapshot: AuditSnapshot): AuditSnapshot {
+  return {
+    metadata: structuredClone(snapshot.metadata),
+    orders: snapshot.orders
+      .map((order) => ({
+        ...toImmutableOrderSnapshot(order),
+        ...(order.integrity ? { integrity: structuredClone(order.integrity) } : {}),
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    technicalStates: structuredClone(snapshot.technicalStates).sort((left, right) =>
+      left.orderId.localeCompare(right.orderId),
+    ),
+    entries: structuredClone(snapshot.entries).sort(
+      (left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id),
+    ),
+  }
+}
+
+export function getArchiveRestoreTargetState(
+  snapshot: AuditSnapshot,
+  archive: SalesArchive,
+): ArchiveRestoreTargetState {
+  const archiveSnapshot: AuditSnapshot = {
+    metadata: archive.metadata,
+    orders: archive.orders,
+    technicalStates: archive.technicalStates,
+    entries: archive.entries,
+  }
+  if (
+    hashCanonicalValue(comparableSnapshot(snapshot)) ===
+    hashCanonicalValue(comparableSnapshot(archiveSnapshot))
+  ) {
+    return 'matches-archive'
+  }
+  return snapshot.orders.length === 0 && snapshot.entries.length === 0 ? 'empty' : 'occupied'
 }
 
 function normalizeSequences(stored: StoredSequences | undefined): StoredSequences {
@@ -785,6 +825,10 @@ export class IndexedDbOrderRepository implements OrderRepository, SalesLedgerRep
       ),
     }
     return { ...archiveWithoutDigest, archiveHash: hashCanonicalValue(archiveWithoutDigest) }
+  }
+
+  async getArchiveRestoreTargetState(archive: SalesArchive): Promise<ArchiveRestoreTargetState> {
+    return getArchiveRestoreTargetState(await this.readAuditSnapshot(), archive)
   }
 
   async restoreArchive(archive: SalesArchive): Promise<ArchiveRestoreResult> {

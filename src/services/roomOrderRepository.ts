@@ -18,6 +18,8 @@ import { validateOrderDraft } from './orderValidation'
 import {
   ARCHIVE_NOTICE,
   IndexedDbOrderRepository,
+  getArchiveRestoreTargetState,
+  type ArchiveRestoreTargetState,
   type OrderCreationRequest,
   type OrderPersistenceSnapshot,
   type OrderRepository,
@@ -146,6 +148,10 @@ export class RoomOrderRepository implements OrderRepository, SalesLedgerReposito
       ),
     }
     return { ...archiveWithoutDigest, archiveHash: hashCanonicalValue(archiveWithoutDigest) }
+  }
+
+  async getArchiveRestoreTargetState(archive: SalesArchive): Promise<ArchiveRestoreTargetState> {
+    return getArchiveRestoreTargetState(await this.getSnapshot(), archive)
   }
 
   async restoreArchive(archive: SalesArchive): Promise<ArchiveRestoreResult> {

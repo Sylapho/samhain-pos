@@ -56,7 +56,11 @@ L’horloge de la tablette reste une source de confiance. Avant exploitation, An
 
 `exportArchive()` produit un objet JSON ouvert et autonome contenant : notice française, version de schéma, identifiant et date d’export, source logicielle/configuration, séquences, ventes ligne par ligne, états techniques, journal complet et empreinte globale `archiveHash`. L’export est refusé si le journal local est déjà incohérent. `verifyArchive()` fonctionne après un aller-retour JSON.
 
-`restoreArchive()` vérifie d’abord l’empreinte globale, toute la chaîne et les ventes, puis restaure atomiquement uniquement dans une base vide. Cette restriction évite une fusion silencieuse de deux journaux. Une restauration opérationnelle doit utiliser la même identité de terminal ; la fusion de plusieurs tablettes relève de la future synchronisation.
+`restoreArchive()` vérifie d’abord l’empreinte globale, toute la chaîne et les ventes. Le service compare ensuite `archive.source.terminal.terminalId` et `terminalCode` à l'identité technique courante ; le nom visible peut différer après un renommage. Une archive invalide ou issue d'une autre identité est refusée avant toute mutation. Le repository restaure enfin atomiquement uniquement dans une base vide. Cette restriction évite une fusion silencieuse de deux journaux.
+
+Le remplacement exact d'une tablette vierge utilise `TabletReplacementService`. Il enregistre un marqueur local de reprise, restaure le snapshot transactionnel, vérifie que le contenu correspond exactement à l'archive, puis adopte l'identité source. Si l'écriture de l'identité WebView échoue après le commit Room, l'encaissement reste bloqué et un nouvel essai avec la même archive reprend sans relancer le restore. Les séquences et `lastJournalHash` proviennent toujours des métadonnées vérifiées de l'archive, jamais d'un comptage des commandes.
+
+Le credential responsable ne fait pas partie de l'archive : une nouvelle tablette physique reçoit un nouveau PIN local, même si elle reprend le même `terminalId` métier. Le runbook complet est dans [`tablet-replacement-and-backup.md`](tablet-replacement-and-backup.md).
 
 Procédure d’exploitation proposée :
 
@@ -76,7 +80,7 @@ Le BOFiP précise notamment que les données élémentaires, les cumuls et les p
 - remplacer les données administratives et le catalogue de démonstration ;
 - définir les rôles autorisés à corriger, clôturer, exporter et restaurer, puis journaliser leur identité ;
 - fournir un écran ou outil d’exploitation pour la clôture, l’export sur support externe et la vérification ;
-- durcir le terminal Android, protéger les sauvegardes et formaliser la gestion des clés/supports ;
+- déployer et valider le runbook de sauvegarde/remplacement sur les modèles Android réellement utilisés ;
 - décider comment ancrer périodiquement l’empreinte de tête sur un support indépendant ;
 - concevoir la synchronisation multi-tablettes en conservant une chaîne par terminal et sans réécrire les événements locaux ;
 - faire auditer les scénarios de changement d’heure, mise à jour logicielle, perte de tablette et reprise après incident.

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import type {
   TerminalCode,
@@ -14,6 +14,7 @@ type Props = {
   onReprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
   onConfigured: (configuration: TerminalConfiguration) => void
   onClose?: () => void
+  reprovisioningBlockReason?: string | null
 }
 
 export function TerminalConfigurationDialog({
@@ -23,6 +24,7 @@ export function TerminalConfigurationDialog({
   onReprovision,
   onConfigured,
   onClose,
+  reprovisioningBlockReason = null,
 }: Props) {
   const [reprovisioning, setReprovisioning] = useState(false)
   const [terminalCode, setTerminalCode] = useState<TerminalCode | null>(
@@ -30,6 +32,10 @@ export function TerminalConfigurationDialog({
   )
   const [displayName, setDisplayName] = useState(configuration?.displayName ?? '')
   const [error, setError] = useState<string | null>(null)
+  const [pendingReprovision, setPendingReprovision] = useState<TerminalProvisioningInput | null>(
+    null,
+  )
+  const reprovisionSubmissionStarted = useRef(false)
   const isInitialProvisioning = configuration === null
   const isChoosingIdentity = isInitialProvisioning || reprovisioning
 
@@ -47,7 +53,15 @@ export function TerminalConfigurationDialog({
           return
         }
         const input = { terminalCode, displayName }
-        onConfigured(isInitialProvisioning ? onProvision(input) : onReprovision(input))
+        if (isInitialProvisioning) {
+          onConfigured(onProvision(input))
+        } else {
+          if (reprovisioningBlockReason) {
+            setError(reprovisioningBlockReason)
+            return
+          }
+          setPendingReprovision(input)
+        }
         return
       }
       onConfigured(onRename(displayName))
@@ -56,6 +70,78 @@ export function TerminalConfigurationDialog({
         caught instanceof Error ? caught.message : 'La configuration n’a pas été enregistrée.',
       )
     }
+  }
+
+  const confirmReprovision = () => {
+    if (!pendingReprovision || reprovisionSubmissionStarted.current) return
+    reprovisionSubmissionStarted.current = true
+    let updated: TerminalConfiguration
+    try {
+      updated = onReprovision(pendingReprovision)
+    } catch (caught) {
+      reprovisionSubmissionStarted.current = false
+      setError(
+        caught instanceof Error ? caught.message : 'La configuration n’a pas été enregistrée.',
+      )
+      return
+    }
+    onConfigured(updated)
+  }
+
+  if (configuration && pendingReprovision) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-stone-950/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="terminal-reprovision-confirmation-title"
+      >
+        <section className="my-auto w-full max-w-xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
+          <h1 id="terminal-reprovision-confirmation-title" className="text-2xl font-black">
+            Changer cette tablette de Caisse {configuration.terminalCode} vers Caisse{' '}
+            {pendingReprovision.terminalCode} ?
+          </h1>
+          <p className="mt-4 font-bold text-stone-800">
+            Un nouvel identifiant technique sera créé. Les anciennes ventes resteront associées à
+            Caisse {configuration.terminalCode}.
+          </p>
+          <dl className="mt-5 grid gap-3 border-y border-stone-300 py-4 font-bold sm:grid-cols-2">
+            <div>
+              <dt className="text-sm text-stone-600">Identité actuelle</dt>
+              <dd>{configuration.displayName}</dd>
+              <dd>Code {configuration.terminalCode}</dd>
+              <dd className="break-all font-mono text-xs">{configuration.terminalId}</dd>
+            </div>
+            <div>
+              <dt className="text-sm text-stone-600">Nouvelle identité</dt>
+              <dd>{pendingReprovision.displayName.trim()}</dd>
+              <dd>Code {pendingReprovision.terminalCode}</dd>
+            </div>
+          </dl>
+          {error ? (
+            <p
+              className="mt-4 border border-rose-300 bg-rose-50 p-3 font-bold text-rose-950"
+              role="alert"
+            >
+              {error}
+            </p>
+          ) : null}
+          <div className="mt-6 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
+            <Button
+              onClick={() => {
+                setPendingReprovision(null)
+                setError(null)
+              }}
+            >
+              Annuler
+            </Button>
+            <Button variant="primary" className="min-h-14 text-lg" onClick={confirmReprovision}>
+              Confirmer le reprovisionnement
+            </Button>
+          </div>
+        </section>
+      </div>
+    )
   }
 
   return (
@@ -79,9 +165,22 @@ export function TerminalConfigurationDialog({
             : 'Le nom peut être modifié sans changer l’identité technique ni les anciennes commandes.'}
         </p>
 
+        {configuration ? (
+          <div className="mt-5 border-y border-stone-300 py-3 font-bold">
+            <p className="text-sm text-stone-600">Identité actuelle</p>
+            <p>Nom : {configuration.displayName}</p>
+            <p>Code : {configuration.terminalCode}</p>
+            <p className="mt-1 break-all text-sm text-stone-700">
+              Identifiant technique : {configuration.terminalId}
+            </p>
+          </div>
+        ) : null}
+
         {isChoosingIdentity ? (
           <fieldset className="mt-5">
-            <legend className="font-black">Code de la caisse</legend>
+            <legend className="font-black">
+              {reprovisioning ? 'Nouvelle identité' : 'Code de la caisse'}
+            </legend>
             <div className="mt-2 grid grid-cols-4 gap-2">
               {terminalCodes.map((code) => (
                 <Button
@@ -96,14 +195,7 @@ export function TerminalConfigurationDialog({
               ))}
             </div>
           </fieldset>
-        ) : (
-          <div className="mt-5 border-y border-stone-300 py-3 font-bold">
-            <p>Code : {configuration.terminalCode}</p>
-            <p className="mt-1 break-all text-sm text-stone-600">
-              Identifiant technique : {configuration.terminalId}
-            </p>
-          </div>
-        )}
+        ) : null}
 
         <label className="mt-5 block font-black" htmlFor="terminal-display-name">
           Nom visible
@@ -161,7 +253,7 @@ export function TerminalConfigurationDialog({
             {isInitialProvisioning
               ? 'Configurer la tablette'
               : reprovisioning
-                ? 'Confirmer le reprovisionnement'
+                ? 'Continuer'
                 : 'Enregistrer le nom'}
           </Button>
         </div>
@@ -169,6 +261,10 @@ export function TerminalConfigurationDialog({
         {!isInitialProvisioning && !reprovisioning ? (
           <div className="mt-6 border-t border-stone-300 pt-5">
             <Button
+              disabled={Boolean(reprovisioningBlockReason)}
+              aria-describedby={
+                reprovisioningBlockReason ? 'terminal-reprovision-block-reason' : undefined
+              }
               onClick={() => {
                 setReprovisioning(true)
                 setError(null)
@@ -176,6 +272,15 @@ export function TerminalConfigurationDialog({
             >
               Reprovisionner cette tablette
             </Button>
+            {reprovisioningBlockReason ? (
+              <p
+                id="terminal-reprovision-block-reason"
+                className="mt-3 font-bold text-amber-950"
+                role="status"
+              >
+                {reprovisioningBlockReason}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </section>

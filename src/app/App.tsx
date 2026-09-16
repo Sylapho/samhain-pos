@@ -15,6 +15,7 @@ import { shouldEnableDevPanel } from '../config/buildMode'
 import { products } from '../mocks/products'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
+import { hasPendingTabletReplacement } from '../services/tabletReplacementService'
 import {
   getTerminalConfiguration,
   provisionTerminal,
@@ -39,6 +40,7 @@ type Props = {
     reprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
   }
   responsibleMode?: ResponsibleMode
+  loadPendingTabletReplacement?: () => boolean
   checkoutDependencies?: Pick<
     ComponentProps<typeof CheckoutFlow>,
     'createOrder' | 'lifecycle' | 'printOrder'
@@ -58,6 +60,7 @@ export function App({
   probePrinterStatus,
   terminalManagement = defaultTerminalManagement,
   responsibleMode = getResponsibleModeService(),
+  loadPendingTabletReplacement = hasPendingTabletReplacement,
   checkoutDependencies,
 }: Props = {}) {
   const [category, setCategory] = useState<CategoryId>('menus')
@@ -87,6 +90,14 @@ export function App({
   const [recoveryOrders, setRecoveryOrders] = useState<Order[]>([])
   const [resumingOrder, setResumingOrder] = useState<Order | null>(null)
   const [recoveryError, setRecoveryError] = useState(false)
+  const [recoveryCheckedTerminalId, setRecoveryCheckedTerminalId] = useState<string | null>(null)
+  const [tabletReplacementPending] = useState(() => {
+    try {
+      return loadPendingTabletReplacement()
+    } catch {
+      return true
+    }
+  })
   const [network, setNetwork] = useState<NetworkStatus>('online')
   const [printerOverride, setPrinterOverride] = useState<PrinterStatus | null>(null)
   const realPrinterStatus = usePrinterStatus(probePrinterStatus)
@@ -125,9 +136,16 @@ export function App({
     void (async () => {
       try {
         const orders = await loadRecoverableOrders()
-        if (active) setRecoveryOrders(orders)
+        if (active) {
+          setRecoveryOrders(orders)
+          setRecoveryError(false)
+          setRecoveryCheckedTerminalId(terminalConfiguration.terminalId)
+        }
       } catch {
-        if (active) setRecoveryError(true)
+        if (active) {
+          setRecoveryError(true)
+          setRecoveryCheckedTerminalId(terminalConfiguration.terminalId)
+        }
       }
     })()
     return () => {
@@ -191,6 +209,31 @@ export function App({
       return updatedOrders.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     })
     if (resumingOrder?.id === updatedOrder.id) setResumingOrder(updatedOrder)
+  }
+
+  const recoveryCheckPending = Boolean(
+    terminalConfiguration && recoveryCheckedTerminalId !== terminalConfiguration.terminalId,
+  )
+  const reprovisioningBlockReason = recoveryCheckPending
+    ? 'Impossible de reprovisionner tant que la vérification des impressions n’est pas terminée.'
+    : recoveryError
+      ? 'Impossible de reprovisionner car les impressions à reprendre n’ont pas pu être vérifiées.'
+      : recoveryOrders.length > 0
+        ? 'Impossible de reprovisionner cette caisse tant que des impressions sont à reprendre ou à vérifier.'
+        : null
+
+  if (tabletReplacementPending) {
+    return (
+      <main className="flex h-dvh items-center justify-center bg-[#f2eee5] p-6">
+        <p
+          className="max-w-xl border border-amber-400 bg-amber-50 p-5 font-bold text-amber-950"
+          role="alert"
+        >
+          Un remplacement de tablette a été interrompu. Reprenez la procédure avec la même archive
+          Samhain vérifiée. Le provisioning et l’encaissement restent bloqués jusque-là.
+        </p>
+      </main>
+    )
   }
 
   if (terminalConfigurationError) {
@@ -367,6 +410,7 @@ export function App({
             setTerminalConfigurationOpen(false)
             responsibleMode.lock()
           }}
+          reprovisioningBlockReason={reprovisioningBlockReason}
           onClose={() => {
             setTerminalConfigurationOpen(false)
             responsibleMode.lock()
