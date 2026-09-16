@@ -2,6 +2,20 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 apply plugin: 'com.google.devtools.ksp'
 
+def releaseSigningValue = { String name ->
+    providers.gradleProperty(name).orElse(providers.environmentVariable(name)).getOrNull()
+}
+def releaseStoreFilePath = releaseSigningValue('SAMHAIN_RELEASE_STORE_FILE')
+def releaseStorePassword = releaseSigningValue('SAMHAIN_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = releaseSigningValue('SAMHAIN_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = releaseSigningValue('SAMHAIN_RELEASE_KEY_PASSWORD')
+def missingReleaseSigningValues = [
+    SAMHAIN_RELEASE_STORE_FILE: releaseStoreFilePath,
+    SAMHAIN_RELEASE_STORE_PASSWORD: releaseStorePassword,
+    SAMHAIN_RELEASE_KEY_ALIAS: releaseKeyAlias,
+    SAMHAIN_RELEASE_KEY_PASSWORD: releaseKeyPassword,
+].findAll { entry -> entry.value == null || entry.value.trim().isEmpty() }.keySet()
+
 android {
     namespace = "fr.samhain.pos"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -10,7 +24,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -21,11 +35,48 @@ android {
     testOptions {
         unitTests.includeAndroidResources = true
     }
+    signingConfigs {
+        release {
+            if (releaseStoreFilePath) storeFile rootProject.file(releaseStoreFilePath)
+            if (releaseStorePassword) storePassword releaseStorePassword
+            if (releaseKeyAlias) keyAlias releaseKeyAlias
+            if (releaseKeyPassword) keyPassword releaseKeyPassword
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+def validateReleaseSigning = tasks.register('validateReleaseSigning') {
+    group = 'verification'
+    description = 'Vérifie la présence du keystore et des credentials requis pour une release Samhain.'
+
+    doLast {
+        if (!missingReleaseSigningValues.isEmpty()) {
+            throw new GradleException(
+                "Signature release absente. Renseignez : ${missingReleaseSigningValues.join(', ')}. " +
+                'Aucun fallback vers la clé debug n’est autorisé.'
+            )
+        }
+
+        def configuredStoreFile = rootProject.file(releaseStoreFilePath)
+        if (!configuredStoreFile.isFile()) {
+            throw new GradleException(
+                "Keystore release introuvable : ${configuredStoreFile}. " +
+                'Vérifiez SAMHAIN_RELEASE_STORE_FILE.'
+            )
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name in ['preReleaseBuild', 'assembleRelease', 'bundleRelease', 'packageRelease']) {
+        task.dependsOn(validateReleaseSigning)
     }
 }
 

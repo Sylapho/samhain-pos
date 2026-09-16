@@ -69,8 +69,7 @@ export const products: Product[] = [
     vatRate: 10,
     availability: 'available',
     description: 'Servi avec frites',
-    dataConfidence: 'temporary',
-    note: 'Prix à confirmer sur la carte source.',
+    dataConfidence: 'confirmed',
   },
   {
     id: 'chipolata-x2',

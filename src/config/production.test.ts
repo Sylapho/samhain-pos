@@ -4,12 +4,12 @@ import type { ReceiptBusinessInfo } from './organization'
 import { assertProductionBuildReady } from './production'
 
 const confirmedBusinessInfo: ReceiptBusinessInfo = {
-  organizationName: 'Organisation configurée',
-  eventName: 'Événement configuré',
-  city: 'Ville configurée',
-  address: 'Adresse configurée',
-  siret: 'SIRET configuré',
-  vatNumber: 'TVA configurée',
+  organizationName: 'Association Les Trouble-fêtes',
+  eventName: 'Samhain',
+  city: 'Bernay',
+  address: '24 rue Alsace Lorraine 27300 Bernay',
+  siret: '923 116 628 00028',
+  vatNumber: 'FR90 923116628',
   usesDemoPlaceholders: false,
 }
 
@@ -31,6 +31,10 @@ const confirmedCatalog: Product[] = temporaryCatalog.map((product) => ({
 }))
 
 describe('garde-fou de build de production', () => {
+  it('autorise la configuration de production réellement embarquée', () => {
+    expect(() => assertProductionBuildReady({ command: 'build', mode: 'production' })).not.toThrow()
+  })
+
   it('bloque une build production lorsque le catalogue est temporaire', () => {
     expect(() =>
       assertProductionBuildReady(
@@ -67,7 +71,23 @@ describe('garde-fou de build de production', () => {
           catalog: confirmedCatalog,
         },
       ),
-    ).toThrowError(/Build de production bloqué.*Configuration de production invalide/s)
+    ).toThrowError(
+      /Build de production bloqué.*Configuration administrative de production invalide/s,
+    )
+  })
+
+  it('regroupe les erreurs administratives et catalogue d’une build production', () => {
+    expect(() =>
+      assertProductionBuildReady(
+        { command: 'build', mode: 'production' },
+        {
+          businessInfo: { ...confirmedBusinessInfo, usesDemoPlaceholders: true },
+          catalog: temporaryCatalog,
+        },
+      ),
+    ).toThrowError(
+      /Build de production bloqué.*usesDemoPlaceholders.*Catalogue de production invalide.*Produit "Produit temporaire"/s,
+    )
   })
 
   it('n’exécute pas le garde-fou pendant le serveur de développement', () => {
