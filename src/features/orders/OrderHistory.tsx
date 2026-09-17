@@ -145,12 +145,22 @@ export function OrderHistory({
 
   const reprint = async (selection: PrintSelection) => {
     if (!selectedOrder || printingRef.current) return
+    if (
+      selection === 'preparation' &&
+      selectedOrder.printing.preparationTicket === 'not_requested'
+    ) {
+      return
+    }
+    const effectiveSelection =
+      selection === 'both' && selectedOrder.printing.preparationTicket === 'not_requested'
+        ? 'customer'
+        : selection
     printingRef.current = true
-    setPrinting(selection)
+    setPrinting(effectiveSelection)
     setFeedback(null)
 
     const options: PrintOrderOptions = {
-      selection,
+      selection: effectiveSelection,
       printCustomerReceipt: true,
       reprint: true,
     }
@@ -168,7 +178,7 @@ export function OrderHistory({
       if (trackLifecycle) {
         try {
           printingOrder = storeUpdatedOrder(
-            await lifecycle.beginPrinting(selectedOrder.id, selection),
+            await lifecycle.beginPrinting(selectedOrder.id, effectiveSelection),
           )
         } catch {
           setFeedback({
@@ -192,8 +202,8 @@ export function OrderHistory({
             storeUpdatedOrder(
               await lifecycle.failPrinting(
                 selectedOrder.id,
-                selection,
-                getCompletedDocumentsFromPrintError(error, { selection }),
+                effectiveSelection,
+                getCompletedDocumentsFromPrintError(error, { selection: effectiveSelection }),
                 message,
                 getUnknownDocumentsFromPrintError(error),
               ),
@@ -218,7 +228,7 @@ export function OrderHistory({
           storeUpdatedOrder(
             await lifecycle.completePrinting(
               selectedOrder.id,
-              selection,
+              effectiveSelection,
               result.completedDocuments,
             ),
           )
@@ -409,6 +419,7 @@ function OrderDetails({
 }) {
   const { date, time } = formatTicketDateTime(order.createdAt)
   const summary = deriveSaleCorrectionSummary(order, corrections)
+  const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
   return (
     <article className="min-h-0 overflow-y-auto p-4 sm:p-5" aria-labelledby="order-detail-title">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-300 pb-4">
@@ -501,16 +512,24 @@ function OrderDetails({
         <p className="mt-4 text-sm font-bold text-stone-600">
           La réimpression reprend les données et numéros de cette commande.
         </p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+        <div className={`mt-2 grid gap-2 ${hasPreparationTicket ? 'sm:grid-cols-3' : ''}`}>
           <Button disabled={printing !== null} onClick={() => onReprint('customer')}>
             {printing === 'customer' ? 'Impression en cours…' : 'Ticket client'}
           </Button>
-          <Button disabled={printing !== null} onClick={() => onReprint('preparation')}>
-            {printing === 'preparation' ? 'Impression en cours…' : 'Préparation'}
-          </Button>
-          <Button variant="primary" disabled={printing !== null} onClick={() => onReprint('both')}>
-            {printing === 'both' ? 'Impression en cours…' : 'Les deux tickets'}
-          </Button>
+          {hasPreparationTicket ? (
+            <>
+              <Button disabled={printing !== null} onClick={() => onReprint('preparation')}>
+                {printing === 'preparation' ? 'Impression en cours…' : 'Préparation'}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={printing !== null}
+                onClick={() => onReprint('both')}
+              >
+                {printing === 'both' ? 'Impression en cours…' : 'Les deux tickets'}
+              </Button>
+            </>
+          ) : null}
         </div>
         {feedback ? <FeedbackBox feedback={feedback} /> : null}
       </section>

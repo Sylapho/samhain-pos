@@ -7,6 +7,7 @@ function createProduct(overrides: Partial<Product> = {}): Product {
     id: 'produit-confirme',
     name: 'Produit confirmé',
     categoryId: 'assiettes',
+    requiresPreparation: true,
     availability: 'available',
     priceCents: 1_000,
     vatRate: 10,

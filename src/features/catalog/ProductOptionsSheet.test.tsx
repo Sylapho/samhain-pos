@@ -7,6 +7,7 @@ const product: Product = {
   id: 'generic-options-test',
   name: 'Produit configurable',
   categoryId: 'assiettes',
+  requiresPreparation: true,
   availability: 'available',
   priceCents: 1000,
   vatRate: 10,

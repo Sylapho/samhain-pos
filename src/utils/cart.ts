@@ -86,6 +86,7 @@ export function createCartItemDraft(
   return {
     productId: product.id,
     name: product.name,
+    requiresPreparation: product.requiresPreparation,
     unitPriceCents:
       basePriceCents + options.reduce((sum, option) => sum + option.priceDeltaCents, 0),
     variant: variant ? { id: variant.id, name: variant.name, volume: variant.volume } : undefined,

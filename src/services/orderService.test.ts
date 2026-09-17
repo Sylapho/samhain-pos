@@ -8,6 +8,7 @@ import type { TerminalConfiguration } from '../types/terminal'
 import { createValidOrderItems } from '../test/orderFixtures'
 
 const menu = products.find((product) => product.id === 'menu-enfant')!
+const water = products.find((product) => product.id === 'eau')!
 const createdAt = new Date('2026-09-01T12:00:00Z')
 const terminalA: TerminalConfiguration = {
   terminalId: 'terminal-a',
@@ -34,6 +35,75 @@ function createService(
 }
 
 describe('service de commandes persistantes', () => {
+  it('marque la préparation non demandée quand aucune ligne ne la nécessite', async () => {
+    const indexedDb = new IDBFactory()
+    const { repository, service } = createService(indexedDb, 'no-preparation', 'order-water')
+    const draft = createCartItemDraft(water)
+
+    const order = await service.createOrder(
+      [{ ...draft, lineId: 'water', quantity: 2 }],
+      'card',
+      createdAt,
+    )
+
+    expect(order.items[0]?.requiresPreparation).toBe(false)
+    expect(order.printing).toMatchObject({
+      status: 'pending',
+      customerReceipt: 'pending',
+      preparationTicket: 'not_requested',
+    })
+    await repository.close()
+  })
+
+  it('termine immédiatement l’impression quand aucun document n’est demandé', async () => {
+    const indexedDb = new IDBFactory()
+    const { repository, service } = createService(indexedDb, 'no-document', 'order-water')
+    const draft = createCartItemDraft(water)
+
+    const order = await service.createOrder(
+      [{ ...draft, lineId: 'water', quantity: 1 }],
+      'cash',
+      createdAt,
+      false,
+    )
+
+    expect(order.printing).toMatchObject({
+      status: 'printed',
+      customerReceipt: 'not_requested',
+      preparationTicket: 'not_requested',
+    })
+    expect(await service.getRecoverableOrders()).toEqual([])
+    await repository.close()
+  })
+
+  it('ne fait jamais évoluer un ticket de préparation non demandé pendant la reprise', async () => {
+    const indexedDb = new IDBFactory()
+    const { repository, service } = createService(indexedDb, 'no-preparation-retry', 'order-water')
+    const draft = createCartItemDraft(water)
+    const order = await service.createOrder(
+      [{ ...draft, lineId: 'water', quantity: 1 }],
+      'card',
+      createdAt,
+    )
+
+    const started = await service.beginPrinting(order.id, 'both')
+    expect(started.printing.preparationTicket).toBe('not_requested')
+
+    const failed = await service.failPrinting(order.id, 'both', [], 'Imprimante indisponible')
+    expect(failed.printing).toMatchObject({
+      status: 'failed',
+      customerReceipt: 'failed',
+      preparationTicket: 'not_requested',
+    })
+
+    const completed = await service.completePrinting(order.id, 'both', ['customerReceipt'])
+    expect(completed.printing).toMatchObject({
+      status: 'printed',
+      customerReceipt: 'printed',
+      preparationTicket: 'not_requested',
+    })
+    await repository.close()
+  })
   it('persiste une commande complète avec les choix du menu', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'complete-order', 'order-1')

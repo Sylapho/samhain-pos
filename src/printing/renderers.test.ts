@@ -34,6 +34,25 @@ describe('rendus thermiques', () => {
     expect(ticket.preview).not.toMatch(/€|Paiement|TVA|41,50/)
   })
 
+  it('exclut les lignes remises directement du ticket de préparation', () => {
+    const mixedOrder = {
+      ...printPreviewOrder,
+      items: [
+        printPreviewOrder.items[0]!,
+        {
+          ...printPreviewOrder.items[1]!,
+          productId: 'eau',
+          name: 'Eau',
+          requiresPreparation: false,
+        },
+      ],
+    }
+
+    const preparation = renderPreparationTicket(mixedOrder).preview
+    expect(preparation).toContain('BURGER SPÉCIAL SAMHAIN')
+    expect(preparation).not.toContain('EAU')
+  })
+
   it('met très visiblement en avant les ingrédients retirés uniquement en préparation', () => {
     const burger = products.find((product) => product.id === 'burger-samhain')!
     const draft = createCartItemDraft(burger)

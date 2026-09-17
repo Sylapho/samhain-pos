@@ -190,6 +190,13 @@ function validateCartItem(value: unknown, index: number): CartItem {
       `L’identifiant produit de la ligne « ${lineId} »`,
     ),
     name: nonBlankString(candidate.name, `Le nom produit de la ligne « ${lineId} »`),
+    requiresPreparation:
+      candidate.requiresPreparation === undefined
+        ? true
+        : boolean(
+            candidate.requiresPreparation,
+            `Le besoin de préparation de la ligne « ${lineId} »`,
+          ),
     unitPriceCents,
     quantity,
     options: validateOptions(candidate.options, lineId),
