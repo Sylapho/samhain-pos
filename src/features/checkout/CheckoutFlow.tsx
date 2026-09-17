@@ -494,9 +494,6 @@ export function CheckoutFlow({
                 onAppendDigit={(digit) => {
                   setCashReceivedCents((current) => appendCashDigits(current, digit))
                 }}
-                onAppendDoubleZero={() => {
-                  setCashReceivedCents((current) => appendCashDigits(current, 0, 100))
-                }}
                 onDeleteLastDigit={() => {
                   setCashReceivedCents(deleteLastCashDigit)
                 }}
@@ -744,7 +741,6 @@ type CashPaymentProps = {
   receivedCents: number | null
   disabled: boolean
   onAppendDigit: (digit: number) => void
-  onAppendDoubleZero: () => void
   onDeleteLastDigit: () => void
   onClear: () => void
   onSetAmount: (amountCents: number) => void
@@ -755,7 +751,6 @@ function CashPayment({
   receivedCents,
   disabled,
   onAppendDigit,
-  onAppendDoubleZero,
   onDeleteLastDigit,
   onClear,
   onSetAmount,
@@ -766,8 +761,6 @@ function CashPayment({
   const quickAmounts = getCashQuickAmounts(totalCents)
   const digitEntryDisabled =
     disabled || (receivedCents ?? 0) > Math.floor(MAX_CASH_RECEIVED_CENTS / 10)
-  const doubleZeroDisabled =
-    disabled || (receivedCents ?? 0) > Math.floor(MAX_CASH_RECEIVED_CENTS / 100)
 
   return (
     <section className="mt-5 border-t border-stone-300 pt-5" aria-labelledby="cash-payment-title">
@@ -846,18 +839,11 @@ function CashPayment({
           </Button>
         ))}
         <Button
-          className="min-h-16 text-xl"
+          className="col-span-2 min-h-16 text-2xl"
           disabled={digitEntryDisabled}
           onClick={() => onAppendDigit(0)}
         >
           0
-        </Button>
-        <Button
-          className="min-h-16 text-xl"
-          disabled={doubleZeroDisabled}
-          onClick={onAppendDoubleZero}
-        >
-          00
         </Button>
         <Button
           className="min-h-16 px-3 text-2xl"

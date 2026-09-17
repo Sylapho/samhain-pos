@@ -1,11 +1,7 @@
 export const MAX_CASH_RECEIVED_CENTS = 999_999
 
-export function appendCashDigits(
-  currentCents: number | null,
-  digits: number,
-  multiplier = 10,
-): number | null {
-  const nextCents = (currentCents ?? 0) * multiplier + digits
+export function appendCashDigits(currentCents: number | null, digits: number): number | null {
+  const nextCents = (currentCents ?? 0) * 10 + digits
   return nextCents <= MAX_CASH_RECEIVED_CENTS ? nextCents : currentCents
 }
 

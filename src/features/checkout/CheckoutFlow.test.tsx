@@ -194,7 +194,7 @@ describe('encaissement et impression', () => {
       within(screen.getByLabelText('Pavé numérique du montant reçu'))
         .getAllByRole('button')
         .map((button) => button.textContent),
-    ).toEqual(['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '⌫'])
+    ).toEqual(['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '⌫'])
 
     fireEvent.click(screen.getByRole('button', { name: '0' }))
     expect(screen.getByText(/^Il manque 17,50/)).toBeInTheDocument()
