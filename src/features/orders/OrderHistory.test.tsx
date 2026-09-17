@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../../mocks/printOrder'
 import type { PrintJobResult } from '../../printing/types'
-import type { CorrectionLedgerEntry } from '../../types/salesLedger'
+import type { CorrectionLedgerEntry, RefundLine } from '../../types/salesLedger'
 import { OrderHistory } from './OrderHistory'
 
 const success: PrintJobResult = {
@@ -26,6 +26,7 @@ function correction(
   type: 'cancellation' | 'refund',
   amountDeltaCents: number,
   reason = 'Erreur de saisie',
+  refundLines?: RefundLine[],
 ): CorrectionLedgerEntry {
   return {
     schemaVersion: 1,
@@ -51,6 +52,7 @@ function correction(
       amountDeltaCents,
       paymentMethod: printedOrder.paymentMethod,
       originalSaleHash: null,
+      ...(refundLines ? { refundLines } : {}),
     },
   }
 }
@@ -86,7 +88,9 @@ describe('historique des commandes', () => {
     const detail = await screen.findByRole('article', { name: 'Commande A-0001' })
     expect(within(detail).getByText('Ticket de préparation : Non demandé')).toBeInTheDocument()
     expect(within(detail).queryByRole('button', { name: 'Préparation' })).not.toBeInTheDocument()
-    expect(within(detail).queryByRole('button', { name: 'Les deux tickets' })).not.toBeInTheDocument()
+    expect(
+      within(detail).queryByRole('button', { name: 'Les deux tickets' }),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(within(detail).getByRole('button', { name: 'Ticket client' }))
     await screen.findByText('Réimpression terminée pour la commande A-0001.')
@@ -182,8 +186,9 @@ describe('historique des commandes', () => {
     expect(within(detail).getByText('Remboursement')).toBeInTheDocument()
     expect(within(detail).getByText(/-5,00/)).toBeInTheDocument()
     expect(within(detail).getByText('Motif : Produit indisponible')).toBeInTheDocument()
+    expect(within(detail).getByText(/Nouveau remboursement bloqué/)).toBeInTheDocument()
     expect(within(detail).getAllByText(/Caisse A/).length).toBeGreaterThan(0)
-    expect(within(detail).getByText(/41,50/)).toBeInTheDocument()
+    expect(within(detail).getAllByText(/41,50/)).toHaveLength(2)
   })
 
   it('protège l’ouverture de la correction par le mode responsable', async () => {
@@ -251,15 +256,27 @@ describe('historique des commandes', () => {
     expect(service.getEntries).toHaveBeenCalledTimes(2)
   })
 
-  it('rembourse uniquement le montant restant et conserve la même clé idempotente', async () => {
-    const priorRefund = correction('refund', -500, 'Premier remboursement')
+  it('sélectionne les quantités restantes, récapitule et conserve la même clé idempotente', async () => {
+    const burger = printedOrder.items[0]!
+    const priorRefund = correction('refund', -burger.unitPriceCents, 'Premier remboursement', [
+      {
+        originalLineId: burger.lineId,
+        productId: burger.productId,
+        productName: burger.name,
+        quantity: 1,
+        unitPriceCents: burger.unitPriceCents,
+        vatRate: burger.vatRate,
+        grossCents: burger.unitPriceCents,
+        vatCents: 145,
+      },
+    ])
     const service = ledgerService([priorRefund])
-    service.refundSale.mockResolvedValue(correction('refund', -(printedOrder.totalCents - 500)))
+    service.refundSale.mockResolvedValue(correction('refund', -burger.unitPriceCents))
     service.getEntries
       .mockResolvedValueOnce([priorRefund])
       .mockResolvedValueOnce([
         priorRefund,
-        correction('refund', -(printedOrder.totalCents - 500), 'Remboursement du reste'),
+        correction('refund', -burger.unitPriceCents, 'Remboursement du reste'),
       ])
     render(
       <OrderHistory
@@ -275,22 +292,62 @@ describe('historique des commandes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
     const dialog = await screen.findByRole('dialog', { name: 'Corriger la vente' })
     expect(within(dialog).getByRole('button', { name: 'Annulation totale' })).toBeDisabled()
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remboursement total' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remboursement' }))
+    expect(
+      within(dialog).getByText(/déjà remboursée 1 · encore remboursable 1/),
+    ).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: `Augmenter ${burger.name}` }))
     fireEvent.change(within(dialog).getByLabelText('Motif obligatoire'), {
       target: { value: 'Remboursement du reste' },
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Vérifier la correction' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rembourser la vente' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Confirmer le remboursement ?' })
+    expect(within(confirmation).getByText(`1 × ${burger.name}`)).toBeInTheDocument()
+    expect(within(confirmation).getByText(/TVA 10 % : 1,46/)).toBeInTheDocument()
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Rembourser la vente' }))
 
     await waitFor(() =>
       expect(service.refundSale).toHaveBeenCalledWith(
         printedOrder.id,
-        printedOrder.totalCents - 500,
+        [{ originalLineId: burger.lineId, quantity: 1 }],
         'Remboursement du reste',
         'refund-operation-id',
       ),
     )
-    expect(await screen.findByText('Statut : Remboursée')).toBeInTheDocument()
+    expect(await screen.findByText('Motif : Remboursement du reste')).toBeInTheDocument()
+  })
+
+  it('rend une ligne intégralement remboursée non sélectionnable', async () => {
+    const burger = printedOrder.items[0]!
+    const priorRefund = correction('refund', -3200, 'Burgers remboursés', [
+      {
+        originalLineId: burger.lineId,
+        productId: burger.productId,
+        productName: burger.name,
+        quantity: 2,
+        unitPriceCents: burger.unitPriceCents,
+        vatRate: burger.vatRate,
+        grossCents: 3200,
+        vatCents: 291,
+      },
+    ])
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={ledgerService([priorRefund])}
+        requestResponsibleAccess={vi.fn().mockResolvedValue(true)}
+      />,
+    )
+
+    await screen.findByText('Statut : Partiellement remboursée')
+    fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Corriger la vente' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remboursement' }))
+    expect(within(dialog).getByRole('button', { name: `Augmenter ${burger.name}` })).toBeDisabled()
+    expect(
+      within(dialog).getByText(/déjà remboursée 2 · encore remboursable 0/),
+    ).toBeInTheDocument()
   })
 
   it('affiche le refus si le mode responsable expire avant la confirmation', async () => {
