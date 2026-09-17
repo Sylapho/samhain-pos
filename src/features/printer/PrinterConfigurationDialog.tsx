@@ -20,15 +20,15 @@ type Message = { kind: 'info' | 'success' | 'error'; text: string }
 
 const configurationStatusLabels: Record<PrinterStatus, string> = {
   unknown: 'Vérification de l’imprimante…',
-  unavailable: 'Configuration USB disponible sur la tablette Android',
-  'permission-required': 'Permission USB nécessaire',
-  ready: 'Imprimante prête',
+  unavailable: 'Réglage disponible uniquement sur la tablette',
+  'permission-required': 'Connexion à autoriser',
+  ready: 'Imprimante connectée',
   printing: 'Impression de test en cours…',
-  disconnected: 'Imprimante déconnectée',
-  'paper-out': 'Papier épuisé',
+  disconnected: 'Imprimante non détectée',
+  'paper-out': 'Plus de papier',
   'cover-open': 'Capot ouvert',
-  'status-unavailable': 'Statut de l’imprimante illisible',
-  error: 'Imprimante indisponible',
+  'status-unavailable': 'État de l’imprimante non vérifié',
+  error: 'Imprimante à vérifier',
 }
 
 export function PrinterConfigurationDialog({
@@ -67,7 +67,7 @@ export function PrinterConfigurationDialog({
         if (!preserveMessage) {
           setMessage({
             kind: 'info',
-            text: 'La connexion USB peut être configurée depuis l’application Android sur la tablette.',
+            text: 'L’imprimante peut être réglée depuis l’application installée sur la tablette.',
           })
         }
         return
@@ -90,7 +90,7 @@ export function PrinterConfigurationDialog({
               kind: 'error',
               text: saved
                 ? 'L’imprimante sélectionnée est déconnectée. Rebranchez-la ou choisissez une autre imprimante.'
-                : 'Aucune imprimante Epson compatible détectée. Vérifiez le câble USB et l’alimentation.',
+                : 'Aucune imprimante compatible détectée. Vérifiez le câble et l’alimentation.',
             })
           }
         } else {
@@ -131,7 +131,7 @@ export function PrinterConfigurationDialog({
           nextStatus === 'ready'
             ? 'Cette imprimante est sélectionnée et prête.'
             : nextStatus === 'permission-required'
-              ? 'Imprimante sélectionnée. Connectez-la pour autoriser l’accès USB.'
+              ? 'Imprimante sélectionnée. Appuyez sur Connecter pour autoriser la connexion.'
               : 'Imprimante sélectionnée. Utilisez Reconnecter pour vérifier son état.',
       })
     } catch (error) {
@@ -150,7 +150,7 @@ export function PrinterConfigurationDialog({
       kind: 'info',
       text: selected.hasPermission
         ? 'Vérification de la connexion…'
-        : 'Android va demander la permission USB…',
+        : 'Une demande d’autorisation va s’afficher…',
     })
     try {
       let connectedDevice = selected
@@ -160,7 +160,7 @@ export function PrinterConfigurationDialog({
           setStatus('permission-required')
           setMessage({
             kind: 'error',
-            text: 'Permission USB refusée. Appuyez sur Connecter pour réessayer.',
+            text: 'Connexion refusée. Appuyez sur Connecter pour réessayer.',
           })
           return
         }
@@ -198,11 +198,11 @@ export function PrinterConfigurationDialog({
     setStatus('printing')
     setMessage({ kind: 'info', text: 'Impression du ticket de test…' })
     try {
-      const bytesWritten = await printUsbTestTicket(selected.deviceId)
+      await printUsbTestTicket(selected.deviceId)
       setStatus('ready')
       setMessage({
         kind: 'success',
-        text: `Ticket de test imprimé (${bytesWritten} octets envoyés).`,
+        text: 'Ticket de test imprimé.',
       })
     } catch (error) {
       setStatus(printerStatusFromError(error))
@@ -234,7 +234,7 @@ export function PrinterConfigurationDialog({
           Retour
         </Button>
         <h1 id="printer-configuration-title" className="text-xl font-black">
-          Configuration de l’imprimante USB
+          Imprimante
         </h1>
       </header>
 
@@ -249,7 +249,7 @@ export function PrinterConfigurationDialog({
             {!selected && preferred ? ' (déconnectée)' : ''}
           </p>
           <p className="mt-1 text-sm font-bold text-stone-600">
-            Permission USB : {selected?.hasPermission ? 'accordée' : 'nécessaire'}
+            Connexion : {selected?.hasPermission ? 'autorisée' : 'à autoriser'}
           </p>
         </section>
 
@@ -283,13 +283,8 @@ export function PrinterConfigurationDialog({
                   >
                     <span className="block text-lg font-black">{usbDeviceLabel(device)}</span>
                     <span className="mt-1 block text-sm font-bold text-stone-600">
-                      {compatible ? 'Compatible Epson TM-T88V' : 'Périphérique non compatible'} ·
-                      Permission {device.hasPermission ? 'accordée' : 'nécessaire'}
-                    </span>
-                    <span className="mt-1 block text-xs text-stone-500">
-                      VID {formatUsbId(device.vendorId)} · PID {formatUsbId(device.productId)}
-                      {device.manufacturerName ? ` · ${device.manufacturerName}` : ''}
-                      {device.serialNumber ? ` · N° ${device.serialNumber}` : ''}
+                      {compatible ? 'Compatible avec la caisse' : 'Imprimante non compatible'} ·
+                      Connexion {device.hasPermission ? 'autorisée' : 'à autoriser'}
                     </span>
                   </button>
                 )
@@ -297,7 +292,7 @@ export function PrinterConfigurationDialog({
             </div>
           ) : (
             <p className="mt-3 border border-amber-300 bg-amber-50 p-4 font-bold text-amber-950">
-              Aucune imprimante USB détectée. Vérifiez le câble et l’alimentation, puis appuyez sur
+              Aucune imprimante détectée. Vérifiez le câble et l’alimentation, puis appuyez sur
               Actualiser.
             </p>
           )}
@@ -338,8 +333,4 @@ export function PrinterConfigurationDialog({
       </main>
     </div>
   )
-}
-
-function formatUsbId(value: number): string {
-  return `0x${value.toString(16).padStart(4, '0').toUpperCase()}`
 }

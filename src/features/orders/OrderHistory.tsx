@@ -488,8 +488,8 @@ function OrderDetails({
             className="mt-3 border border-rose-300 bg-rose-50 p-3 font-bold text-rose-950"
             role="alert"
           >
-            Les corrections du journal local sont indisponibles. Aucune nouvelle correction n’est
-            autorisée.
+            L’historique des corrections est indisponible. Aucune nouvelle correction n’est possible
+            pour le moment.
           </p>
         ) : corrections.length ? (
           <div className="mt-3 divide-y divide-stone-200 border-y border-stone-300">
@@ -513,7 +513,8 @@ function OrderDetails({
         </div>
         {order.printing.lastError ? (
           <p className="mt-2 text-sm font-bold text-rose-900">
-            Dernier échec : {order.printing.lastError}
+            La dernière impression n’a pas abouti. Vérifiez l’imprimante et les tickets déjà sortis
+            avant de réessayer.
           </p>
         ) : null}
 

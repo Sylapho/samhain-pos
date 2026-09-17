@@ -3,20 +3,20 @@ import type { NetworkStatus, PrinterStatus } from '../../types/system'
 const networkLabels: Record<NetworkStatus, string> = {
   online: 'En ligne',
   offline: 'Hors ligne',
-  syncing: 'Synchronisation',
-  'sync-error': 'Sync en attente',
+  syncing: 'Mise à jour en cours',
+  'sync-error': 'Mise à jour en attente',
 }
 const printerLabels: Record<PrinterStatus, string> = {
   unknown: 'Vérification…',
-  unavailable: 'Indisponible sur cet appareil',
-  'permission-required': 'Autorisation requise',
-  ready: 'Prête',
+  unavailable: 'Non disponible sur cet appareil',
+  'permission-required': 'Connexion à autoriser',
+  ready: 'Connectée',
   printing: 'Impression en cours',
-  disconnected: 'Déconnectée',
-  'paper-out': 'Papier épuisé',
+  disconnected: 'Non détectée',
+  'paper-out': 'Plus de papier',
   'cover-open': 'Capot ouvert',
-  'status-unavailable': 'Statut illisible',
-  error: 'Erreur imprimante',
+  'status-unavailable': 'État non vérifié',
+  error: 'À vérifier',
 }
 
 export function SystemStatus({

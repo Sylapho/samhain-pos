@@ -261,11 +261,11 @@ export function App({
     terminalConfiguration && recoveryCheckedTerminalId !== terminalConfiguration.terminalId,
   )
   const reprovisioningBlockReason = recoveryCheckPending
-    ? 'Impossible de reprovisionner tant que la vérification des opérations locales n’est pas terminée.'
+    ? 'Impossible de changer la caisse tant que la vérification des opérations en attente n’est pas terminée.'
     : recoveryError
-      ? 'Impossible de reprovisionner car les impressions à reprendre n’ont pas pu être vérifiées.'
+      ? 'Impossible de changer la caisse car les impressions à reprendre n’ont pas pu être vérifiées.'
       : recoveryOrders.length > 0 || recoveryIntents.length > 0
-        ? 'Impossible de reprovisionner cette caisse tant que des encaissements ou impressions sont à reprendre.'
+        ? 'Impossible de changer la caisse tant que des encaissements ou impressions sont à reprendre.'
         : null
 
   if (tabletReplacementPending) {
@@ -275,8 +275,8 @@ export function App({
           className="max-w-xl border border-amber-400 bg-amber-50 p-5 font-bold text-amber-950"
           role="alert"
         >
-          Un remplacement de tablette a été interrompu. Reprenez la procédure avec la même archive
-          Samhain vérifiée. Le provisioning et l’encaissement restent bloqués jusque-là.
+          Un remplacement de tablette a été interrompu. Reprenez la procédure avec la même
+          sauvegarde Samhain. La configuration et l’encaissement restent bloqués jusque-là.
         </p>
       </main>
     )
@@ -289,8 +289,8 @@ export function App({
           className="max-w-xl border border-rose-300 bg-rose-50 p-5 font-bold text-rose-950"
           role="alert"
         >
-          La configuration locale de cette tablette est inaccessible. Aucun encaissement n’est
-          possible tant que le stockage local n’est pas disponible.
+          Impossible d’ouvrir les données enregistrées sur cette tablette. Aucun encaissement n’est
+          possible. Redémarrez l’application, puis réessayez.
         </p>
       </main>
     )
@@ -343,7 +343,7 @@ export function App({
               })
             }}
           >
-            Clôture & sauvegarde
+            Clôture et sauvegarde
           </Button>
           <Button
             className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
@@ -363,7 +363,7 @@ export function App({
         <div className="border-b border-sky-200 bg-sky-50 px-5 py-2 text-sm font-bold text-sky-950">
           {network === 'offline'
             ? 'Hors ligne — les ventes continuent sur cette tablette.'
-            : 'Synchronisation locale simulée — aucun blocage de caisse.'}
+            : 'Mise à jour en cours — aucun blocage de caisse.'}
         </div>
       ) : null}
 
