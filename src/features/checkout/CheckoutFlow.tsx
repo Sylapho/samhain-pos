@@ -545,7 +545,7 @@ export function CheckoutFlow({
                     : intent.status === 'payment_confirmed'
                       ? 'Ne faites pas payer le client une deuxième fois. Réessayez uniquement l’enregistrement de la vente.'
                       : intent.paymentMethod === 'card'
-                        ? 'Vérifiez le TPE. Samhain ne peut pas connaître automatiquement le résultat.'
+                        ? 'Vérifiez le TPE. L\'application ne peut pas connaître automatiquement le résultat.'
                         : 'Vérifiez que les espèces ont bien été reçues et la monnaie rendue.'}
                 </p>
               </div>
