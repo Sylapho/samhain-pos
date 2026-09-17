@@ -29,7 +29,7 @@ import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { CheckoutIntent } from '../types/checkout'
 import type { Order } from '../types/order'
-import type { NetworkStatus, PrinterStatus } from '../types/system'
+import type { PrinterStatus } from '../types/system'
 import type { TerminalConfiguration, TerminalProvisioningInput } from '../types/terminal'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
 import { formatMoney } from '../utils/money'
@@ -113,7 +113,6 @@ export function App({
       return true
     }
   })
-  const [network, setNetwork] = useState<NetworkStatus>('online')
   const [printerOverride, setPrinterOverride] = useState<PrinterStatus | null>(null)
   const [printerConfigurationOpen, setPrinterConfigurationOpen] = useState(false)
   const { status: realPrinterStatus, refresh: refreshPrinterStatus } =
@@ -354,20 +353,11 @@ export function App({
             Historique
           </Button>
           <SystemStatus
-            network={network}
             printer={printer}
             onPrinterClick={() => setPrinterConfigurationOpen(true)}
           />
         </div>
       </header>
-
-      {network !== 'online' ? (
-        <div className="border-b border-sky-200 bg-sky-50 px-5 py-2 text-sm font-bold text-sky-950">
-          {network === 'offline'
-            ? 'Hors ligne — les ventes continuent sur cette tablette.'
-            : 'Mise à jour en cours — aucun blocage de caisse.'}
-        </div>
-      ) : null}
 
       {recoveryError ? (
         <div
@@ -417,9 +407,7 @@ export function App({
 
       {devPanelEnabled ? (
         <DevPanel
-          network={network}
           printerOverride={printerOverride}
-          onNetwork={setNetwork}
           onPrinterOverride={setPrinterOverride}
         />
       ) : null}

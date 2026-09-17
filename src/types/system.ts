@@ -1,4 +1,3 @@
-export type NetworkStatus = 'online' | 'offline' | 'syncing' | 'sync-error'
 export type PrinterStatus =
   | 'unknown'
   | 'unavailable'

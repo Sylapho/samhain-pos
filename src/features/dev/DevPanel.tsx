@@ -1,18 +1,16 @@
 import { Button } from '../../components/ui/Button'
 import { products } from '../../mocks/products'
 import { useCartStore } from '../../store/cartStore'
-import type { NetworkStatus, PrinterStatus } from '../../types/system'
+import type { PrinterStatus } from '../../types/system'
 import { createCartItemDraft, getDefaultProductSelection } from '../../utils/cart'
 import { UsbPrinterPanel } from './UsbPrinterPanel'
 
 type Props = {
-  network: NetworkStatus
   printerOverride: PrinterStatus | null
-  onNetwork: (value: NetworkStatus) => void
   onPrinterOverride: (value: PrinterStatus | null) => void
 }
 
-export function DevPanel({ network, printerOverride, onNetwork, onPrinterOverride }: Props) {
+export function DevPanel({ printerOverride, onPrinterOverride }: Props) {
   const clear = useCartStore((state) => state.clearCart)
   const add = useCartStore((state) => state.addItem)
   const loadBusyCart = () => {
@@ -32,19 +30,6 @@ export function DevPanel({ network, printerOverride, onNetwork, onPrinterOverrid
         <Button className="min-h-10 py-2" onClick={loadBusyCart}>
           Panier chargé
         </Button>
-        <label className="font-bold">
-          Réseau
-          <select
-            className="ml-2 min-h-10 rounded-[8px] border bg-white px-2"
-            value={network}
-            onChange={(event) => onNetwork(event.target.value as NetworkStatus)}
-          >
-            <option value="online">En ligne</option>
-            <option value="offline">Hors ligne</option>
-            <option value="syncing">Synchronisation</option>
-            <option value="sync-error">Erreur de sync</option>
-          </select>
-        </label>
         <label className="font-bold">
           Imprimante
           <select
