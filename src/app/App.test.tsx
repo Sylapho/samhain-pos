@@ -166,7 +166,6 @@ describe('caisse', () => {
           ledgerService: {
             getLastClosureEnd: vi.fn(async () => null),
           } as never,
-          backupService: {} as never,
         }}
       />,
     )

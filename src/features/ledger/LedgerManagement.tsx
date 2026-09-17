@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
-import {
-  getSalesBackupService,
-  type SalesBackupService,
-  type VerifiedBackupResult,
-} from '../../services/salesBackupService'
 import { getSalesLedgerService, type SalesLedgerService } from '../../services/salesLedgerService'
 import type {
   ClosureLedgerEntry,
@@ -20,27 +15,23 @@ export type LedgerManagementProps = {
     SalesLedgerService,
     'verifyIntegrity' | 'previewClosure' | 'closePeriod' | 'getLastClosureEnd'
   >
-  backupService?: Pick<SalesBackupService, 'saveVerifiedBackup'>
   now?: () => Date
 }
 
-type BusyAction = 'integrity' | 'backup' | 'preview' | 'closure' | null
+type BusyAction = 'integrity' | 'preview' | 'closure' | null
 
 export function LedgerManagement({
   onClose,
   ledgerService = getSalesLedgerService(),
-  backupService = getSalesBackupService(),
   now = () => new Date(),
 }: LedgerManagementProps) {
   const [initialNow] = useState(now)
-  const [section, setSection] = useState<'backup' | 'closure'>('backup')
   const [integrity, setIntegrity] = useState<IntegrityVerification | null>(null)
   const [busy, setBusy] = useState<BusyAction>(null)
   const busyRef = useRef(false)
   const mountedRef = useRef(true)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [backupResult, setBackupResult] = useState<VerifiedBackupResult | null>(null)
   const [periodStart, setPeriodStart] = useState(() => toDateTimeLocal(startOfLocalDay(initialNow)))
   const [periodEnd, setPeriodEnd] = useState(() => toDateTimeLocal(initialNow))
   const [preview, setPreview] = useState<ClosurePreview | null>(null)
@@ -93,19 +84,8 @@ export function LedgerManagement({
       setIntegrity(result)
       if (!result.valid) {
         setError(
-          'Certaines ventes enregistrées ne peuvent pas être vérifiées. La sauvegarde et la clôture sont bloquées.',
+          'Certaines ventes enregistrées ne peuvent pas être vérifiées. La clôture est bloquée.',
         )
-      }
-    })
-
-  const saveBackup = () =>
-    runExclusive('backup', async () => {
-      setBackupResult(null)
-      const result = await backupService.saveVerifiedBackup(now())
-      if (!mountedRef.current) return
-      setBackupResult(result)
-      if (result.status === 'cancelled') {
-        setMessage('Enregistrement annulé. Aucune sauvegarde n’a été créée.')
       }
     })
 
@@ -157,40 +137,13 @@ export function LedgerManagement({
           </h2>
           <p className="text-sm font-bold text-stone-300">Mode responsable</p>
         </div>
-        <Button
-          variant="headerSecondary"
-          disabled={busy !== null}
-          onClick={onClose}
-        >
+        <Button variant="headerSecondary" disabled={busy !== null} onClick={onClose}>
           Fermer
         </Button>
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-        <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Clôture et sauvegarde">
-          <Button
-            role="tab"
-            aria-selected={section === 'backup'}
-            variant={section === 'backup' ? 'primary' : 'secondary'}
-            className="min-h-14 text-lg"
-            disabled={busy !== null}
-            onClick={() => setSection('backup')}
-          >
-            Sauvegarde
-          </Button>
-          <Button
-            role="tab"
-            aria-selected={section === 'closure'}
-            variant={section === 'closure' ? 'primary' : 'secondary'}
-            className="min-h-14 text-lg"
-            disabled={busy !== null}
-            onClick={() => setSection('closure')}
-          >
-            Clôture de caisse
-          </Button>
-        </div>
-
-        <section className="mt-5 border-b border-stone-300 pb-5" aria-labelledby="integrity-title">
+        <section className="border-b border-stone-300 pb-5" aria-labelledby="integrity-title">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 id="integrity-title" className="text-xl font-black">
@@ -229,118 +182,81 @@ export function LedgerManagement({
           </p>
         ) : null}
 
-        {section === 'backup' ? (
-          <section className="py-5" aria-labelledby="backup-title">
-            <h3 id="backup-title" className="text-2xl font-black">
-              Enregistrer une sauvegarde
-            </h3>
-            <p className="mt-2 max-w-3xl font-semibold text-stone-700">
-              Crée une copie de sécurité des ventes et vous permet de choisir où l’enregistrer. Vous
-              pouvez sauvegarder sans clôturer la caisse.
-            </p>
-            <Button
-              variant="primary"
-              className="mt-5 min-h-16 text-lg"
-              disabled={!actionsAllowed}
-              onClick={() => void saveBackup()}
-            >
-              {busy === 'backup' ? 'Enregistrement…' : 'Enregistrer une sauvegarde'}
-            </Button>
-            {!integrity ? (
-              <p className="mt-3 font-bold text-stone-700">
-                Vérifiez d’abord les ventes enregistrées.
+        <section className="py-5" aria-labelledby="closure-title">
+          <h3 id="closure-title" className="text-2xl font-black">
+            Clôturer la caisse
+          </h3>
+          <p className="mt-2 font-semibold text-stone-700">
+            Enregistre les totaux de la période. Les ventes et corrections restent disponibles.
+          </p>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <label className="font-black">
+              Début de période
+              <input
+                className="mt-2 min-h-14 w-full rounded-[8px] border border-stone-400 bg-white px-3 font-bold"
+                type="datetime-local"
+                value={periodStart}
+                disabled={busy !== null}
+                onChange={(event) => {
+                  setPeriodStart(event.target.value)
+                  setPreview(null)
+                }}
+              />
+            </label>
+            <label className="font-black">
+              Fin de période
+              <input
+                className="mt-2 min-h-14 w-full rounded-[8px] border border-stone-400 bg-white px-3 font-bold"
+                type="datetime-local"
+                value={periodEnd}
+                disabled={busy !== null}
+                onChange={(event) => {
+                  setPeriodEnd(event.target.value)
+                  setPreview(null)
+                }}
+              />
+            </label>
+          </div>
+          <Button
+            className="mt-5 min-h-14"
+            disabled={!actionsAllowed || !periodStart || !periodEnd}
+            onClick={() => void loadPreview()}
+          >
+            {busy === 'preview' ? 'Calcul des totaux…' : 'Afficher les totaux'}
+          </Button>
+
+          {preview ? (
+            <div className="mt-5 border-t border-stone-300 pt-5">
+              <h4 className="text-xl font-black">Totaux de la période</h4>
+              <p className="mt-1 font-bold text-stone-700">
+                {preview.terminal.displayName} ·{' '}
+                {formatPeriod(preview.periodStart, preview.periodEnd)}
               </p>
-            ) : null}
-            {backupResult?.status === 'verified' ? <BackupSuccess result={backupResult} /> : null}
-          </section>
-        ) : (
-          <section className="py-5" aria-labelledby="closure-title">
-            <h3 id="closure-title" className="text-2xl font-black">
-              Clôturer la caisse
-            </h3>
-            <p className="mt-2 font-semibold text-stone-700">
-              Enregistre les totaux de la période. Les ventes et corrections restent disponibles.
-            </p>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label className="font-black">
-                Début de période
-                <input
-                  className="mt-2 min-h-14 w-full rounded-[8px] border border-stone-400 bg-white px-3 font-bold"
-                  type="datetime-local"
-                  value={periodStart}
-                  disabled={busy !== null}
-                  onChange={(event) => {
-                    setPeriodStart(event.target.value)
-                    setPreview(null)
-                  }}
-                />
-              </label>
-              <label className="font-black">
-                Fin de période
-                <input
-                  className="mt-2 min-h-14 w-full rounded-[8px] border border-stone-400 bg-white px-3 font-bold"
-                  type="datetime-local"
-                  value={periodEnd}
-                  disabled={busy !== null}
-                  onChange={(event) => {
-                    setPeriodEnd(event.target.value)
-                    setPreview(null)
-                  }}
-                />
-              </label>
+              <TotalsDetails totals={preview.totals} />
+              <VatDetails preview={preview} />
+              <Button
+                variant="danger"
+                className="mt-5 min-h-14 text-lg"
+                disabled={busy !== null}
+                onClick={() => setConfirmClosure(true)}
+              >
+                Continuer
+              </Button>
             </div>
-            <Button
-              className="mt-5 min-h-14"
-              disabled={!actionsAllowed || !periodStart || !periodEnd}
-              onClick={() => void loadPreview()}
-            >
-              {busy === 'preview' ? 'Calcul des totaux…' : 'Afficher les totaux'}
-            </Button>
+          ) : null}
 
-            {preview ? (
-              <div className="mt-5 border-t border-stone-300 pt-5">
-                <h4 className="text-xl font-black">Totaux de la période</h4>
-                <p className="mt-1 font-bold text-stone-700">
-                  {preview.terminal.displayName} ·{' '}
-                  {formatPeriod(preview.periodStart, preview.periodEnd)}
-                </p>
-                <TotalsDetails totals={preview.totals} />
-                <VatDetails preview={preview} />
-                <Button
-                  variant="danger"
-                  className="mt-5 min-h-14 text-lg"
-                  disabled={busy !== null}
-                  onClick={() => setConfirmClosure(true)}
-                >
-                  Continuer
-                </Button>
-              </div>
-            ) : null}
-
-            {closure ? (
-              <div className="mt-5 border border-emerald-400 bg-emerald-50 p-5" role="status">
-                <h4 className="text-xl font-black text-emerald-950">Clôture enregistrée</h4>
-                <p className="mt-1 font-bold text-emerald-950">
-                  {closure.source.terminal.displayName} ·{' '}
-                  {formatPeriod(closure.closure.periodStart, closure.closure.periodEnd)}
-                </p>
-                <p className="mt-1 font-bold text-emerald-950">Totaux enregistrés</p>
-                <TotalsDetails totals={closure.closure.totals} />
-                <Button
-                  variant="primary"
-                  className="mt-5 min-h-14 text-lg"
-                  disabled={busy !== null}
-                  onClick={() => void saveBackup()}
-                >
-                  {busy === 'backup' ? 'Enregistrement…' : 'Sauvegarder maintenant'}
-                </Button>
-                {backupResult?.status === 'verified' ? (
-                  <BackupSuccess result={backupResult} />
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        )}
+          {closure ? (
+            <div className="mt-5 border border-emerald-400 bg-emerald-50 p-5" role="status">
+              <h4 className="text-xl font-black text-emerald-950">Clôture enregistrée</h4>
+              <p className="mt-1 font-bold text-emerald-950">
+                {closure.source.terminal.displayName} ·{' '}
+                {formatPeriod(closure.closure.periodStart, closure.closure.periodEnd)}
+              </p>
+              <p className="mt-1 font-bold text-emerald-950">Totaux enregistrés</p>
+              <TotalsDetails totals={closure.closure.totals} />
+            </div>
+          ) : null}
+        </section>
       </main>
 
       {confirmClosure && preview ? (
@@ -417,8 +333,7 @@ function IntegrityDetails({ verification }: { verification: IntegrityVerificatio
       ) : null}
       {verification.errors.length ? (
         <p className="mt-3 font-bold text-rose-950">
-          Certaines données sont incomplètes ou ont été modifiées. La sauvegarde et la clôture sont
-          bloquées.
+          Certaines données sont incomplètes ou ont été modifiées. La clôture est bloquée.
         </p>
       ) : null}
     </div>
@@ -472,33 +387,6 @@ function VatDetails({ preview }: { preview: ClosurePreview }) {
   )
 }
 
-function BackupSuccess({
-  result,
-}: {
-  result: Extract<VerifiedBackupResult, { status: 'verified' }>
-}) {
-  const saleCount = result.archive.entries.filter((entry) => entry.kind === 'sale').length
-  return (
-    <div className="mt-5 border border-emerald-400 bg-emerald-50 p-5" role="status">
-      <h4 className="text-xl font-black text-emerald-950">Sauvegarde enregistrée</h4>
-      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="font-bold text-stone-600">Caisse</dt>
-          <dd className="font-black">{result.archive.source.terminal.displayName}</dd>
-        </div>
-        <div>
-          <dt className="font-bold text-stone-600">Dernière sauvegarde</dt>
-          <dd className="font-black">{formatFriendlyDateTime(result.archive.exportedAt)}</dd>
-        </div>
-        <div>
-          <dt className="font-bold text-stone-600">Ventes sauvegardées</dt>
-          <dd className="font-black">{saleCount}</dd>
-        </div>
-      </dl>
-    </div>
-  )
-}
-
 function parseDateTimeLocal(value: string): Date {
   if (!value) return new Date(Number.NaN)
   return new Date(value)
@@ -527,22 +415,9 @@ function formatDateTime(value: string): string {
   }).format(new Date(value))
 }
 
-function formatFriendlyDateTime(value: string, reference = new Date()): string {
-  const date = new Date(value)
-  const time = new Intl.DateTimeFormat('fr-FR', { timeStyle: 'short' }).format(date)
-  const startOfReference = startOfLocalDay(reference).getTime()
-  const startOfDate = startOfLocalDay(date).getTime()
-  if (startOfDate === startOfReference) return `Aujourd’hui à ${time}`
-  if (startOfDate === startOfReference - 86_400_000) return `Hier à ${time}`
-  return formatDateTime(value)
-}
-
 function ledgerActionError(action: Exclude<BusyAction, null>): string {
   if (action === 'integrity') {
     return 'Impossible de vérifier les ventes enregistrées. Réessayez.'
-  }
-  if (action === 'backup') {
-    return 'La sauvegarde n’a pas pu être enregistrée. Vérifiez l’espace disponible, puis réessayez.'
   }
   if (action === 'preview') {
     return 'Les totaux n’ont pas pu être calculés. Vérifiez les dates, puis réessayez.'
