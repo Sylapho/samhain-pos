@@ -122,9 +122,9 @@ describe('service de commandes persistantes', () => {
     const { repository, service } = createService(indexedDb, 'complete-order', 'order-1')
     const item = createCartItemDraft(menu, {
       optionIdsByGroup: {
-        plat: ['nuggets'],
+        plat: ['steak-hache'],
         dessert: ['glace'],
-        boisson: ['jus-pomme'],
+        boisson: ['jus-fruit'],
       },
     })
 
@@ -151,8 +151,8 @@ describe('service de commandes persistantes', () => {
       attempts: 0,
     })
     expect(order.items[0]?.options.map((option) => option.optionName)).toEqual([
-      'Nuggets',
-      'Jus de pomme',
+      'Steak haché avec frites',
+      'Jus de fruit',
       'Glace',
     ])
     expect(order.totalCents).toBe(950)

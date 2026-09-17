@@ -9,7 +9,7 @@ export const products: Product[] = [
     priceCents: 950,
     vatRate: 10,
     availability: 'available',
-    description: 'Un plat, un dessert et une boisson',
+    description: 'Saucisse ou steak haché avec frites, dessert et boisson',
     optionGroups: [
       {
         id: 'plat',
@@ -17,8 +17,8 @@ export const products: Product[] = [
         type: 'single',
         required: true,
         options: [
-          { id: 'burger', name: 'Burger', default: true },
-          { id: 'nuggets', name: 'Nuggets' },
+          { id: 'saucisse', name: 'Saucisse avec frites', default: true },
+          { id: 'steak-hache', name: 'Steak haché avec frites' },
         ],
       },
       {
@@ -28,8 +28,7 @@ export const products: Product[] = [
         required: true,
         options: [
           { id: 'eau', name: 'Eau', default: true },
-          { id: 'coca', name: 'Coca-Cola' },
-          { id: 'jus-pomme', name: 'Jus de pomme' },
+          { id: 'jus-fruit', name: 'Jus de fruit' },
         ],
       },
       {
@@ -124,10 +123,28 @@ export const products: Product[] = [
   },
   {
     id: 'crepe-sucre',
-    name: 'Crêpe sucre',
+    name: 'Crêpe au sucre',
     categoryId: 'desserts',
     requiresPreparation: true,
     priceCents: 200,
+    vatRate: 10,
+    availability: 'available',
+  },
+  {
+    id: 'crepe-caramel',
+    name: 'Crêpe caramel',
+    categoryId: 'desserts',
+    requiresPreparation: true,
+    priceCents: 250,
+    vatRate: 10,
+    availability: 'available',
+  },
+  {
+    id: 'panini-chocolat',
+    name: 'Panini chocolat',
+    categoryId: 'desserts',
+    requiresPreparation: true,
+    priceCents: 450,
     vatRate: 10,
     availability: 'available',
   },
@@ -149,18 +166,6 @@ export const products: Product[] = [
     priceCents: 200,
     vatRate: 10,
     availability: 'available',
-    optionGroups: [
-      {
-        id: 'parfum',
-        name: 'Parfum',
-        type: 'single',
-        required: true,
-        options: [
-          { id: 'menthe', name: 'Menthe', default: true },
-          { id: 'fruits-rouges', name: 'Fruits rouges' },
-        ],
-      },
-    ],
   },
   {
     id: 'chocolat-chaud',
@@ -238,17 +243,16 @@ export const products: Product[] = [
     priceCents: 250,
     availability: 'available',
     vatRate: 10,
-    optionGroups: [
-      {
-        id: 'taille',
-        name: 'Taille',
-        type: 'single',
-        required: true,
-        options: [
-          { id: '25cl', name: '25 cl', default: true },
-          { id: '50cl', name: '50 cl', priceDeltaCents: 200 },
-        ],
-      },
-    ],
+    description: 'Au verre · 33 cl',
+  },
+  {
+    id: 'oasis',
+    name: 'Oasis',
+    categoryId: 'sans-alcool',
+    requiresPreparation: true,
+    priceCents: 250,
+    availability: 'available',
+    vatRate: 10,
+    description: 'Au verre · 33 cl',
   },
 ]

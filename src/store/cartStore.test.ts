@@ -6,7 +6,6 @@ import { getCartTotalCents, useCartStore } from './cartStore'
 
 const burger = products.find((product) => product.id === 'burger-samhain')!
 const prestige = products.find((product) => product.id === 'biere-prestige')!
-const tea = products.find((product) => product.id === 'the')!
 const coca = products.find((product) => product.id === 'cola-temporaire')!
 const water = products.find((product) => product.id === 'eau')!
 const configurableSnack: Product = {
@@ -71,10 +70,10 @@ describe('cart store', () => {
   it('sépare deux options différentes', () => {
     useCartStore
       .getState()
-      .addItem(createCartItemDraft(tea, { optionIdsByGroup: { parfum: ['menthe'] } }))
+      .addItem(createCartItemDraft(configurableSnack, { optionIdsByGroup: { taille: ['petit'] } }))
     useCartStore
       .getState()
-      .addItem(createCartItemDraft(tea, { optionIdsByGroup: { parfum: ['fruits-rouges'] } }))
+      .addItem(createCartItemDraft(configurableSnack, { optionIdsByGroup: { taille: ['grand'] } }))
     expect(useCartStore.getState().items).toHaveLength(2)
   })
 
@@ -114,28 +113,6 @@ describe('cart store', () => {
     expect(useCartStore.getState().items).toHaveLength(1)
     expect(useCartStore.getState().items[0]?.quantity).toBe(2)
     expect(useCartStore.getState().items[0]?.removedIngredientIds).toEqual([])
-  })
-
-  it('fusionne les mêmes tailles et sépare deux tailles différentes avec leur prix', () => {
-    const defaultSelection = getDefaultProductSelection(coca)
-    const fiftyClSelection = { optionIdsByGroup: { taille: ['50cl'] } }
-    useCartStore.getState().addItem(createCartItemDraft(coca, defaultSelection))
-    useCartStore.getState().addItem(createCartItemDraft(coca, defaultSelection))
-    const defaultLineId = useCartStore.getState().items[0]!.lineId
-    useCartStore
-      .getState()
-      .configureItem(defaultLineId, createCartItemDraft(coca, fiftyClSelection))
-    useCartStore.getState().addItem(createCartItemDraft(coca, fiftyClSelection))
-
-    expect(useCartStore.getState().items).toHaveLength(2)
-    const defaultLine = useCartStore
-      .getState()
-      .items.find((item) => item.options.some((option) => option.optionId === '25cl'))
-    const largeLine = useCartStore
-      .getState()
-      .items.find((item) => item.options.some((option) => option.optionId === '50cl'))
-    expect(defaultLine).toMatchObject({ quantity: 1, unitPriceCents: 250 })
-    expect(largeLine).toMatchObject({ quantity: 2, unitPriceCents: 450 })
   })
 
   it('valide les groupes obligatoires et additionne plusieurs choix facultatifs', () => {
