@@ -17,6 +17,7 @@ vi.mock('../native/epsonUsbPrinter', async (importOriginal) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({
     devices: [
       {

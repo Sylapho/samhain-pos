@@ -7,6 +7,7 @@ import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
+import { PrinterConfigurationDialog } from '../features/printer/PrinterConfigurationDialog'
 import { LedgerManagement, type LedgerManagementProps } from '../features/ledger/LedgerManagement'
 import { ResponsibleModeDialog } from '../features/responsible/ResponsibleModeDialog'
 import { SystemStatus } from '../features/status/SystemStatus'
@@ -114,7 +115,9 @@ export function App({
   })
   const [network, setNetwork] = useState<NetworkStatus>('online')
   const [printerOverride, setPrinterOverride] = useState<PrinterStatus | null>(null)
-  const realPrinterStatus = usePrinterStatus(probePrinterStatus)
+  const [printerConfigurationOpen, setPrinterConfigurationOpen] = useState(false)
+  const { status: realPrinterStatus, refresh: refreshPrinterStatus } =
+    usePrinterStatus(probePrinterStatus)
   const devPanelEnabled = shouldEnableDevPanel(import.meta.env)
   const printer = devPanelEnabled && printerOverride ? printerOverride : realPrinterStatus
   const feedbackTimer = useRef<number | null>(null)
@@ -147,6 +150,7 @@ export function App({
         responsibleMode.lock()
         setTerminalConfigurationOpen(false)
         setLedgerManagementOpen(false)
+        setPrinterConfigurationOpen(false)
       }
     }
     document.addEventListener('visibilitychange', lockWhenHidden)
@@ -347,7 +351,11 @@ export function App({
           >
             Historique
           </Button>
-          <SystemStatus network={network} printer={printer} />
+          <SystemStatus
+            network={network}
+            printer={printer}
+            onPrinterClick={() => setPrinterConfigurationOpen(true)}
+          />
         </div>
       </header>
 
@@ -498,6 +506,17 @@ export function App({
             responsibleMode.lock()
           }}
           {...ledgerManagementDependencies}
+        />
+      ) : null}
+
+      {printerConfigurationOpen ? (
+        <PrinterConfigurationDialog
+          initialStatus={realPrinterStatus}
+          onStatusChanged={refreshPrinterStatus}
+          onClose={() => {
+            setPrinterConfigurationOpen(false)
+            refreshPrinterStatus()
+          }}
         />
       ) : null}
 
