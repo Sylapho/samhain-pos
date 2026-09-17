@@ -405,8 +405,14 @@ export function CheckoutFlow({
       role="dialog"
       aria-modal="true"
       aria-labelledby="checkout-title"
+      onClick={() => {
+        if (!busy && order === null && intent === null) onCancel()
+      }}
     >
-      <section className="my-auto w-full max-w-2xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
+      <section
+        className="my-auto w-full max-w-2xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
         {!printingComplete && !manualReprintMode ? (
           <>
             <div className="flex items-start justify-between gap-4">
@@ -680,8 +686,12 @@ export function CheckoutFlow({
           role="dialog"
           aria-modal="true"
           aria-labelledby="defer-printing-title"
+          onClick={() => setDeferConfirmationOpen(false)}
         >
-          <div className="w-full max-w-lg rounded-[12px] border border-amber-300 bg-[#fffdf8] p-6">
+          <div
+            className="w-full max-w-lg rounded-[12px] border border-amber-300 bg-[#fffdf8] p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
             <h2 id="defer-printing-title" className="text-2xl font-black">
               Mettre l’impression en attente ?
             </h2>

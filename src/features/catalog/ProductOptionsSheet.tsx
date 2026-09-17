@@ -101,8 +101,12 @@ export function ProductOptionsSheet({
       role="dialog"
       aria-modal="true"
       aria-labelledby="options-title"
+      onClick={onCancel}
     >
-      <section className="max-h-[96dvh] w-full max-w-4xl overflow-y-auto rounded-t-2xl border border-stone-300 bg-[#fffdf8] sm:rounded-2xl">
+      <section
+        className="max-h-[96dvh] w-full max-w-4xl overflow-y-auto rounded-t-2xl border border-stone-300 bg-[#fffdf8] sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-stone-300 bg-[#fffdf8] p-5 sm:p-6">
           <div>
             <h2 id="options-title" className="text-3xl font-black leading-tight">

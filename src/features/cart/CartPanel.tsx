@@ -201,8 +201,12 @@ export function CartPanel({ onCheckout, products }: Props) {
           role="dialog"
           aria-modal="true"
           aria-labelledby="cancel-title"
+          onClick={() => setCancelOpen(false)}
         >
-          <div className="w-full max-w-lg rounded-[12px] border border-stone-300 bg-[#fffdf8] p-6">
+          <div
+            className="w-full max-w-lg rounded-[12px] border border-stone-300 bg-[#fffdf8] p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
             <h2 id="cancel-title" className="text-2xl font-black">
               Annuler cette commande ?
             </h2>

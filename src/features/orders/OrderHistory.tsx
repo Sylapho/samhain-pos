@@ -200,8 +200,12 @@ export function OrderHistory({
       role="dialog"
       aria-modal="true"
       aria-labelledby="order-history-title"
+      onClick={onClose}
     >
-      <section className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[12px] border border-stone-300 bg-[#fffdf8] sm:max-h-[calc(100dvh-2.5rem)]">
+      <section
+        className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[12px] border border-stone-300 bg-[#fffdf8] sm:max-h-[calc(100dvh-2.5rem)]"
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="flex items-center justify-between gap-4 border-b border-stone-300 px-4 py-3 sm:px-5">
           <div>
             <h2 id="order-history-title" className="text-2xl font-black">
