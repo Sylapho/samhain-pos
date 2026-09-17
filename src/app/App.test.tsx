@@ -266,6 +266,27 @@ describe('caisse', () => {
     expect(await screen.findByText('Imprimante : Prête')).toBeInTheDocument()
   })
 
+  it('ouvre la configuration USB depuis le statut imprimante et revient à la caisse', async () => {
+    render(<App probePrinterStatus={async () => 'disconnected'} />)
+    await screen.findByText('Imprimante : Déconnectée')
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Configurer l’imprimante. Statut : Déconnectée',
+      }),
+    )
+
+    expect(
+      screen.getByRole('dialog', { name: 'Configuration de l’imprimante USB' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retour' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Configuration de l’imprimante USB' }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
   it('reflète une déconnexion détectée lors de la vérification suivante', async () => {
     vi.useFakeTimers()
     const probePrinterStatus = vi

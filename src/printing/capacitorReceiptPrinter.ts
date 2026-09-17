@@ -1,4 +1,5 @@
-import { epsonUsbPrinter, selectCompatibleEpsonPrinter } from '../native/epsonUsbPrinter'
+import { epsonUsbPrinter } from '../native/epsonUsbPrinter'
+import { selectConfiguredUsbPrinter } from '../services/printerSelectionService'
 import {
   OrderPrintError,
   type PrintDocumentType,
@@ -169,7 +170,7 @@ export class CapacitorReceiptPrinter implements ReceiptPrinter {
                 candidate.epson &&
                 candidate.hasBulkOutEndpoint,
             )
-          : selectCompatibleEpsonPrinter(devices)
+          : selectConfiguredUsbPrinter(devices)
 
       if (!device) {
         throw new OrderPrintError(

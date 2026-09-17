@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getPrinterStatus } from '../../services/printerStatusService'
 import type { PrinterStatus } from '../../types/system'
 
@@ -6,8 +6,13 @@ const PRINTER_CHECK_INTERVAL_MS = 3_000
 
 export type PrinterStatusProbe = () => Promise<PrinterStatus>
 
-export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): PrinterStatus {
+export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): {
+  status: PrinterStatus
+  refresh: () => void
+} {
   const [status, setStatus] = useState<PrinterStatus>('unknown')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const refresh = useCallback(() => setRefreshKey((current) => current + 1), [])
 
   useEffect(() => {
     let active = true
@@ -39,7 +44,7 @@ export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): 
       window.clearInterval(interval)
       document.removeEventListener('visibilitychange', checkWhenVisible)
     }
-  }, [probe])
+  }, [probe, refreshKey])
 
-  return status
+  return { status, refresh }
 }

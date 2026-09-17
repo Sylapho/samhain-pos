@@ -41,6 +41,7 @@ const readyHardwareStatus = {
 describe('statut réel de l’imprimante', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
     vi.mocked(epsonUsbPrinter.isAndroidNative).mockReturnValue(true)
     vi.mocked(epsonUsbPrinter.getStatus).mockResolvedValue(readyHardwareStatus)
   })
@@ -74,6 +75,16 @@ describe('statut réel de l’imprimante', () => {
 
     await expect(getPrinterStatus()).resolves.toBe('ready')
     expect(epsonUsbPrinter.getStatus).toHaveBeenCalledWith(printer.deviceId)
+  })
+
+  it('reflète connected=false même si les autres indicateurs semblent prêts', async () => {
+    vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({ devices: [printer] })
+    vi.mocked(epsonUsbPrinter.getStatus).mockResolvedValue({
+      ...readyHardwareStatus,
+      connected: false,
+    })
+
+    await expect(getPrinterStatus()).resolves.toBe('disconnected')
   })
 
   it('reflète un papier épuisé retourné par la TM-T88V', async () => {
