@@ -455,9 +455,16 @@ function OrderDetails({
               Corrections
             </h4>
             <p className="text-sm font-bold text-stone-600">
-              Vente originale conservée · restant remboursable{' '}
+              Montant initial {formatMoney(order.totalCents)} · déjà remboursé{' '}
+              {formatMoney(summary.refundedAmountCents)} · encore remboursable{' '}
               {formatMoney(summary.remainingRefundableCents)}
             </p>
+            {summary.hasLegacyAmountOnlyRefund ? (
+              <p className="mt-1 text-sm font-bold text-amber-900">
+                Nouveau remboursement bloqué : une ancienne correction ne précise pas les articles
+                concernés.
+              </p>
+            ) : null}
           </div>
           <Button
             variant="danger"
@@ -554,6 +561,19 @@ function CorrectionDetails({ entry }: { entry: CorrectionLedgerEntry }) {
         {date} à {time} · {entry.source.terminal.displayName}
       </p>
       <p className="mt-1 font-bold">Motif : {entry.correction.reason}</p>
+      {entry.correction.type === 'refund' && entry.correction.refundLines ? (
+        <ul className="mt-2 border-l-2 border-stone-300 pl-3">
+          {entry.correction.refundLines.map((line) => (
+            <li className="font-bold" key={line.originalLineId}>
+              {line.quantity} × {line.productName} · {formatMoney(line.grossCents)}
+            </li>
+          ))}
+        </ul>
+      ) : entry.correction.type === 'refund' ? (
+        <p className="mt-2 text-sm font-bold text-amber-900">
+          Ancien remboursement : détail des articles indisponible.
+        </p>
+      ) : null}
     </div>
   )
 }

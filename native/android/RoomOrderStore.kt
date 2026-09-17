@@ -340,6 +340,9 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     put("amountDeltaCents", request.getLong("amountDeltaCents"))
                     put("paymentMethod", order.paymentMethod)
                     putNullable("originalSaleHash", order.integrityHash)
+                    if (request.has("refundLines")) {
+                        put("refundLines", JSONArray(request.getJSONArray("refundLines").toString()))
+                    }
                 }
             val withoutHash = baseLedgerEntry(entryId, "correction", request, state).apply {
                 put("correction", correction)
@@ -731,6 +734,10 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             "Une vente partiellement corrigée ne peut pas être annulée intégralement."
         }
         if (type == "refund") {
+            val refundTotal = validateRefundLines(request, order, prior)
+            require(delta == -refundTotal) {
+                "Le montant du remboursement ne correspond pas aux lignes sélectionnées."
+            }
             val alreadyRefunded =
                 prior.filter { it.getJSONObject("correction").optString("type") == "refund" }
                     .sumOf { -it.getJSONObject("correction").getLong("amountDeltaCents") }
@@ -738,6 +745,71 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 "Le cumul des remboursements dépasse le total de la vente."
             }
         }
+    }
+
+    private fun validateRefundLines(
+        request: JSONObject,
+        order: OrderEntity,
+        prior: List<JSONObject>,
+    ): Long {
+        require(request.has("refundLines")) { "Les lignes du remboursement sont obligatoires." }
+        require(
+            prior.filter { it.getJSONObject("correction").optString("type") == "refund" }
+                .none { !it.getJSONObject("correction").has("refundLines") },
+        ) {
+            "Cette vente contient un ancien remboursement sans détail de lignes. Un nouveau remboursement par article est impossible sans inventer les quantités restantes."
+        }
+        val originalById = mutableMapOf<String, JSONObject>()
+        forEachObject(JSONArray(order.itemsJson)) { originalById[it.getString("lineId")] = it }
+        val refundedById = mutableMapOf<String, Long>()
+        prior.filter { it.getJSONObject("correction").optString("type") == "refund" }
+            .forEach { entry ->
+                forEachObject(entry.getJSONObject("correction").getJSONArray("refundLines")) { line ->
+                    val id = line.getString("originalLineId")
+                    refundedById[id] = (refundedById[id] ?: 0L) + line.requiredSafeLong("quantity")
+                }
+            }
+        val requested = request.getJSONArray("refundLines")
+        require(requested.length() > 0) { "Sélectionnez au moins un article à rembourser." }
+        val seen = mutableSetOf<String>()
+        var total = 0L
+        for (index in 0 until requested.length()) {
+            val line = requested.getJSONObject(index)
+            val lineId = line.requireNonBlank("originalLineId")
+            require(seen.add(lineId)) { "Chaque ligne de remboursement doit être unique et identifiable." }
+            val quantity = line.requiredSafeLong("quantity")
+            require(quantity > 0) { "La quantité remboursée doit être un entier strictement positif." }
+            val original = originalById[lineId]
+                ?: throw IllegalArgumentException("Ligne originale $lineId introuvable.")
+            val sold = original.requiredSafeLong("quantity")
+            require(quantity <= sold - (refundedById[lineId] ?: 0L)) {
+                "La quantité remboursable restante est insuffisante pour « ${original.getString("name")} »."
+            }
+            val unitPrice = original.requiredSafeLong("unitPriceCents")
+            val gross = Math.multiplyExact(unitPrice, quantity)
+            val rate = original.requiredSafeLong("vatRate")
+            val previousGross = Math.multiplyExact(unitPrice, refundedById[lineId] ?: 0L)
+            val cumulativeGross = Math.addExact(previousGross, gross)
+            val vat =
+                Math.round(cumulativeGross.toDouble() * rate.toDouble() / (100.0 + rate.toDouble())) -
+                    Math.round(previousGross.toDouble() * rate.toDouble() / (100.0 + rate.toDouble()))
+            val canonical =
+                JSONObject().apply {
+                    put("originalLineId", lineId)
+                    put("productId", original.getString("productId"))
+                    put("productName", original.getString("name"))
+                    put("quantity", quantity)
+                    put("unitPriceCents", unitPrice)
+                    put("vatRate", rate)
+                    put("grossCents", gross)
+                    put("vatCents", vat)
+                }
+            require(CanonicalJson.stringify(line) == CanonicalJson.stringify(canonical)) {
+                "Les montants du remboursement ne correspondent pas à la vente originale."
+            }
+            total = Math.addExact(total, gross)
+        }
+        return total
     }
 
     private fun closureTotals(
@@ -796,7 +868,9 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             correction.optString("originalOrderId") == request.optString("originalOrderId") &&
             correction.optString("type") == request.optString("type") &&
             correction.optString("reason") == request.optString("reason") &&
-            correction.optLong("amountDeltaCents") == request.optLong("amountDeltaCents")
+            correction.optLong("amountDeltaCents") == request.optLong("amountDeltaCents") &&
+            CanonicalJson.stringify(correction.opt("refundLines")) ==
+                CanonicalJson.stringify(request.opt("refundLines"))
     }
 
     private fun sameClosureRequest(entry: JSONObject, request: JSONObject): Boolean {

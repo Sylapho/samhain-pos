@@ -1,5 +1,6 @@
 import type { Order } from '../types/order'
 import type { CorrectionLedgerEntry } from '../types/salesLedger'
+import { deriveRefundAvailability, type RefundableOrderLine } from './saleRefund'
 
 export type SaleCorrectionStatus = 'active' | 'partially-refunded' | 'refunded' | 'cancelled'
 
@@ -10,6 +11,8 @@ export type SaleCorrectionSummary = {
   remainingRefundableCents: number
   canCancel: boolean
   canRefund: boolean
+  refundableLines: RefundableOrderLine[]
+  hasLegacyAmountOnlyRefund: boolean
 }
 
 export const saleCorrectionStatusLabels: Record<SaleCorrectionStatus, string> = {
@@ -20,13 +23,14 @@ export const saleCorrectionStatusLabels: Record<SaleCorrectionStatus, string> = 
 }
 
 export function deriveSaleCorrectionSummary(
-  order: Pick<Order, 'id' | 'totalCents'>,
+  order: Pick<Order, 'id' | 'totalCents' | 'items'>,
   corrections: CorrectionLedgerEntry[],
 ): SaleCorrectionSummary {
   const relatedCorrections = corrections.filter(
     (entry) => entry.correction.originalOrderId === order.id,
   )
   const cancelled = relatedCorrections.some((entry) => entry.correction.type === 'cancellation')
+  const availability = deriveRefundAvailability(order, relatedCorrections)
   const refundedAmountCents = relatedCorrections
     .filter((entry) => entry.correction.type === 'refund')
     .reduce((total, entry) => total - entry.correction.amountDeltaCents, 0)
@@ -50,6 +54,11 @@ export function deriveSaleCorrectionSummary(
     ),
     remainingRefundableCents,
     canCancel: !cancelled && relatedCorrections.length === 0,
-    canRefund: !cancelled && remainingRefundableCents > 0,
+    canRefund:
+      !cancelled &&
+      !availability.hasLegacyAmountOnlyRefund &&
+      availability.lines.some((line) => line.remainingQuantity > 0),
+    refundableLines: availability.lines,
+    hasLegacyAmountOnlyRefund: availability.hasLegacyAmountOnlyRefund,
   }
 }

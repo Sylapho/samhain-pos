@@ -2,12 +2,13 @@ import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { products } from '../mocks/products'
-import type { SalesArchive } from '../types/salesLedger'
+import type { CorrectionLedgerEntry, SalesArchive } from '../types/salesLedger'
 import type { TerminalConfiguration } from '../types/terminal'
 import { createCartItemDraft } from '../utils/cart'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { OrderService } from './orderService'
 import { SalesLedgerService } from './salesLedgerService'
+import { deriveSaleCorrectionSummary } from './saleCorrectionSummary'
 
 const terminal: TerminalConfiguration = {
   terminalId: 'terminal-a',
@@ -100,7 +101,9 @@ describe('journal local des encaissements', () => {
     const archive = { version: 1 } as unknown as SalesArchive
 
     await expect(service.cancelSale('order-1', 'raison')).rejects.toThrow(/Mode responsable requis/)
-    expect(() => service.refundSale('order-1', 100, 'raison')).toThrow(/Mode responsable requis/)
+    await expect(
+      service.refundSale('order-1', [{ originalLineId: 'line', quantity: 1 }], 'raison'),
+    ).rejects.toThrow(/Mode responsable requis/)
     expect(() => service.adjustSale('order-1', -100, 'raison')).toThrow(/Mode responsable requis/)
     expect(() => service.closePeriod(new Date(0), new Date(1))).toThrow(/Mode responsable requis/)
     expect(() => service.exportArchive()).toThrow(/Mode responsable requis/)
@@ -151,14 +154,14 @@ describe('journal local des encaissements', () => {
 
     const correction = await ledger.refundSale(
       order.id,
-      300,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Produit retourné',
       'refund-1',
       new Date('2026-09-01T11:00:00Z'),
     )
     const retry = await ledger.refundSale(
       order.id,
-      300,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Produit retourné',
       'refund-1',
       new Date('2026-09-01T11:05:00Z'),
@@ -171,7 +174,7 @@ describe('journal local des encaissements', () => {
         originalOrderId: order.id,
         originalOrderNumber: order.orderNumber,
         type: 'refund',
-        amountDeltaCents: -300,
+        amountDeltaCents: -order.totalCents,
         paymentMethod: 'cash',
         originalSaleHash: order.integrity?.hash,
       },
@@ -184,6 +187,118 @@ describe('journal local des encaissements', () => {
     expect(await ledger.getEntries()).toHaveLength(2)
     expect((await ledger.verifyIntegrity()).valid).toBe(true)
     await repository.close()
+  })
+
+  it('persiste plusieurs remboursements par lignes, revalide le restant et épuise le reliquat exact', async () => {
+    const indexedDb = new IDBFactory()
+    const first = services(indexedDb, 'structured-refunds')
+    const order = await first.orders.createOrder(
+      structuredClone(printPreviewOrder.items),
+      'card',
+      new Date('2026-09-01T10:00:00Z'),
+    )
+    const original = structuredClone(order)
+    const [burger, crepe, beer] = order.items
+
+    const firstRefund = await first.ledger.refundSale(
+      order.id,
+      [{ originalLineId: burger!.lineId, quantity: 1 }],
+      'Un burger retourné',
+      'structured-1',
+      new Date('2026-09-01T10:15:00Z'),
+    )
+    expect(firstRefund.correction.refundLines).toEqual([
+      expect.objectContaining({
+        originalLineId: burger!.lineId,
+        productId: burger!.productId,
+        quantity: 1,
+        unitPriceCents: 1600,
+        vatRate: 10,
+        grossCents: 1600,
+        vatCents: 145,
+      }),
+    ])
+    await first.repository.close()
+
+    const reopened = services(indexedDb, 'structured-refunds')
+    const persistedOrder = (await reopened.orders.getOrders())[0]!
+    let corrections = (await reopened.ledger.getEntries()).filter(
+      (entry): entry is CorrectionLedgerEntry => entry.kind === 'correction',
+    )
+    expect(deriveSaleCorrectionSummary(persistedOrder, corrections).refundableLines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ originalLineId: burger!.lineId, remainingQuantity: 1 }),
+      ]),
+    )
+    await expect(
+      reopened.ledger.refundSale(
+        order.id,
+        [{ originalLineId: burger!.lineId, quantity: 2 }],
+        'État UI devenu obsolète',
+        'structured-stale',
+        new Date('2026-09-01T10:20:00Z'),
+      ),
+    ).rejects.toThrow(/quantité remboursable restante/i)
+
+    await reopened.ledger.refundSale(
+      order.id,
+      [
+        { originalLineId: burger!.lineId, quantity: 1 },
+        { originalLineId: beer!.lineId, quantity: 2 },
+      ],
+      'Deux lignes',
+      'structured-2',
+      new Date('2026-09-01T10:30:00Z'),
+    )
+    const preview = await reopened.ledger.previewClosure(
+      new Date('2026-09-01T09:00:00Z'),
+      new Date('2026-09-01T12:00:00Z'),
+      new Date('2026-09-01T13:00:00Z'),
+    )
+    expect(preview.totals).toMatchObject({
+      grossSalesCents: 4150,
+      correctionTotalCents: -3900,
+      netTotalCents: 250,
+    })
+    expect(preview.vatBreakdown).toEqual([
+      { rate: 10, grossCents: 250, netCents: 227, vatCents: 23 },
+      { rate: 20, grossCents: 0, netCents: 0, vatCents: 0 },
+    ])
+    await reopened.ledger.refundSale(
+      order.id,
+      [{ originalLineId: crepe!.lineId, quantity: 1 }],
+      'Reliquat exact',
+      'structured-3',
+      new Date('2026-09-01T10:45:00Z'),
+    )
+
+    corrections = (await reopened.ledger.getEntries()).filter(
+      (entry): entry is CorrectionLedgerEntry => entry.kind === 'correction',
+    )
+    expect(deriveSaleCorrectionSummary(persistedOrder, corrections)).toMatchObject({
+      status: 'refunded',
+      remainingRefundableCents: 0,
+      canRefund: false,
+    })
+    await expect(
+      reopened.ledger.refundSale(
+        order.id,
+        [{ originalLineId: crepe!.lineId, quantity: 1 }],
+        'Tentative supplémentaire',
+        'structured-4',
+        new Date('2026-09-01T10:50:00Z'),
+      ),
+    ).rejects.toThrow(/quantité remboursable restante/i)
+    expect((await reopened.orders.getOrders())[0]).toEqual(original)
+    expect((await reopened.ledger.verifyIntegrity()).valid).toBe(true)
+    const archive = await reopened.ledger.exportArchive('structured-refunds-archive')
+    const altered = structuredClone(archive)
+    const alteredRefund = altered.entries.find(
+      (entry): entry is CorrectionLedgerEntry => entry.kind === 'correction',
+    )
+    alteredRefund!.correction.refundLines![0]!.quantity += 1
+    expect(reopened.ledger.verifyArchive(altered).valid).toBe(false)
+    await reopened.repository.close()
   })
 
   it('annule intégralement avec un motif et conserve strictement la vente originale', async () => {
@@ -218,9 +333,14 @@ describe('journal local des encaissements', () => {
     )
     const order = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
 
-    await expect(ledger.refundSale(order.id, 100, reason, 'empty-reason')).rejects.toThrow(
-      /motif.*requis/i,
-    )
+    await expect(
+      ledger.refundSale(
+        order.id,
+        [{ originalLineId: item.lineId, quantity: 1 }],
+        reason,
+        'empty-reason',
+      ),
+    ).rejects.toThrow(/motif.*requis/i)
     expect((await ledger.getEntries()).filter((entry) => entry.kind === 'correction')).toEqual([])
     await repository.close()
   })
@@ -252,13 +372,18 @@ describe('journal local des encaissements', () => {
     )
     await second.ledger.refundSale(
       refundable.id,
-      refundable.totalCents - 1,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Remboursement partiel',
       'refund-1',
     )
     await expect(
-      second.ledger.refundSale(refundable.id, 2, 'Dépassement', 'refund-2'),
-    ).rejects.toThrow(/dépasse le total/)
+      second.ledger.refundSale(
+        refundable.id,
+        [{ originalLineId: item.lineId, quantity: 1 }],
+        'Dépassement',
+        'refund-2',
+      ),
+    ).rejects.toThrow(/quantité remboursable restante/i)
     await second.repository.close()
   })
 
@@ -267,7 +392,7 @@ describe('journal local des encaissements', () => {
     const order = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
     await ledger.refundSale(
       order.id,
-      100,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Remboursement partiel',
       'refund-1',
       new Date('2026-09-01T11:00:00Z'),
@@ -283,10 +408,10 @@ describe('journal local des encaissements', () => {
       saleCount: 1,
       grossSalesCents: order.totalCents,
       correctionCount: 1,
-      correctionTotalCents: -100,
-      netTotalCents: order.totalCents - 100,
-      cumulativeNetTotalCents: order.totalCents - 100,
-      paymentTotalsCents: { cash: order.totalCents - 100, card: 0 },
+      correctionTotalCents: -order.totalCents,
+      netTotalCents: 0,
+      cumulativeNetTotalCents: 0,
+      paymentTotalsCents: { cash: 0, card: 0 },
     })
     await expect(
       orders.createOrder([item], 'card', new Date('2026-09-01T11:30:00Z')),
@@ -350,7 +475,7 @@ describe('journal local des encaissements', () => {
     const order = await source.orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
     await source.ledger.refundSale(
       order.id,
-      100,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Remboursement partiel',
       'refund-1',
       new Date('2026-09-01T11:00:00Z'),
@@ -431,7 +556,7 @@ describe('journal local des encaissements', () => {
     const cardOrder = await orders.createOrder([item], 'card', new Date('2026-09-01T10:30:00Z'))
     await ledger.refundSale(
       cardOrder.id,
-      250,
+      [{ originalLineId: item.lineId, quantity: 1 }],
       'Remboursement partiel',
       'refund-preview',
       new Date('2026-09-01T11:00:00Z'),
@@ -447,16 +572,24 @@ describe('journal local des encaissements', () => {
       saleCount: 2,
       grossSalesCents: cashOrder.totalCents + cardOrder.totalCents,
       correctionCount: 1,
-      correctionTotalCents: -250,
-      netTotalCents: cashOrder.totalCents + cardOrder.totalCents - 250,
-      cumulativeNetTotalCents: cashOrder.totalCents + cardOrder.totalCents - 250,
+      correctionTotalCents: -cardOrder.totalCents,
+      netTotalCents: cashOrder.totalCents,
+      cumulativeNetTotalCents: cashOrder.totalCents,
       paymentTotalsCents: {
         cash: cashOrder.totalCents,
-        card: cardOrder.totalCents - 250,
+        card: 0,
       },
     })
-    expect(preview.vatBreakdown).toBeNull()
-    expect(preview.vatUnavailableReason).toMatch(/corrections/)
+    expect(preview.vatBreakdown).toEqual([
+      {
+        rate: item.vatRate,
+        grossCents: cashOrder.totalCents,
+        netCents:
+          cashOrder.totalCents -
+          Math.round((cashOrder.totalCents * item.vatRate) / (100 + item.vatRate)),
+        vatCents: Math.round((cashOrder.totalCents * item.vatRate) / (100 + item.vatRate)),
+      },
+    ])
 
     const closure = await ledger.closePeriod(
       new Date(preview.periodStart),
@@ -473,6 +606,44 @@ describe('journal local des encaissements', () => {
       'closure',
     ])
     await repository.close()
+  })
+
+  it('ne devine pas la TVA d’un ancien remboursement limité à un montant', async () => {
+    const seeded = services(new IDBFactory(), 'legacy-refund-vat')
+    const order = await seeded.orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
+    await seeded.ledger.refundSale(
+      order.id,
+      [{ originalLineId: item.lineId, quantity: 1 }],
+      'Ancienne correction simulée',
+      'legacy-refund',
+      new Date('2026-09-01T11:00:00Z'),
+    )
+    const entries = structuredClone(await seeded.ledger.getEntries())
+    const legacy = entries.find(
+      (entry): entry is CorrectionLedgerEntry => entry.kind === 'correction',
+    )!
+    delete legacy.correction.refundLines
+    const integrity = await seeded.ledger.verifyIntegrity()
+    const repository = {
+      getLedgerEntries: vi.fn(async () => entries),
+      verifyIntegrity: vi.fn(async () => integrity),
+    } as unknown as ConstructorParameters<typeof SalesLedgerService>[0]
+    const service = new SalesLedgerService(
+      repository,
+      () => 'unused',
+      () => terminal,
+      undefined,
+      () => {},
+    )
+
+    const preview = await service.previewClosure(
+      new Date('2026-09-01T09:00:00Z'),
+      new Date('2026-09-01T12:00:00Z'),
+      new Date('2026-09-01T13:00:00Z'),
+    )
+    expect(preview.vatBreakdown).toBeNull()
+    expect(preview.vatUnavailableReason).toMatch(/historique.*détail fiscal fiable/i)
+    await seeded.repository.close()
   })
 
   it('refuse explicitement les périodes de clôture invalides', async () => {

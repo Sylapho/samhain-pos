@@ -15,12 +15,16 @@ export type VatSummary = {
   breakdown: VatBreakdown[]
 }
 
+export function calculateIncludedVatCents(grossCents: number, vatRate: number): number {
+  return Math.round((grossCents * vatRate) / (100 + vatRate))
+}
+
 export function calculateVatSummary(items: CartItem[]): VatSummary {
   const byRate = new Map<VatRate, VatBreakdown>()
 
   for (const item of items) {
     const grossCents = item.unitPriceCents * item.quantity
-    const vatCents = Math.round((grossCents * item.vatRate) / (100 + item.vatRate))
+    const vatCents = calculateIncludedVatCents(grossCents, item.vatRate)
     const current = byRate.get(item.vatRate) ?? {
       rate: item.vatRate,
       grossCents: 0,

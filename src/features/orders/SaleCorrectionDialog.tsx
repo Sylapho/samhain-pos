@@ -8,6 +8,7 @@ import type { SalesLedgerService } from '../../services/salesLedgerService'
 import type { Order } from '../../types/order'
 import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { formatMoney } from '../../utils/money'
+import { buildRefundLines, refundLinesTotalCents } from '../../services/saleRefund'
 
 export type CorrectionAction = 'cancellation' | 'refund'
 
@@ -37,10 +38,22 @@ export function SaleCorrectionDialog({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [operationId] = useState(createOperationId)
+  const [refundQuantities, setRefundQuantities] = useState<Record<string, number>>({})
   const submittingRef = useRef(false)
   const trimmedReason = reason.trim()
+  const selections = summary.refundableLines
+    .map((line) => ({
+      originalLineId: line.originalLineId,
+      quantity: refundQuantities[line.originalLineId] ?? 0,
+    }))
+    .filter((selection) => selection.quantity > 0)
+  const refundLines = selections.length ? buildRefundLines(order, selections, corrections) : []
   const amountCents =
-    action === 'cancellation' ? order.totalCents : summary.remainingRefundableCents
+    action === 'cancellation' ? order.totalCents : refundLinesTotalCents(refundLines)
+  const vatByRate = new Map<number, number>()
+  for (const line of refundLines) {
+    vatByRate.set(line.vatRate, (vatByRate.get(line.vatRate) ?? 0) + line.vatCents)
+  }
 
   const submit = async () => {
     if (!action || !trimmedReason || submittingRef.current) return
@@ -51,12 +64,7 @@ export function SaleCorrectionDialog({
       if (action === 'cancellation') {
         await ledgerService.cancelSale(order.id, trimmedReason, operationId)
       } else {
-        await ledgerService.refundSale(
-          order.id,
-          summary.remainingRefundableCents,
-          trimmedReason,
-          operationId,
-        )
+        await ledgerService.refundSale(order.id, selections, trimmedReason, operationId)
       }
       await onRecorded(action)
     } catch (submitError) {
@@ -120,13 +128,42 @@ export function SaleCorrectionDialog({
               <div>
                 <dt className="font-bold text-stone-600">Opération</dt>
                 <dd className="text-lg font-black">
-                  {action === 'cancellation' ? 'Annulation totale' : 'Remboursement total'}
+                  {action === 'cancellation' ? 'Annulation totale' : 'Remboursement par articles'}
                 </dd>
               </div>
+              {action === 'refund' ? (
+                <div>
+                  <dt className="font-bold text-stone-600">Articles remboursés</dt>
+                  <dd className="mt-2 divide-y divide-stone-200 border-y border-stone-300">
+                    {refundLines.map((line) => (
+                      <span
+                        className="flex justify-between gap-3 py-2 font-black"
+                        key={line.originalLineId}
+                      >
+                        <span>
+                          {line.quantity} × {line.productName}
+                        </span>
+                        <span className="tabular-nums">{formatMoney(line.grossCents)}</span>
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="font-bold text-stone-600">Montant</dt>
                 <dd className="text-lg font-black tabular-nums">{formatMoney(amountCents)}</dd>
               </div>
+              {action === 'refund' ? (
+                <div>
+                  <dt className="font-bold text-stone-600">TVA incluse</dt>
+                  <dd className="font-black">
+                    {[...vatByRate.entries()]
+                      .sort(([left], [right]) => left - right)
+                      .map(([rate, vatCents]) => `TVA ${rate} % : ${formatMoney(vatCents)}`)
+                      .join(' · ')}
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="font-bold text-stone-600">Motif</dt>
                 <dd className="font-black">{trimmedReason}</dd>
@@ -164,10 +201,89 @@ export function SaleCorrectionDialog({
                     setError(null)
                   }}
                 >
-                  Remboursement total
+                  Remboursement
                 </Button>
               </div>
             </fieldset>
+            {action === 'refund' ? (
+              <fieldset className="mt-5">
+                <legend className="font-black">Articles et quantités à rembourser</legend>
+                <div className="mt-2 divide-y divide-stone-300 border-y border-stone-300">
+                  {summary.refundableLines.map((line) => {
+                    const quantity = refundQuantities[line.originalLineId] ?? 0
+                    return (
+                      <div className="py-3" key={line.originalLineId}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-black">{line.productName}</p>
+                            <p className="text-sm font-bold text-stone-700">
+                              Vendue {line.soldQuantity} · déjà remboursée {line.refundedQuantity} ·
+                              encore remboursable {line.remainingQuantity}
+                            </p>
+                          </div>
+                          <p className="shrink-0 font-black tabular-nums">
+                            {formatMoney(line.unitPriceCents * quantity)}
+                          </p>
+                        </div>
+                        <div
+                          className="mt-2 flex items-center gap-3"
+                          aria-label={`Quantité à rembourser pour ${line.productName}`}
+                        >
+                          <Button
+                            className="min-h-12 min-w-14 text-xl"
+                            disabled={quantity === 0 || submitting}
+                            aria-label={`Diminuer ${line.productName}`}
+                            onClick={() =>
+                              setRefundQuantities((current) => ({
+                                ...current,
+                                [line.originalLineId]: Math.max(0, quantity - 1),
+                              }))
+                            }
+                          >
+                            −
+                          </Button>
+                          <output
+                            className="min-w-10 text-center text-xl font-black tabular-nums"
+                            aria-live="polite"
+                          >
+                            {quantity}
+                          </output>
+                          <Button
+                            className="min-h-12 min-w-14 text-xl"
+                            disabled={
+                              quantity >= line.remainingQuantity ||
+                              line.remainingQuantity === 0 ||
+                              submitting
+                            }
+                            aria-label={`Augmenter ${line.productName}`}
+                            onClick={() =>
+                              setRefundQuantities((current) => ({
+                                ...current,
+                                [line.originalLineId]: Math.min(
+                                  line.remainingQuantity,
+                                  quantity + 1,
+                                ),
+                              }))
+                            }
+                          >
+                            +
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="mt-3 text-lg font-black tabular-nums">
+                  Montant remboursé : {formatMoney(amountCents)}
+                </p>
+              </fieldset>
+            ) : null}
+            {summary.hasLegacyAmountOnlyRefund ? (
+              <p className="mt-4 border border-amber-400 bg-amber-50 p-3 font-bold text-amber-950">
+                Un ancien remboursement ne précise pas les articles concernés. Les quantités
+                restantes ne peuvent pas être déterminées sans les inventer.
+              </p>
+            ) : null}
             <label className="mt-5 block font-black" htmlFor="sale-correction-reason">
               Motif obligatoire
             </label>
@@ -235,7 +351,12 @@ export function SaleCorrectionDialog({
           ) : (
             <Button
               variant="primary"
-              disabled={!action || !trimmedReason || submitting}
+              disabled={
+                !action ||
+                !trimmedReason ||
+                submitting ||
+                (action === 'refund' && refundLines.length === 0)
+              }
               onClick={() => setConfirming(true)}
             >
               Vérifier la correction

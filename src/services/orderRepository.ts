@@ -21,6 +21,7 @@ import {
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
 import { orderRequiresPreparation } from '../utils/preparation'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
+import { refundLinesTotalCents, validateStructuredRefund } from './saleRefund'
 
 const DATABASE_VERSION = 3
 const ORDERS_STORE = 'orders'
@@ -246,7 +247,9 @@ function compareCorrectionRequest(
     entry.correction.originalOrderId === request.originalOrderId &&
     entry.correction.type === request.type &&
     entry.correction.reason === request.reason &&
-    entry.correction.amountDeltaCents === request.amountDeltaCents
+    entry.correction.amountDeltaCents === request.amountDeltaCents &&
+    canonicalJson(entry.correction.refundLines ?? null) ===
+      canonicalJson(request.refundLines ?? null)
   )
 }
 
@@ -962,6 +965,9 @@ export class IndexedDbOrderRepository
                       amountDeltaCents: request.amountDeltaCents,
                       paymentMethod: storedOrder.paymentMethod,
                       originalSaleHash: storedOrder.integrity?.hash ?? null,
+                      ...(request.refundLines
+                        ? { refundLines: structuredClone(request.refundLines) }
+                        : {}),
                     },
                   }
                   const entry: CorrectionLedgerEntry = {
@@ -1278,6 +1284,10 @@ export class IndexedDbOrderRepository
       throw new Error('Une vente partiellement corrigée ne peut pas être annulée intégralement.')
     }
     if (request.type === 'refund') {
+      const refundLines = validateStructuredRefund(order, priorCorrections, request.refundLines)
+      if (request.amountDeltaCents !== -refundLinesTotalCents(refundLines)) {
+        throw new Error('Le montant du remboursement ne correspond pas aux lignes sélectionnées.')
+      }
       const alreadyRefunded = priorCorrections
         .filter((entry) => entry.correction.type === 'refund')
         .reduce((sum, entry) => sum - entry.correction.amountDeltaCents, 0)

@@ -8,6 +8,7 @@ import type {
   LedgerSource,
   SalesArchive,
   SalesLedgerEntry,
+  RefundLineSelection,
 } from '../types/salesLedger'
 import type { TerminalConfiguration, TerminalIdentity } from '../types/terminal'
 import { terminalCodes } from '../types/terminal'
@@ -21,6 +22,8 @@ import {
 import { getOrderDataRepository } from './orderRepositoryFactory'
 import { getResponsibleModeService } from './responsibleModeService'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
+import { buildRefundLines, refundLinesTotalCents } from './saleRefund'
+import { calculateIncludedVatCents } from '../utils/vat'
 
 type LedgerDataRepository = OrderRepository & SalesLedgerRepository
 
@@ -57,24 +60,56 @@ export class SalesLedgerService {
     )
   }
 
-  refundSale(
+  async refundSale(
     originalOrderId: string,
-    amountCents: number,
+    selections: RefundLineSelection[],
     reason: string,
     operationId?: string,
     recordedAt = new Date(),
   ): Promise<CorrectionLedgerEntry> {
     this.requireResponsibleMode()
-    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-      throw new Error('Le montant remboursé doit être un entier positif en centimes.')
+    const resolvedOperationId = operationId ?? this.createOperationId()
+    const [orders, entries] = await Promise.all([
+      this.repository.getOrders(),
+      this.repository.getLedgerEntries(),
+    ])
+    const existing = entries.find(
+      (entry): entry is CorrectionLedgerEntry =>
+        entry.kind === 'correction' && entry.correction.operationId === resolvedOperationId,
+    )
+    if (existing) {
+      const existingSelections = existing.correction.refundLines?.map(
+        ({ originalLineId, quantity }) => ({ originalLineId, quantity }),
+      )
+      if (
+        existing.correction.type === 'refund' &&
+        existing.correction.originalOrderId === originalOrderId &&
+        existing.correction.reason === reason.trim() &&
+        existingSelections?.length === selections.length &&
+        existingSelections.every(
+          (selection, index) =>
+            selection.originalLineId === selections[index]?.originalLineId &&
+            selection.quantity === selections[index]?.quantity,
+        )
+      ) {
+        return existing
+      }
+      throw new Error('Cette clé d’opération appartient déjà à une autre correction.')
     }
+    const order = orders.find((candidate) => candidate.id === originalOrderId)
+    if (!order) throw new Error(`Commande locale ${originalOrderId} introuvable.`)
+    const corrections = entries.filter(
+      (entry): entry is CorrectionLedgerEntry => entry.kind === 'correction',
+    )
+    const refundLines = buildRefundLines(order, selections, corrections)
     return this.recordCorrection(
       originalOrderId,
       'refund',
-      -amountCents,
+      -refundLinesTotalCents(refundLines),
       reason,
-      operationId ?? this.createOperationId(),
+      resolvedOperationId,
       recordedAt,
+      refundLines,
     )
   }
 
@@ -139,7 +174,7 @@ export class SalesLedgerService {
     }
 
     const totals = calculateClosureTotals(entries, periodStartIso, periodEndIso)
-    const vat = calculateClosureVat(entries, periodStartIso, periodEndIso, totals.correctionCount)
+    const vat = calculateClosureVat(entries, periodStartIso, periodEndIso)
     return {
       periodStart: periodStartIso,
       periodEnd: periodEndIso,
@@ -210,6 +245,7 @@ export class SalesLedgerService {
     reason: string,
     operationId: string,
     recordedAt: Date,
+    refundLines?: ReturnType<typeof buildRefundLines>,
   ): Promise<CorrectionLedgerEntry> {
     const terminal = this.getTerminal()
     return this.repository.recordCorrection({
@@ -220,6 +256,7 @@ export class SalesLedgerService {
       amountDeltaCents,
       recordedAt: recordedAt.toISOString(),
       source: this.buildLedgerSource(terminal),
+      ...(refundLines ? { refundLines } : {}),
     })
   }
 
@@ -253,44 +290,66 @@ function calculateClosureVat(
   entries: SalesLedgerEntry[],
   periodStart: string,
   periodEnd: string,
-  correctionCount: number,
 ): { breakdown: ClosureVatBreakdown[] | null; unavailableReason?: string } {
-  if (correctionCount > 0) {
-    return {
-      breakdown: null,
-      unavailableReason:
-        'Ventilation TVA indisponible : les corrections ne contiennent pas de ventilation par taux.',
-    }
-  }
-
   const byRate = new Map<number, ClosureVatBreakdown>()
+  const add = (rate: number, grossCents: number, vatCents: number) => {
+    const current = byRate.get(rate) ?? { rate, grossCents: 0, netCents: 0, vatCents: 0 }
+    current.grossCents += grossCents
+    current.vatCents += vatCents
+    current.netCents += grossCents - vatCents
+    byRate.set(rate, current)
+  }
   for (const entry of entries) {
     if (
-      entry.kind !== 'sale' ||
-      entry.order.paidAt < periodStart ||
-      entry.order.paidAt >= periodEnd
+      entry.kind === 'sale' &&
+      entry.order.paidAt >= periodStart &&
+      entry.order.paidAt < periodEnd
     ) {
+      for (const item of entry.order.items) {
+        if (!Number.isFinite(item.vatRate)) {
+          return {
+            breakdown: null,
+            unavailableReason: 'Ventilation TVA indisponible pour certaines données persistées.',
+          }
+        }
+        const grossCents = item.unitPriceCents * item.quantity
+        add(item.vatRate, grossCents, calculateIncludedVatCents(grossCents, item.vatRate))
+      }
+    }
+    if (
+      entry.kind !== 'correction' ||
+      entry.recordedAt < periodStart ||
+      entry.recordedAt >= periodEnd
+    )
+      continue
+
+    if (entry.correction.type === 'refund' && entry.correction.refundLines) {
+      for (const line of entry.correction.refundLines) {
+        add(line.vatRate, -line.grossCents, -line.vatCents)
+      }
       continue
     }
-    for (const item of entry.order.items) {
-      if (!Number.isFinite(item.vatRate)) {
+    if (entry.correction.type === 'cancellation') {
+      const original = entries.find(
+        (candidate) =>
+          candidate.kind === 'sale' && candidate.order.id === entry.correction.originalOrderId,
+      )
+      if (!original || original.kind !== 'sale') {
         return {
           breakdown: null,
           unavailableReason: 'Ventilation TVA indisponible pour certaines données persistées.',
         }
       }
-      const grossCents = item.unitPriceCents * item.quantity
-      const vatCents = Math.round((grossCents * item.vatRate) / (100 + item.vatRate))
-      const current = byRate.get(item.vatRate) ?? {
-        rate: item.vatRate,
-        grossCents: 0,
-        netCents: 0,
-        vatCents: 0,
+      for (const item of original.order.items) {
+        const grossCents = item.unitPriceCents * item.quantity
+        add(item.vatRate, -grossCents, -calculateIncludedVatCents(grossCents, item.vatRate))
       }
-      current.grossCents += grossCents
-      current.vatCents += vatCents
-      current.netCents += grossCents - vatCents
-      byRate.set(item.vatRate, current)
+      continue
+    }
+    return {
+      breakdown: null,
+      unavailableReason:
+        'Ventilation TVA indisponible : une correction historique ne contient pas de détail fiscal fiable.',
     }
   }
   return { breakdown: [...byRate.values()].sort((left, right) => left.rate - right.rate) }

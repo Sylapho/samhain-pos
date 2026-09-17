@@ -37,14 +37,19 @@ Une empreinte locale permet de détecter une modification accidentelle ou une al
 
 Une correction ne modifie jamais la vente : elle ajoute une entrée liée par `originalOrderId`, les numéros d’origine et `originalSaleHash`. Le montant est un delta comptable en centimes.
 
+Les remboursements créés depuis l’issue #72 contiennent aussi `refundLines`. Chaque ligne référence le `lineId` stable de la vente et conserve le snapshot nécessaire à l’audit : produit, quantité, prix unitaire historique, taux de TVA, montant TTC et TVA remboursés. Le montant de la correction est dérivé de ces lignes et revalidé dans la transaction de persistance.
+
 - une annulation compense exactement le total d’origine ;
 - un remboursement est négatif et le cumul des remboursements ne peut pas dépasser la vente ;
+- la quantité restante est recalculée depuis la vente et les corrections persistées ;
+- une même `operationId` rejouée rend la correction existante sans créer de second impact financier ;
+- un ancien remboursement sans `refundLines` reste lisible et vérifiable, mais bloque un nouveau remboursement par lignes sur cette vente : ses quantités historiques ne sont jamais devinées ;
 - un ajustement explicite peut être positif ou négatif, mais doit être non nul ;
 - un motif non vide et une clé d’opération sont obligatoires ;
 - rejouer la même clé avec la même opération retourne l’entrée existante, ce qui rend la reprise idempotente ;
 - réutiliser la clé pour une opération différente est refusé.
 
-Les API existent dans `SalesLedgerService`. Aucun bouton d’annulation ou de remboursement n’est ajouté au flux caisse par ce ticket : les règles d’autorisation des opérateurs et l’UX correspondante doivent être définies avant de les exposer.
+Les API existent dans `SalesLedgerService`. L’historique expose les annulations et remboursements uniquement après déverrouillage du mode responsable. Le remboursement reçoit des identifiants de lignes et des quantités, jamais un montant libre.
 
 ## Clôtures
 
@@ -54,7 +59,9 @@ L’horloge de la tablette reste une source de confiance. Avant exploitation, An
 
 L’écran responsable **Clôture & sauvegarde** permet de prévisualiser une période à partir du journal persisté. La confirmation relit et vérifie le journal, puis appelle `closePeriod()` ; les chiffres affichés après succès proviennent exclusivement de la `ClosureLedgerEntry` réellement ajoutée. Les boutons sont verrouillés pendant l’opération afin d’éviter deux clôtures concurrentes.
 
-La ventilation TVA est calculée depuis les lignes de vente persistées avec la même règle d’arrondi que les tickets. Comme une correction historique ne contient actuellement qu’un montant global et pas sa répartition par taux, l’écran annonce explicitement que la ventilation est indisponible dès qu’une correction appartient à la période. Aucune TVA n’est estimée ou inventée.
+La ventilation TVA est calculée depuis les lignes de vente persistées avec la même règle d’arrondi que les tickets. Les remboursements structurés soustraient leur ventilation historique par taux. Pour une même ligne vendue, l’arrondi est calculé cumulativement afin que plusieurs remboursements partiels épuisant la ligne restituent exactement la TVA de la ligne originale. Une annulation totale reprend la ventilation de la vente source.
+
+Une ancienne correction sans détail fiscal fiable, ou un ajustement global, rend encore la ventilation de la période explicitement indisponible. Aucune TVA n’est estimée ou inventée.
 
 ## Archive, conservation et restauration
 
