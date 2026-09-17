@@ -1,10 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import type { PrintJobResult } from '../printing/types'
 import { useCartStore } from '../store/cartStore'
 import type { Order } from '../types/order'
-import { App } from './App'
+import { initialCatalogProducts } from '../data/initialCatalog'
+import { App as ProductionApp } from './App'
 import {
   LocalStorageTerminalConfigurationRepository,
   TerminalConfigurationService,
@@ -13,6 +15,13 @@ import {
   LocalStorageResponsibleCredentialRepository,
   ResponsibleModeService,
 } from '../services/responsibleModeService'
+import type { CatalogRepository } from '../services/catalogRepository'
+import { CatalogService } from '../services/catalogService'
+import type { Product } from '../types/catalog'
+
+function App(props: ComponentProps<typeof ProductionApp>) {
+  return <ProductionApp initialCatalog={initialCatalogProducts} {...props} />
+}
 
 const printSuccess: PrintJobResult = {
   ok: true,
@@ -181,6 +190,44 @@ describe('caisse', () => {
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
 
+  it('ouvre Administration → Produits et reverrouille le mode responsable à la fermeture', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+    await responsibleMode.unlock('4826')
+    let catalog = structuredClone(initialCatalogProducts)
+    const repository: CatalogRepository = {
+      initialize: async () => ({ initialized: false, products: structuredClone(catalog) }),
+      getProducts: async () => structuredClone(catalog),
+      getSellableProducts: async () =>
+        structuredClone(
+          catalog.filter(({ active, availability }) => active && availability === 'available'),
+        ),
+      createProduct: async (product: Product) => {
+        catalog.push(product)
+        return product
+      },
+      updateProduct: async (product: Product) => {
+        catalog = catalog.map((candidate) => (candidate.id === product.id ? product : candidate))
+        return product
+      },
+    }
+
+    render(
+      <App
+        responsibleMode={responsibleMode}
+        catalogService={new CatalogService(repository, initialCatalogProducts)}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }))
+
+    const administration = await screen.findByRole('dialog', { name: 'Produits' })
+    expect(within(administration).getByText('Administration')).toBeInTheDocument()
+    fireEvent.click(within(administration).getByRole('button', { name: 'Fermer' }))
+    expect(responsibleMode.isUnlocked()).toBe(false)
+  })
+
   it('autorise le reprovisionnement après vérification sans impression à reprendre', async () => {
     const responsibleMode = new ResponsibleModeService(
       new LocalStorageResponsibleCredentialRepository(localStorage),
@@ -345,6 +392,16 @@ describe('caisse', () => {
     expect(quantity).toBeInTheDocument()
     fireEvent.click(within(quantity).getByRole('button', { name: 'Augmenter Omelette' }))
     expect(within(quantity).getByText('2')).toBeInTheDocument()
+  })
+
+  it('ne propose pas un produit désactivé à la caisse', () => {
+    const catalog = initialCatalogProducts.map((product) =>
+      product.id === 'omelette' ? { ...product, active: false } : product,
+    )
+    render(<App initialCatalog={catalog} />)
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    expect(screen.queryByRole('button', { name: /Omelette/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Burger spécial Samhain/ })).toBeInTheDocument()
   })
 
   it('configure les ingrédients avant ajout puis retrouve la composition en édition', () => {

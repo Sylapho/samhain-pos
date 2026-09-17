@@ -1,7 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
-import { products } from '../mocks/products'
+import { initialCatalogProducts as products } from '../data/initialCatalog'
 import type { CorrectionLedgerEntry, SalesArchive } from '../types/salesLedger'
 import type { TerminalConfiguration } from '../types/terminal'
 import { createCartItemDraft } from '../utils/cart'
@@ -41,7 +41,7 @@ function services(indexedDb: IDBFactory, databaseName: string) {
 
 async function alterStoredOrder(indexedDb: IDBFactory, databaseName: string): Promise<void> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDb.open(databaseName, 3)
+    const request = indexedDb.open(databaseName, 4)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })

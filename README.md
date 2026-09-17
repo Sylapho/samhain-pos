@@ -2,11 +2,12 @@
 
 Samhain POS est une caisse tactile conçue pour l'encaissement sur tablette Android pendant le festival Samhain. L'application fonctionne localement, y compris sans connexion réseau, et intègre l'impression USB ESC/POS pour une Epson TM-T88V compatible.
 
-Le catalogue embarqué reste, pour des raisons historiques, dans `src/mocks/products.ts`, mais les données utilisées pour la release sont confirmées. La build de production contrôle le catalogue et les informations administratives avant de générer le moindre artefact.
+Le catalogue est une donnée locale administrable. Il est conservé dans Room/SQLite sur Android et dans IndexedDB sur le web ; `src/data/initialCatalog.ts` sert uniquement de seed lors de la première utilisation. La build de production contrôle ce seed et les informations administratives avant de générer le moindre artefact.
 
 ## Fonctionnalités présentes
 
 - saisie tactile d'une commande, catégories, variantes, options et retrait d'ingrédients ;
+- administration locale des produits, prix, TVA, disponibilité et préparation ;
 - encaissement CB ou espèces ;
 - création durable de la commande et de son paiement dans Room/SQLite sur Android, ou IndexedDB sur le web, avant l'impression ;
 - journal d’encaissement append-only avec ventes scellées, corrections liées et chaîne SHA-256 ;
@@ -149,7 +150,7 @@ Avant toute exploitation, suivre la checklist matériel du guide de release : pa
 
 ## Intégration native Android
 
-Les plugins Capacitor locaux sont fournis dans `native/android/` et copiés dans le projet Android par l'installateur commun. `EpsonUsbPrinterPlugin`, `OrderStoragePlugin` et `DocumentExporterPlugin` sont enregistrés dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor les rende disponibles. `DocumentExporterPlugin` utilise `ACTION_CREATE_DOCUMENT` et ne demande aucune permission globale de stockage.
+Les plugins Capacitor locaux sont fournis dans `native/android/` et copiés dans le projet Android par l'installateur commun. `EpsonUsbPrinterPlugin`, `OrderStoragePlugin`, `CatalogStoragePlugin` et `DocumentExporterPlugin` sont enregistrés dans `MainActivity` avant `super.onCreate(savedInstanceState)`, condition nécessaire pour que Capacitor les rende disponibles. `DocumentExporterPlugin` utilise `ACTION_CREATE_DOCUMENT` et ne demande aucune permission globale de stockage.
 
 Si `MainActivity.kt` ou le manifeste ont été régénérés, réinstaller uniquement l'intégration native :
 
@@ -162,8 +163,11 @@ Cette intégration utilise la communication USB ESC/POS directe, pas le SDK Epso
 ## Architecture utile
 
 ```text
-src/mocks/products.ts                  catalogue embarqué (nom historique)
+src/data/initialCatalog.ts             seed initial, jamais relu comme catalogue runtime
 src/store/cartStore.ts                 état temporaire du panier
+src/services/catalogRepository.ts      contrat catalogue et implémentations IndexedDB/Room
+src/services/catalogService.ts         validation et opérations métier du catalogue
+src/features/catalog/ProductManagementDialog.tsx administration des produits
 src/services/orderRepository.ts        contrat repository et implémentation IndexedDB
 src/services/roomOrderRepository.ts    repository Android et migration legacy
 src/services/orderRepositoryFactory.ts sélection Capacitor Room/IndexedDB
@@ -178,6 +182,7 @@ src/printing/*                         rendu des tickets et orchestration des jo
 src/native/epsonUsbPrinter.ts          pont Capacitor TypeScript
 native/android/EpsonUsbPrinterPlugin.kt plugin Android USB natif
 native/android/OrderStoragePlugin.kt    bridge Room/SQLite natif
+native/android/CatalogStoragePlugin.kt  bridge du catalogue Room/SQLite
 native/android/SamhainPosDatabase.kt    schéma, DAO et migrations Room
 scripts/install-android-usb-printer.mjs installateur natif commun idempotent
 ```

@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
-import { products } from '../mocks/products'
+import { initialCatalogProducts as products } from '../data/initialCatalog'
 import { createCartItemDraft } from '../utils/cart'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { OrderService } from './orderService'

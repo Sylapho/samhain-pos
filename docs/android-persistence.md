@@ -13,6 +13,8 @@ Room s'appuie sur le moteur SQLite local d'Android. La lecture et l'écriture de
 
 IndexedDB reste volontairement présent pour le navigateur et comme source de la migration des anciennes installations Android.
 
+Le catalogue suit la même frontière : `CatalogService` dépend de `CatalogRepository`, qui sélectionne `RoomCatalogRepository`/`CatalogStorage` sur Android et `IndexedDbCatalogRepository` sur le web. Le seed initial est écrit dans une transaction seulement si le marqueur d'initialisation est absent et si la table produit est vide. Les démarrages suivants ne réappliquent jamais le seed.
+
 ## Politique Android Backup
 
 Android Backup n'est pas un mécanisme de sauvegarde supporté pour Samhain POS. Le manifeste impose `android:allowBackup="false"` et référence deux politiques complémentaires :
@@ -63,6 +65,8 @@ Le modèle est hybride :
 - `order_printing` sépare les métadonnées techniques modifiables des données financières ;
 - `sales_ledger` indexe identifiant, séquence, type, date, commande, terminal source et empreinte, et conserve le payload canonique de chaque entrée ;
 - `pos_metadata` contient les prochaines séquences, la tête du journal, la dernière clôture et l'état de migration legacy.
+- `products` expose les champs recherchés ou triés et conserve le produit complet (variantes, options et ingrédients) dans `product_json` ;
+- `catalog_metadata` porte le marqueur transactionnel d'initialisation du catalogue.
 
 Les colonnes `sync_status`, `sync_attempts`, `sync_last_error` et `synced_at` préparent une future outbox, sans implémenter de réseau ni la synchronisation des issues #35/#36.
 
@@ -83,7 +87,7 @@ IndexedDB n'est ni vidé ni supprimé après succès. Une installation sans comm
 
 ## Versioning et migrations Room
 
-La version courante est `2`. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
+La version courante est `5`. La migration `4 → 5` ajoute uniquement les tables `products` et `catalog_metadata` et ne modifie aucune commande existante. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
 
 Pour une évolution future :
 
@@ -121,6 +125,6 @@ pnpm android:sync:production
 
 Cette commande conserve le garde-fou existant : elle échoue tant que les informations administratives de démonstration n'ont pas été remplacées par des données confirmées.
 
-Les tests Room couvrent création, contraintes UUID, rollback transactionnel des séquences, états d'impression, fermeture/réouverture, migration IndexedDB idempotente et conflictuelle, et migration de schéma. Une validation finale sur la tablette reste nécessaire pour le cycle de vie réel du processus Android et l'impression USB.
+Les tests Room couvrent création, contraintes UUID, rollback transactionnel des séquences, états d'impression, fermeture/réouverture, migration IndexedDB idempotente et conflictuelle, catalogue persistant, seed unique et migrations de schéma. Une validation finale sur la tablette reste nécessaire pour le cycle de vie réel du processus Android et l'impression USB.
 
 Les tests couvrent aussi le rollback complet d'une restauration Room interrompue et la conservation exacte des métadonnées d'archive. Le test Robolectric de politique Android vérifie que l'application construite n'expose pas `ApplicationInfo.FLAG_ALLOW_BACKUP`. Les règles XML sont validées par AAPT pendant l'assemblage. Les protocoles matériels et les opérations de mise à jour/désinstallation sont détaillés dans [`tablet-replacement-and-backup.md`](tablet-replacement-and-backup.md).

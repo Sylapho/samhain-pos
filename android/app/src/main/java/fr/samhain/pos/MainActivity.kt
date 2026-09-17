@@ -15,6 +15,7 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(EpsonUsbPrinterPlugin::class.java)
         registerPlugin(OrderStoragePlugin::class.java)
+        registerPlugin(CatalogStoragePlugin::class.java)
         registerPlugin(DocumentExporterPlugin::class.java)
         super.onCreate(savedInstanceState)
 

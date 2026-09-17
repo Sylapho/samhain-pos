@@ -23,13 +23,13 @@ import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/pr
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 import { normalizeOrderPrinting, unknownOrderPrinting } from '../printing/orderPrinting'
 import { refundLinesTotalCents, validateStructuredRefund } from './saleRefund'
+import { indexedDbStores, openSamhainDatabase } from './indexedDbSchema'
 
-const DATABASE_VERSION = 3
-const ORDERS_STORE = 'orders'
-const ORDER_TECHNICAL_STORE = 'orderTechnicalState'
-const SALES_LEDGER_STORE = 'salesLedger'
-const METADATA_STORE = 'metadata'
-const CHECKOUT_INTENTS_STORE = 'checkoutIntents'
+const ORDERS_STORE = indexedDbStores.orders
+const ORDER_TECHNICAL_STORE = indexedDbStores.orderTechnicalState
+const SALES_LEDGER_STORE = indexedDbStores.salesLedger
+const METADATA_STORE = indexedDbStores.metadata
+const CHECKOUT_INTENTS_STORE = indexedDbStores.checkoutIntents
 const SEQUENCES_KEY = 'sequences'
 export const ARCHIVE_NOTICE =
   'Archive JSON Samhain POS. Les montants sont exprimés en centimes. Les entrées sont ordonnées par sequence et chaînées par previousHash/hash en SHA-256. Vérifier archiveHash puis chaque entrée avant consultation ou restauration.'
@@ -1346,40 +1346,9 @@ export class IndexedDbOrderRepository
 
   private openDatabase(): Promise<IDBDatabase> {
     if (this.databasePromise) return this.databasePromise
-    this.databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = this.indexedDb.open(this.databaseName, DATABASE_VERSION)
-      request.onupgradeneeded = () => {
-        const database = request.result
-        if (!database.objectStoreNames.contains(ORDERS_STORE)) {
-          database.createObjectStore(ORDERS_STORE, { keyPath: 'id' })
-        }
-        if (!database.objectStoreNames.contains(METADATA_STORE)) {
-          database.createObjectStore(METADATA_STORE, { keyPath: 'key' })
-        }
-        if (!database.objectStoreNames.contains(ORDER_TECHNICAL_STORE)) {
-          database.createObjectStore(ORDER_TECHNICAL_STORE, { keyPath: 'orderId' })
-        }
-        if (!database.objectStoreNames.contains(SALES_LEDGER_STORE)) {
-          database.createObjectStore(SALES_LEDGER_STORE, { keyPath: 'id' })
-        }
-        if (!database.objectStoreNames.contains(CHECKOUT_INTENTS_STORE)) {
-          const intents = database.createObjectStore(CHECKOUT_INTENTS_STORE, { keyPath: 'id' })
-          intents.createIndex('status', 'status', { unique: false })
-          intents.createIndex('updatedAt', 'updatedAt', { unique: false })
-        }
-      }
-      request.onsuccess = () => {
-        request.result.onversionchange = () => request.result.close()
-        resolve(request.result)
-      }
-      request.onerror = () => {
-        this.databasePromise = null
-        reject(request.error ?? new Error('Ouverture du stockage local impossible.'))
-      }
-      request.onblocked = () => {
-        this.databasePromise = null
-        reject(new Error('Mise à niveau du stockage bloquée par un autre onglet ouvert.'))
-      }
+    this.databasePromise = openSamhainDatabase(this.indexedDb, this.databaseName).catch((error) => {
+      this.databasePromise = null
+      throw error
     })
     return this.databasePromise
   }
