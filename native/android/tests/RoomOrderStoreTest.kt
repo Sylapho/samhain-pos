@@ -253,7 +253,16 @@ class RoomOrderStoreTest {
                 put("originalOrderId", "ledger-order")
                 put("type", "refund")
                 put("reason", "Remboursement test")
-                put("amountDeltaCents", -100)
+                put("amountDeltaCents", -500)
+                put(
+                    "refundLines",
+                    JSONArray().put(
+                        JSONObject().put("originalLineId", "line-1")
+                            .put("productId", "product-1").put("productName", "Produit test")
+                            .put("quantity", 1).put("unitPriceCents", 500)
+                            .put("vatRate", 10).put("grossCents", 500).put("vatCents", 45),
+                    ),
+                )
                 put("recordedAt", "2026-09-01T13:00:00.000Z")
                 put("source", source())
             }
@@ -262,6 +271,12 @@ class RoomOrderStoreTest {
         assertEquals(
             correction.getString("id"),
             store.recordCorrection(correctionRequest).getString("id"),
+        )
+        val excessive = JSONObject(correctionRequest.toString()).put("operationId", "refund-2")
+        assertTrue(
+            assertThrows(IllegalArgumentException::class.java) {
+                store.recordCorrection(excessive)
+            }.message!!.contains("quantité remboursable restante"),
         )
 
         val closure =
@@ -275,7 +290,7 @@ class RoomOrderStoreTest {
                 },
             )
         assertEquals(3L, closure.getLong("sequence"))
-        assertEquals(400L, closure.getJSONObject("closure").getJSONObject("totals").getLong("netTotalCents"))
+        assertEquals(0L, closure.getJSONObject("closure").getJSONObject("totals").getLong("netTotalCents"))
 
         val snapshot = store.snapshot()
         assertEquals(4L, snapshot.getJSONObject("metadata").getLong("nextJournalSequence"))

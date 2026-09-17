@@ -13,11 +13,18 @@ import {
   getPersistedOrders,
   orderLifecycle as persistedOrderLifecycle,
 } from '../../services/orderService'
+import {
+  deriveSaleCorrectionSummary,
+  saleCorrectionStatusLabels,
+} from '../../services/saleCorrectionSummary'
+import { getSalesLedgerService, type SalesLedgerService } from '../../services/salesLedgerService'
 import type { CartItem } from '../../types/cart'
 import type { Order, OrderPrintStatus, PrintDocumentStatus } from '../../types/order'
+import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { getRemovedIngredients } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
 import { getOrderTerminalDisplayName } from '../../utils/order'
+import { SaleCorrectionDialog } from './SaleCorrectionDialog'
 
 type Props = {
   onClose: () => void
@@ -26,9 +33,17 @@ type Props = {
   lifecycle?: typeof persistedOrderLifecycle
   onOrderUpdated?: (order: Order) => void
   requestResponsibleAccess?: () => Promise<boolean>
+  ledgerService?: Pick<SalesLedgerService, 'getEntries' | 'cancelSale' | 'refundSale'>
+  createOperationId?: () => string
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
+
+const defaultLedgerService: Pick<SalesLedgerService, 'getEntries' | 'cancelSale' | 'refundSale'> = {
+  getEntries: () => getSalesLedgerService().getEntries(),
+  cancelSale: (...arguments_) => getSalesLedgerService().cancelSale(...arguments_),
+  refundSale: (...arguments_) => getSalesLedgerService().refundSale(...arguments_),
+}
 
 const printStatusLabels: Record<OrderPrintStatus, string> = {
   pending: 'À imprimer',
@@ -53,13 +68,19 @@ export function OrderHistory({
   lifecycle = persistedOrderLifecycle,
   onOrderUpdated,
   requestResponsibleAccess = async () => true,
+  ledgerService = defaultLedgerService,
+  createOperationId = () => globalThis.crypto.randomUUID(),
 }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
+  const [corrections, setCorrections] = useState<CorrectionLedgerEntry[]>([])
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [printing, setPrinting] = useState<PrintSelection | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [correctionsError, setCorrectionsError] = useState(false)
+  const [correctionsLoading, setCorrectionsLoading] = useState(true)
+  const [correctionOrder, setCorrectionOrder] = useState<Order | null>(null)
   const printingRef = useRef(false)
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null
 
@@ -80,11 +101,39 @@ export function OrderHistory({
       } finally {
         if (active) setLoading(false)
       }
+      try {
+        const entries = await ledgerService.getEntries()
+        if (active) {
+          setCorrections(
+            entries.filter((entry): entry is CorrectionLedgerEntry => entry.kind === 'correction'),
+          )
+          setCorrectionsError(false)
+        }
+      } catch {
+        if (active) setCorrectionsError(true)
+      } finally {
+        if (active) setCorrectionsLoading(false)
+      }
     })()
     return () => {
       active = false
     }
-  }, [loadOrders])
+  }, [ledgerService, loadOrders])
+
+  const refreshCorrections = async () => {
+    const entries = await ledgerService.getEntries()
+    setCorrections(
+      entries.filter((entry): entry is CorrectionLedgerEntry => entry.kind === 'correction'),
+    )
+    setCorrectionsError(false)
+  }
+
+  const openCorrection = async () => {
+    if (!selectedOrder || printingRef.current) return
+    setFeedback(null)
+    if (!(await requestResponsibleAccess())) return
+    setCorrectionOrder(selectedOrder)
+  }
 
   const storeUpdatedOrder = (updatedOrder: Order) => {
     setOrders((current) =>
@@ -261,14 +310,43 @@ export function OrderHistory({
             {selectedOrder ? (
               <OrderDetails
                 order={selectedOrder}
+                corrections={corrections.filter(
+                  (entry) => entry.correction.originalOrderId === selectedOrder.id,
+                )}
+                correctionsError={correctionsError}
+                correctionsLoading={correctionsLoading}
                 printing={printing}
                 feedback={feedback}
                 onReprint={(selection) => void reprint(selection)}
+                onCorrect={() => void openCorrection()}
               />
             ) : null}
           </div>
         )}
       </section>
+      {correctionOrder ? (
+        <SaleCorrectionDialog
+          order={correctionOrder}
+          corrections={corrections.filter(
+            (entry) => entry.correction.originalOrderId === correctionOrder.id,
+          )}
+          ledgerService={ledgerService}
+          createOperationId={createOperationId}
+          requestResponsibleAccess={requestResponsibleAccess}
+          onClose={() => setCorrectionOrder(null)}
+          onRecorded={async (type) => {
+            await refreshCorrections()
+            setFeedback({
+              kind: 'success',
+              text:
+                type === 'cancellation'
+                  ? `Annulation enregistrée pour la commande ${correctionOrder.orderNumber}. Aucun justificatif n’a été imprimé.`
+                  : `Remboursement enregistré pour la commande ${correctionOrder.orderNumber}. Aucun justificatif n’a été imprimé.`,
+            })
+            setCorrectionOrder(null)
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -316,16 +394,25 @@ function OrderListItem({
 
 function OrderDetails({
   order,
+  corrections,
+  correctionsError,
+  correctionsLoading,
   printing,
   feedback,
   onReprint,
+  onCorrect,
 }: {
   order: Order
+  corrections: CorrectionLedgerEntry[]
+  correctionsError: boolean
+  correctionsLoading: boolean
   printing: PrintSelection | null
   feedback: Feedback | null
   onReprint: (selection: PrintSelection) => void
+  onCorrect: () => void
 }) {
   const { date, time } = formatTicketDateTime(order.createdAt)
+  const summary = deriveSaleCorrectionSummary(order, corrections)
   const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
   const hasPickupTicket = order.printing.pickupTicket !== 'not_requested'
   const allDocuments = [
@@ -347,6 +434,7 @@ function OrderDetails({
           <p className="text-sm font-bold text-stone-600">
             Caisse : {getOrderTerminalDisplayName(order)}
           </p>
+          <p className="mt-2 font-black">Statut : {saleCorrectionStatusLabels[summary.status]}</p>
         </div>
         <div className="text-3xl font-black tabular-nums">{formatMoney(order.totalCents)}</div>
       </div>
@@ -358,6 +446,60 @@ function OrderDetails({
             <OrderLine key={item.lineId} item={item} />
           ))}
         </div>
+      </section>
+
+      <section className="border-t border-stone-300 py-4" aria-labelledby="corrections-title">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h4 id="corrections-title" className="text-lg font-black">
+              Corrections
+            </h4>
+            <p className="text-sm font-bold text-stone-600">
+              Montant initial {formatMoney(order.totalCents)} · déjà remboursé{' '}
+              {formatMoney(summary.refundedAmountCents)} · encore remboursable{' '}
+              {formatMoney(summary.remainingRefundableCents)}
+            </p>
+            {summary.hasLegacyAmountOnlyRefund ? (
+              <p className="mt-1 text-sm font-bold text-amber-900">
+                Nouveau remboursement bloqué : une ancienne correction ne précise pas les articles
+                concernés.
+              </p>
+            ) : null}
+          </div>
+          <Button
+            variant="danger"
+            disabled={
+              printing !== null ||
+              correctionsLoading ||
+              correctionsError ||
+              (!summary.canCancel && !summary.canRefund)
+            }
+            onClick={onCorrect}
+          >
+            Corriger la vente
+          </Button>
+        </div>
+        {correctionsLoading ? (
+          <p className="mt-3 font-bold text-stone-700" role="status">
+            Chargement des corrections…
+          </p>
+        ) : correctionsError ? (
+          <p
+            className="mt-3 border border-rose-300 bg-rose-50 p-3 font-bold text-rose-950"
+            role="alert"
+          >
+            Les corrections du journal local sont indisponibles. Aucune nouvelle correction n’est
+            autorisée.
+          </p>
+        ) : corrections.length ? (
+          <div className="mt-3 divide-y divide-stone-200 border-y border-stone-300">
+            {corrections.map((entry) => (
+              <CorrectionDetails key={entry.id} entry={entry} />
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 font-bold text-stone-700">Aucune correction enregistrée.</p>
+        )}
       </section>
 
       <section className="border-t border-stone-300 pt-4" aria-label="État d’impression">
@@ -408,6 +550,40 @@ function OrderDetails({
   )
 }
 
+function CorrectionDetails({ entry }: { entry: CorrectionLedgerEntry }) {
+  const { date, time } = formatTicketDateTime(entry.recordedAt)
+  const labels = {
+    cancellation: 'Annulation',
+    refund: 'Remboursement',
+    adjustment: 'Ajustement',
+  } as const
+  return (
+    <div className="py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="font-black">{labels[entry.correction.type]}</p>
+        <p className="font-black tabular-nums">{formatMoney(entry.correction.amountDeltaCents)}</p>
+      </div>
+      <p className="text-sm font-bold text-stone-700">
+        {date} à {time} · {entry.source.terminal.displayName}
+      </p>
+      <p className="mt-1 font-bold">Motif : {entry.correction.reason}</p>
+      {entry.correction.type === 'refund' && entry.correction.refundLines ? (
+        <ul className="mt-2 border-l-2 border-stone-300 pl-3">
+          {entry.correction.refundLines.map((line) => (
+            <li className="font-bold" key={line.originalLineId}>
+              {line.quantity} × {line.productName} · {formatMoney(line.grossCents)}
+            </li>
+          ))}
+        </ul>
+      ) : entry.correction.type === 'refund' ? (
+        <p className="mt-2 text-sm font-bold text-amber-900">
+          Ancien remboursement : détail des articles indisponible.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function OrderLine({ item }: { item: CartItem }) {
   const removedIngredients = getRemovedIngredients(item)
   return (
@@ -452,7 +628,10 @@ function FeedbackBox({ feedback }: { feedback: Feedback }) {
         ? 'border-amber-300 bg-amber-50 text-amber-950'
         : 'border-emerald-300 bg-emerald-50 text-emerald-950'
   return (
-    <div className={`mt-3 border p-3 font-bold ${colors}`} role="status">
+    <div
+      className={`mt-3 border p-3 font-bold ${colors}`}
+      role={feedback.kind === 'error' ? 'alert' : 'status'}
+    >
       {feedback.text}
     </div>
   )

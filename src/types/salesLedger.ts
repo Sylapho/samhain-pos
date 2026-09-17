@@ -32,6 +32,22 @@ export type SaleLedgerEntry = LedgerEntryBase & {
 
 export type CorrectionType = 'cancellation' | 'refund' | 'adjustment'
 
+export type RefundLineSelection = {
+  originalLineId: string
+  quantity: number
+}
+
+export type RefundLine = {
+  originalLineId: string
+  productId: string
+  productName: string
+  quantity: number
+  unitPriceCents: number
+  vatRate: number
+  grossCents: number
+  vatCents: number
+}
+
 export type SaleCorrection = {
   operationId: string
   originalOrderId: string
@@ -42,6 +58,8 @@ export type SaleCorrection = {
   amountDeltaCents: number
   paymentMethod: PaymentMethod
   originalSaleHash: string | null
+  /** Absent on amount-only refunds recorded before structured refunds were introduced. */
+  refundLines?: RefundLine[]
 }
 
 export type CorrectionLedgerEntry = LedgerEntryBase & {
@@ -98,6 +116,7 @@ export type CorrectionRequest = {
   amountDeltaCents: number
   recordedAt: string
   source: LedgerSource
+  refundLines?: RefundLine[]
 }
 
 export type ClosureRequest = {
