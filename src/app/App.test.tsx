@@ -410,9 +410,9 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Préparer l’encaissement' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
     expect(screen.getByRole('button', { name: 'Espèces' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'Préparer l’encaissement' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
-    expect(screen.getByRole('button', { name: 'Préparer l’encaissement' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeEnabled()
     expect(
       screen.getByRole('checkbox', { name: /Imprimer le reçu de caisse détaillé/ }),
     ).toBeChecked()

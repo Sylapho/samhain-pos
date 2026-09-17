@@ -20,6 +20,12 @@ import type { CheckoutIntent } from '../../types/checkout'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
 import { itemRequiresPreparation } from '../../utils/preparation'
+import {
+  appendCashDigits,
+  deleteLastCashDigit,
+  getCashQuickAmounts,
+  MAX_CASH_RECEIVED_CENTS,
+} from './cashPayment'
 
 type Props = {
   items: CartItem[]
@@ -486,18 +492,16 @@ export function CheckoutFlow({
                 receivedCents={cashReceivedCents}
                 disabled={busy}
                 onAppendDigit={(digit) => {
-                  setCashReceivedCents((current) => (current ?? 0) * 10 + digit)
+                  setCashReceivedCents((current) => appendCashDigits(current, digit))
                 }}
                 onAppendDoubleZero={() => {
-                  setCashReceivedCents((current) => (current ?? 0) * 100)
+                  setCashReceivedCents((current) => appendCashDigits(current, 0, 100))
                 }}
                 onDeleteLastDigit={() => {
-                  setCashReceivedCents((current) => {
-                    if (current === null || current < 10) return null
-                    return Math.floor(current / 10)
-                  })
+                  setCashReceivedCents(deleteLastCashDigit)
                 }}
-                onSetExactAmount={() => setCashReceivedCents(totalCents)}
+                onClear={() => setCashReceivedCents(null)}
+                onSetAmount={setCashReceivedCents}
               />
             ) : null}
 
@@ -545,7 +549,7 @@ export function CheckoutFlow({
                     : intent.status === 'payment_confirmed'
                       ? 'Ne faites pas payer le client une deuxième fois. Réessayez uniquement l’enregistrement de la vente.'
                       : intent.paymentMethod === 'card'
-                        ? 'Vérifiez le TPE. L\'application ne peut pas connaître automatiquement le résultat.'
+                        ? "Vérifiez le TPE. L'application ne peut pas connaître automatiquement le résultat."
                         : 'Vérifiez que les espèces ont bien été reçues et la monnaie rendue.'}
                 </p>
               </div>
@@ -592,17 +596,19 @@ export function CheckoutFlow({
                           : 'Espèces reçues'
                         : intent?.status === 'payment_confirmed'
                           ? 'Finaliser la vente'
-                          : paymentMethod === 'card'
-                            ? createOrder
-                              ? hasRequestedPrintDocument
-                                ? 'Encaisser et imprimer'
-                                : 'Encaisser sans impression'
-                              : 'Préparer le paiement TPE'
-                            : createOrder
-                              ? hasRequestedPrintDocument
-                                ? 'Encaisser et imprimer'
-                                : 'Encaisser sans impression'
-                              : 'Préparer l’encaissement'}
+                          : paymentMethod === 'cash'
+                            ? 'Valider le paiement'
+                            : paymentMethod === 'card'
+                              ? createOrder
+                                ? hasRequestedPrintDocument
+                                  ? 'Encaisser et imprimer'
+                                  : 'Encaisser sans impression'
+                                : 'Préparer le paiement TPE'
+                              : createOrder
+                                ? hasRequestedPrintDocument
+                                  ? 'Encaisser et imprimer'
+                                  : 'Encaisser sans impression'
+                                : 'Préparer l’encaissement'}
               </Button>
             </div>
             {canDeferPrinting ? (
@@ -740,7 +746,8 @@ type CashPaymentProps = {
   onAppendDigit: (digit: number) => void
   onAppendDoubleZero: () => void
   onDeleteLastDigit: () => void
-  onSetExactAmount: () => void
+  onClear: () => void
+  onSetAmount: (amountCents: number) => void
 }
 
 function CashPayment({
@@ -750,28 +757,38 @@ function CashPayment({
   onAppendDigit,
   onAppendDoubleZero,
   onDeleteLastDigit,
-  onSetExactAmount,
+  onClear,
+  onSetAmount,
 }: CashPaymentProps) {
   const isSufficient = receivedCents !== null && receivedCents >= totalCents
   const changeCents = isSufficient && receivedCents !== null ? receivedCents - totalCents : null
   const missingCents = receivedCents === null ? null : Math.max(totalCents - receivedCents, 0)
+  const quickAmounts = getCashQuickAmounts(totalCents)
+  const digitEntryDisabled =
+    disabled || (receivedCents ?? 0) > Math.floor(MAX_CASH_RECEIVED_CENTS / 10)
+  const doubleZeroDisabled =
+    disabled || (receivedCents ?? 0) > Math.floor(MAX_CASH_RECEIVED_CENTS / 100)
 
   return (
     <section className="mt-5 border-t border-stone-300 pt-5" aria-labelledby="cash-payment-title">
-      <div className="flex items-baseline justify-between gap-4">
-        <h3 id="cash-payment-title" className="text-lg font-black">
-          Paiement en espèces
-        </h3>
-        <Button className="min-h-12 px-4" disabled={disabled} onClick={onSetExactAmount}>
-          Montant exact — {formatMoney(totalCents)}
-        </Button>
-      </div>
+      <h3 id="cash-payment-title" className="text-lg font-black">
+        Paiement en espèces
+      </h3>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="border-r border-stone-300 p-3 pl-0">
+          <p className="text-sm font-bold text-stone-700">Total</p>
+          <p className="mt-1 text-2xl font-black tabular-nums sm:text-3xl">
+            {formatMoney(totalCents)}
+          </p>
+        </div>
         <div className="rounded-[10px] border border-stone-300 bg-white p-4">
-          <p className="text-sm font-bold text-stone-700">Montant reçu</p>
-          <output className="mt-1 block text-3xl font-black tabular-nums" aria-live="polite">
-            {receivedCents === null ? '—' : formatMoney(receivedCents)}
+          <p className="text-sm font-bold text-stone-700">Reçu</p>
+          <output
+            className="mt-1 block text-2xl font-black tabular-nums sm:text-3xl"
+            aria-live="polite"
+          >
+            {formatMoney(receivedCents ?? 0)}
           </output>
         </div>
         <div
@@ -782,9 +799,9 @@ function CashPayment({
           }`}
           aria-live="polite"
         >
-          <p className="text-sm font-bold">Monnaie à rendre</p>
-          <p className="mt-1 text-3xl font-black tabular-nums">
-            {changeCents === null ? '—' : formatMoney(changeCents)}
+          <p className="text-sm font-bold">À rendre</p>
+          <p className="mt-1 text-2xl font-black tabular-nums sm:text-3xl">
+            {formatMoney(changeCents ?? 0)}
           </p>
           {!isSufficient ? (
             <p className="mt-1 text-sm font-bold">
@@ -796,31 +813,70 @@ function CashPayment({
         </div>
       </div>
 
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Montants rapides">
+        <Button
+          className="min-h-14 px-2"
+          disabled={disabled}
+          onClick={() => onSetAmount(totalCents)}
+          aria-label={`Montant exact — ${formatMoney(totalCents)}`}
+        >
+          {formatMoney(totalCents)} Exact
+        </Button>
+        {quickAmounts.map((amount) => (
+          <Button
+            key={amount}
+            className="min-h-14 px-2 text-lg tabular-nums"
+            disabled={disabled}
+            onClick={() => onSetAmount(amount)}
+          >
+            {formatMoney(amount)}
+          </Button>
+        ))}
+      </div>
+
       <div className="mt-3 grid grid-cols-3 gap-2" aria-label="Pavé numérique du montant reçu">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+        {[7, 8, 9, 4, 5, 6, 1, 2, 3].map((digit) => (
           <Button
             key={digit}
             className="min-h-16 text-2xl"
-            disabled={disabled}
+            disabled={digitEntryDisabled}
             onClick={() => onAppendDigit(digit)}
           >
             {digit}
           </Button>
         ))}
-        <Button className="min-h-16 text-xl" disabled={disabled} onClick={() => onAppendDigit(0)}>
+        <Button
+          className="min-h-16 text-xl"
+          disabled={digitEntryDisabled}
+          onClick={() => onAppendDigit(0)}
+        >
           0
         </Button>
-        <Button className="min-h-16 text-xl" disabled={disabled} onClick={onAppendDoubleZero}>
+        <Button
+          className="min-h-16 text-xl"
+          disabled={doubleZeroDisabled}
+          onClick={onAppendDoubleZero}
+        >
           00
         </Button>
         <Button
-          className="min-h-16 px-3 text-sm"
+          className="min-h-16 px-3 text-2xl"
           disabled={disabled || receivedCents === null}
           onClick={onDeleteLastDigit}
+          aria-label="Effacer le dernier chiffre"
         >
-          Effacer le dernier chiffre
+          ⌫
         </Button>
       </div>
+      <Button
+        fullWidth
+        variant="quiet"
+        className="mt-2 min-h-14"
+        disabled={disabled || receivedCents === null}
+        onClick={onClear}
+      >
+        Effacer le montant
+      </Button>
     </section>
   )
 }

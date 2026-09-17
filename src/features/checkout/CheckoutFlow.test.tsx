@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
 import { printPreviewOrder } from '../../mocks/printOrder'
@@ -154,7 +154,7 @@ describe('encaissement et impression', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
-    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+    const checkout = screen.getByRole('button', { name: 'Valider le paiement' })
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
 
     expect(screen.getByText(/^0,00/)).toBeInTheDocument()
@@ -164,6 +164,67 @@ describe('encaissement et impression', () => {
 
     expect(screen.getByText(/^Il manque/)).toBeInTheDocument()
     expect(checkout).toBeDisabled()
+  })
+
+  it('gère les centimes, les montants rapides, la suppression et la remise à zéro', () => {
+    const items = [
+      {
+        ...printPreviewOrder.items[0]!,
+        unitPriceCents: 1_750,
+        quantity: 1,
+      },
+    ]
+
+    render(
+      <CheckoutFlow items={items} onCancel={vi.fn()} onNewOrder={vi.fn()} createOrder={vi.fn()} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
+    const validate = screen.getByRole('button', { name: 'Valider le paiement' })
+    const received = screen.getByText('Reçu').parentElement!
+    const change = screen.getByText('À rendre').parentElement!
+
+    expect(within(received).getByText(/^0,00/)).toBeInTheDocument()
+    expect(screen.getByText('Saisissez le montant reçu.')).toBeInTheDocument()
+    expect(validate).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^20,00/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^30,00/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^50,00/ })).toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Pavé numérique du montant reçu'))
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '00', '⌫'])
+
+    fireEvent.click(screen.getByRole('button', { name: '0' }))
+    expect(screen.getByText(/^Il manque 17,50/)).toBeInTheDocument()
+    expect(validate).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le montant' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
+    expect(within(received).getByText(/^17,50/)).toBeInTheDocument()
+    expect(within(change).getByText(/^0,00/)).toBeInTheDocument()
+    expect(validate).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /^20,00/ }))
+    expect(within(received).getByText(/^20,00/)).toBeInTheDocument()
+    expect(within(change).getByText(/^2,50/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le dernier chiffre' }))
+    expect(within(received).getByText(/^2,00/)).toBeInTheDocument()
+    expect(screen.getByText(/^Il manque 15,50/)).toBeInTheDocument()
+    expect(validate).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le montant' }))
+    for (const digit of ['2', '0', '5', '0']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+    expect(within(received).getByText(/^20,50/)).toBeInTheDocument()
+    expect(within(change).getByText(/^3,00/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Effacer le montant' }))
+    expect(within(received).getByText(/^0,00/)).toBeInTheDocument()
+    expect(validate).toBeDisabled()
   })
 
   it('persiste avant impression, bloque le double clic et réimprime la même commande', async () => {
@@ -199,7 +260,7 @@ describe('encaissement et impression', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
-    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+    const checkout = screen.getByRole('button', { name: 'Valider le paiement' })
     fireEvent.click(checkout)
     fireEvent.click(checkout)
     expect(screen.getByRole('button', { name: 'Impression en cours…' })).toBeDisabled()
