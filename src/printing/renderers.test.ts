@@ -93,8 +93,8 @@ describe('rendus thermiques', () => {
     const menu = products.find((product) => product.id === 'menu-enfant')!
     const draft = createCartItemDraft(menu, {
       optionIdsByGroup: {
-        plat: ['nuggets'],
-        boisson: ['coca'],
+        plat: ['steak-hache'],
+        boisson: ['jus-fruit'],
         dessert: ['compote'],
       },
     })
@@ -106,8 +106,8 @@ describe('rendus thermiques', () => {
     }
 
     const preparation = renderPreparationTicket(menuOrder).preview
-    expect(preparation).toContain('PLAT : NUGGETS')
-    expect(preparation).toContain('BOISSON : COCA-COLA')
+    expect(preparation).toContain('PLAT : STEAK HACHÉ AVEC FRITES')
+    expect(preparation).toContain('BOISSON : JUS DE FRUIT')
     expect(preparation).toContain('DESSERT : COMPOTE')
   })
 
