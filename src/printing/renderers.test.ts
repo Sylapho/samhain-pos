@@ -95,7 +95,7 @@ describe('rendus thermiques', () => {
       optionIdsByGroup: {
         plat: ['steak-hache'],
         boisson: ['jus-fruit'],
-        dessert: ['compote'],
+        dessert: ['crepe-chocolat'],
       },
     })
     const menuOrder = {
@@ -108,7 +108,7 @@ describe('rendus thermiques', () => {
     const preparation = renderPreparationTicket(menuOrder).preview
     expect(preparation).toContain('PLAT : STEAK HACHÉ AVEC FRITES')
     expect(preparation).toContain('BOISSON : JUS DE FRUIT')
-    expect(preparation).toContain('DESSERT : COMPOTE')
+    expect(preparation).toContain('DESSERT : CRÊPE CHOCOLAT')
   })
 
   it('limite toutes les lignes au nombre de colonnes demandé', () => {
