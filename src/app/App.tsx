@@ -15,7 +15,7 @@ import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
-import { CatalogService, getCatalogService } from '../services/catalogService'
+import { getCatalogService, type CatalogService } from '../services/catalogService'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { checkoutService } from '../services/checkoutService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
@@ -53,6 +53,8 @@ type Props = {
     'createOrder' | 'checkout' | 'lifecycle' | 'printOrder'
   >
   ledgerManagementDependencies?: Pick<LedgerManagementProps, 'ledgerService' | 'now'>
+  catalogService?: CatalogService
+  initialCatalog?: Product[]
 }
 
 const defaultTerminalManagement = {
@@ -449,7 +451,11 @@ export function App({
       ) : null}
 
       {devPanelEnabled ? (
-        <DevPanel printerOverride={printerOverride} onPrinterOverride={setPrinterOverride} />
+        <DevPanel
+          products={products.filter((product) => product.active)}
+          printerOverride={printerOverride}
+          onPrinterOverride={setPrinterOverride}
+        />
       ) : null}
 
       <main className="pos-layout min-h-0 flex-1">
