@@ -268,7 +268,7 @@ export function OrderHistory({
               Commandes enregistrées sur cette caisse
             </p>
           </div>
-          <Button disabled={printing !== null} onClick={onClose}>
+          <Button variant="secondary" disabled={printing !== null} onClick={onClose}>
             Fermer
           </Button>
         </header>

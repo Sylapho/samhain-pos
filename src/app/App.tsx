@@ -336,7 +336,8 @@ export function App({
         </div>
         <div className="flex items-center gap-3">
           <Button
-            className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
+            variant="headerImportant"
+            className="min-h-11 px-4 py-2"
             onClick={() => {
               void requestResponsibleAccess().then((authorized) => {
                 if (authorized) setLedgerManagementOpen(true)
@@ -346,7 +347,8 @@ export function App({
             Clôture et sauvegarde
           </Button>
           <Button
-            className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
+            variant="headerSecondary"
+            className="min-h-11 px-4 py-2"
             onClick={() => setHistoryOpen(true)}
           >
             Historique
