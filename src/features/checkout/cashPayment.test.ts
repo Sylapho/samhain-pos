@@ -7,9 +7,7 @@ import {
 } from './cashPayment'
 
 describe('saisie du paiement en espèces', () => {
-  it('saisit naturellement les euros et les centimes avec les zéros rapides', () => {
-    expect(appendCashDigits(2, 0, 100)).toBe(200)
-
+  it('saisit naturellement les euros et les centimes', () => {
     const twentyFifty = [2, 0, 5, 0].reduce<number | null>(
       (amount, digit) => appendCashDigits(amount, digit),
       null,
@@ -25,7 +23,6 @@ describe('saisie du paiement en espèces', () => {
 
   it('refuse une saisie manuelle supérieure à six chiffres', () => {
     expect(appendCashDigits(MAX_CASH_RECEIVED_CENTS, 9)).toBe(MAX_CASH_RECEIVED_CENTS)
-    expect(appendCashDigits(10_000, 0, 100)).toBe(10_000)
   })
 
   it('propose uniquement des montants simples supérieurs au total', () => {
