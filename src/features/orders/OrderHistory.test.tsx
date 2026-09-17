@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../../mocks/printOrder'
 import type { PrintJobResult } from '../../printing/types'
+import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { OrderHistory } from './OrderHistory'
 
 const success: PrintJobResult = {
@@ -19,6 +20,47 @@ const printedOrder = {
     customerReceipt: 'printed' as const,
     preparationTicket: 'printed' as const,
   },
+}
+
+function correction(
+  type: 'cancellation' | 'refund',
+  amountDeltaCents: number,
+  reason = 'Erreur de saisie',
+): CorrectionLedgerEntry {
+  return {
+    schemaVersion: 1,
+    id: `correction:${type}:${amountDeltaCents}:${reason}`,
+    sequence: 2,
+    recordedAt: '2026-09-01T19:40:00.000Z',
+    previousHash: 'previous',
+    hash: 'hash',
+    kind: 'correction',
+    source: {
+      softwareVersion: 'test',
+      buildMode: 'test',
+      terminal: printedOrder.terminal!,
+      organization: {} as CorrectionLedgerEntry['source']['organization'],
+    },
+    correction: {
+      operationId: `operation-${type}`,
+      originalOrderId: printedOrder.id,
+      originalOrderNumber: printedOrder.orderNumber,
+      originalReceiptNumber: printedOrder.receiptNumber,
+      type,
+      reason,
+      amountDeltaCents,
+      paymentMethod: printedOrder.paymentMethod,
+      originalSaleHash: null,
+    },
+  }
+}
+
+function ledgerService(entries: CorrectionLedgerEntry[] = []) {
+  return {
+    getEntries: vi.fn(async () => entries),
+    cancelSale: vi.fn(),
+    refundSale: vi.fn(),
+  }
 }
 
 describe('historique des commandes', () => {
@@ -90,6 +132,162 @@ describe('historique des commandes', () => {
       within(detail).getByText('Ticket de préparation : À vérifier avant réimpression'),
     ).toBeInTheDocument()
     expect(printOrder).not.toHaveBeenCalled()
+  })
+
+  it('affiche séparément la vente originale et ses corrections avec un statut dérivé', async () => {
+    const refund = correction('refund', -500, 'Produit indisponible')
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={ledgerService([refund])}
+      />,
+    )
+
+    const detail = await screen.findByRole('article', { name: 'Commande A-0001' })
+    expect(within(detail).getByText('Statut : Partiellement remboursée')).toBeInTheDocument()
+    expect(within(detail).getByText('Remboursement')).toBeInTheDocument()
+    expect(within(detail).getByText(/-5,00/)).toBeInTheDocument()
+    expect(within(detail).getByText('Motif : Produit indisponible')).toBeInTheDocument()
+    expect(within(detail).getAllByText(/Caisse A/).length).toBeGreaterThan(0)
+    expect(within(detail).getByText(/41,50/)).toBeInTheDocument()
+  })
+
+  it('protège l’ouverture de la correction par le mode responsable', async () => {
+    const requestResponsibleAccess = vi.fn().mockResolvedValue(false)
+    const service = ledgerService()
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={service}
+        requestResponsibleAccess={requestResponsibleAccess}
+      />,
+    )
+
+    await screen.findByText('Aucune correction enregistrée.')
+    fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
+    await waitFor(() => expect(requestResponsibleAccess).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('dialog', { name: 'Corriger la vente' })).not.toBeInTheDocument()
+    expect(service.cancelSale).not.toHaveBeenCalled()
+  })
+
+  it('confirme une annulation une seule fois malgré deux appuis et recharge le journal', async () => {
+    const service = ledgerService()
+    const recorded = correction('cancellation', -printedOrder.totalCents)
+    let finish: ((entry: CorrectionLedgerEntry) => void) | undefined
+    service.cancelSale.mockImplementation(
+      () =>
+        new Promise<CorrectionLedgerEntry>((resolve) => {
+          finish = resolve
+        }),
+    )
+    service.getEntries.mockResolvedValueOnce([]).mockResolvedValueOnce([recorded])
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={service}
+        requestResponsibleAccess={vi.fn().mockResolvedValue(true)}
+        createOperationId={() => 'stable-operation-id'}
+      />,
+    )
+
+    await screen.findByText('Aucune correction enregistrée.')
+    fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Corriger la vente' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Annulation totale' }))
+    fireEvent.change(within(dialog).getByLabelText('Motif obligatoire'), {
+      target: { value: 'Erreur de saisie' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Vérifier la correction' }))
+    const confirmation = screen.getByRole('alertdialog', { name: 'Confirmer l’annulation ?' })
+    const submit = within(confirmation).getByRole('button', { name: 'Annuler la vente' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+
+    await waitFor(() => expect(service.cancelSale).toHaveBeenCalledOnce())
+    expect(service.cancelSale).toHaveBeenCalledWith(
+      printedOrder.id,
+      'Erreur de saisie',
+      'stable-operation-id',
+    )
+    await act(async () => finish?.(recorded))
+    expect(await screen.findByText('Statut : Annulée')).toBeInTheDocument()
+    expect(screen.getByText(/Aucun justificatif n’a été imprimé/)).toBeInTheDocument()
+    expect(service.getEntries).toHaveBeenCalledTimes(2)
+  })
+
+  it('rembourse uniquement le montant restant et conserve la même clé idempotente', async () => {
+    const priorRefund = correction('refund', -500, 'Premier remboursement')
+    const service = ledgerService([priorRefund])
+    service.refundSale.mockResolvedValue(correction('refund', -(printedOrder.totalCents - 500)))
+    service.getEntries
+      .mockResolvedValueOnce([priorRefund])
+      .mockResolvedValueOnce([
+        priorRefund,
+        correction('refund', -(printedOrder.totalCents - 500), 'Remboursement du reste'),
+      ])
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={service}
+        requestResponsibleAccess={vi.fn().mockResolvedValue(true)}
+        createOperationId={() => 'refund-operation-id'}
+      />,
+    )
+
+    await screen.findByText('Statut : Partiellement remboursée')
+    fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Corriger la vente' })
+    expect(within(dialog).getByRole('button', { name: 'Annulation totale' })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remboursement total' }))
+    fireEvent.change(within(dialog).getByLabelText('Motif obligatoire'), {
+      target: { value: 'Remboursement du reste' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Vérifier la correction' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rembourser la vente' }))
+
+    await waitFor(() =>
+      expect(service.refundSale).toHaveBeenCalledWith(
+        printedOrder.id,
+        printedOrder.totalCents - 500,
+        'Remboursement du reste',
+        'refund-operation-id',
+      ),
+    )
+    expect(await screen.findByText('Statut : Remboursée')).toBeInTheDocument()
+  })
+
+  it('affiche le refus si le mode responsable expire avant la confirmation', async () => {
+    const service = ledgerService()
+    service.cancelSale.mockRejectedValue(new Error('Le mode responsable a expiré.'))
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={service}
+        requestResponsibleAccess={vi.fn().mockResolvedValue(true)}
+      />,
+    )
+
+    await screen.findByText('Aucune correction enregistrée.')
+    fireEvent.click(screen.getByRole('button', { name: 'Corriger la vente' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Corriger la vente' })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Annulation totale' }))
+    fireEvent.change(within(dialog).getByLabelText('Motif obligatoire'), {
+      target: { value: 'Erreur de saisie' },
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Vérifier la correction' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler la vente' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Le mode responsable a expiré.')
+    expect(
+      screen.getByRole('button', { name: 'Déverrouiller le mode responsable' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Commande A-0001' })).toBeInTheDocument()
+    expect(service.getEntries).toHaveBeenCalledOnce()
   })
 
   it.each([
