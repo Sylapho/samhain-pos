@@ -52,12 +52,7 @@ type Props = {
     ComponentProps<typeof CheckoutFlow>,
     'createOrder' | 'checkout' | 'lifecycle' | 'printOrder'
   >
-  ledgerManagementDependencies?: Pick<
-    LedgerManagementProps,
-    'ledgerService' | 'backupService' | 'now'
-  >
-  catalogService?: CatalogService
-  initialCatalog?: Product[]
+  ledgerManagementDependencies?: Pick<LedgerManagementProps, 'ledgerService' | 'now'>
 }
 
 const defaultTerminalManagement = {
@@ -454,11 +449,7 @@ export function App({
       ) : null}
 
       {devPanelEnabled ? (
-        <DevPanel
-          products={products.filter((product) => product.active)}
-          printerOverride={printerOverride}
-          onPrinterOverride={setPrinterOverride}
-        />
+        <DevPanel printerOverride={printerOverride} onPrinterOverride={setPrinterOverride} />
       ) : null}
 
       <main className="pos-layout min-h-0 flex-1">
