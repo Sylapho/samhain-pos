@@ -5,6 +5,7 @@ import { getResponsibleModeService } from '../services/responsibleModeService'
 import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { bytesToBase64 } from './escPos'
+import { orderRequiresPreparation } from '../utils/preparation'
 import { renderPreparationTicket } from './preparationTicketRenderer'
 import { OrderPrintError } from './types'
 import type {
@@ -82,7 +83,8 @@ export function buildOrderPrintJob(
     }
     documents.push(renderCustomerReceipt(order))
   }
-  if (includesDocument(selection, 'preparationTicket')) {
+  const preparationRequired = orderRequiresPreparation(order)
+  if (includesDocument(selection, 'preparationTicket') && preparationRequired) {
     documents.push(renderPreparationTicket(order))
   }
 
@@ -100,7 +102,7 @@ export function buildOrderPrintJob(
     },
   ])
 
-  if (!steps.length) {
+  if (!steps.length && !(includesDocument(selection, 'preparationTicket') && !preparationRequired)) {
     throw new OrderPrintError(
       'Aucun ticket n’a été sélectionné pour cette impression.',
       'configuration',
@@ -139,6 +141,9 @@ export class OrderPrintService {
       }
     }
     const job = buildOrderPrintJob(order, selectedOptions)
+    if (!job.steps.length) {
+      return { ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] }
+    }
     return this.printer.printJob(job.steps, options.deviceId)
   }
 }

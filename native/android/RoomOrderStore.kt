@@ -91,6 +91,10 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 "Le paiement doit être explicitement confirmé avant la vente."
             }
             val paidAt = intent.requireNonBlank("paymentConfirmedAt")
+            val preparationRequired = requiresPreparation(intent.getJSONArray("cartSnapshot"))
+            val customerReceipt =
+                if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested"
+            val preparationTicket = if (preparationRequired) "pending" else "not_requested"
             val request =
                 JSONObject().apply {
                     put("id", intent.getString("id"))
@@ -108,12 +112,16 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     put(
                         "printing",
                         JSONObject().apply {
-                            put("status", "pending")
                             put(
-                                "customerReceipt",
-                                if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested",
+                                "status",
+                                if (customerReceipt == "pending" || preparationTicket == "pending") {
+                                    "pending"
+                                } else {
+                                    "printed"
+                                },
                             )
-                            put("preparationTicket", "pending")
+                            put("customerReceipt", customerReceipt)
+                            put("preparationTicket", preparationTicket)
                             put("attempts", 0)
                             put("updatedAt", paidAt)
                         },
@@ -951,6 +959,16 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         } catch (error: Exception) {
             throw IllegalArgumentException("Le champ $field doit être un timestamp ISO valide.", error)
         }
+    }
+
+    private fun requiresPreparation(items: JSONArray): Boolean {
+        for (index in 0 until items.length()) {
+            val item = items.getJSONObject(index)
+            if (!item.has("requiresPreparation") || item.optBoolean("requiresPreparation", true)) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun safeMultiply(left: Long, right: Long, label: String): Long {

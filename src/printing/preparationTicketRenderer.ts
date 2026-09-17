@@ -2,6 +2,7 @@ import { printerProfile, type PrinterProfile } from '../config/printer'
 import type { Order } from '../types/order'
 import { getRemovedIngredients } from '../utils/cart'
 import { getOrderTerminalDisplayName } from '../utils/order'
+import { getPreparationItems } from '../utils/preparation'
 import { EscPosBuilder } from './escPos'
 import { formatTicketDateTime } from './format'
 import { separator, wrapText } from './layout'
@@ -23,7 +24,7 @@ export function renderPreparationTicket(
   builder.blank()
 
   builder.align('left').bold(true)
-  for (const item of order.items) {
+  for (const item of getPreparationItems(order)) {
     const name =
       `${item.quantity} x ${item.name}${item.variant ? ` ${item.variant.name}` : ''}`.toLocaleUpperCase(
         'fr-FR',

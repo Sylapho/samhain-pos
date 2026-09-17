@@ -19,6 +19,7 @@ import {
   type StoredOrderTechnicalState,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
+import { orderRequiresPreparation } from '../utils/preparation'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 
 const DATABASE_VERSION = 3
@@ -605,6 +606,9 @@ export class IndexedDbOrderRepository
                 throw new Error('Le paiement doit être explicitement confirmé avant la vente.')
               }
               const paymentConfirmedAt = intent.paymentConfirmedAt
+              const preparationRequired = orderRequiresPreparation({ items: intent.cartSnapshot })
+              const customerReceipt = intent.printCustomerReceipt ? 'pending' : 'not_requested'
+              const preparationTicket = preparationRequired ? 'pending' : 'not_requested'
               const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
               sequenceRequest.onsuccess = () => {
                 try {
@@ -626,9 +630,12 @@ export class IndexedDbOrderRepository
                       orderNumberPrefix: intent.orderNumberPrefix,
                       receiptNumberPrefix: intent.receiptNumberPrefix,
                       printing: {
-                        status: 'pending',
-                        customerReceipt: intent.printCustomerReceipt ? 'pending' : 'not_requested',
-                        preparationTicket: 'pending',
+                        status:
+                          customerReceipt === 'pending' || preparationTicket === 'pending'
+                            ? 'pending'
+                            : 'printed',
+                        customerReceipt,
+                        preparationTicket,
                         attempts: 0,
                         updatedAt: paymentConfirmedAt,
                       },

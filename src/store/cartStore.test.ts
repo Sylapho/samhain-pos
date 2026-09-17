@@ -8,10 +8,12 @@ const burger = products.find((product) => product.id === 'burger-samhain')!
 const prestige = products.find((product) => product.id === 'biere-prestige')!
 const tea = products.find((product) => product.id === 'the')!
 const coca = products.find((product) => product.id === 'cola-temporaire')!
+const water = products.find((product) => product.id === 'eau')!
 const configurableSnack: Product = {
   id: 'snack-configurable-test',
   name: 'Snack configurable',
   categoryId: 'assiettes',
+  requiresPreparation: true,
   availability: 'available',
   priceCents: 1000,
   vatRate: 10,
@@ -41,6 +43,12 @@ const configurableSnack: Product = {
 
 describe('cart store', () => {
   beforeEach(() => useCartStore.getState().clearCart())
+
+  it('snapshote le besoin de préparation indépendamment de la catégorie', () => {
+    expect(water.categoryId).toBe(coca.categoryId)
+    expect(createCartItemDraft(water).requiresPreparation).toBe(false)
+    expect(createCartItemDraft(coca).requiresPreparation).toBe(true)
+  })
 
   it('fusionne deux lignes strictement identiques', () => {
     const draft = createCartItemDraft(burger)

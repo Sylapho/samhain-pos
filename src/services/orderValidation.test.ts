@@ -55,6 +55,25 @@ function validRequest(overrides: Partial<OrderCreationRequest> = {}): OrderCreat
 }
 
 describe('validation métier des nouvelles commandes', () => {
+  it('normalise prudemment une ancienne ligne sans snapshot de préparation', () => {
+    const legacyItem = createValidCartItem() as Partial<ReturnType<typeof createValidCartItem>>
+    delete legacyItem.requiresPreparation
+
+    expect(validateOrderDraft(validDraft({ items: [legacyItem] })).items[0]?.requiresPreparation).toBe(
+      true,
+    )
+  })
+
+  it('refuse une valeur de préparation non booléenne', () => {
+    expect(() =>
+      validateOrderDraft(
+        validDraft({
+          items: [{ ...createValidCartItem(), requiresPreparation: 'non' }],
+        }),
+      ),
+    ).toThrow(/besoin de préparation.*booléen/)
+  })
+
   it('refuse une commande vide avant persistance sans consommer de séquence', async () => {
     const repository = new IndexedDbOrderRepository(new IDBFactory(), 'reject-empty-order')
     const service = new OrderService(

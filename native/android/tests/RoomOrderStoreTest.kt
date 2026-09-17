@@ -160,6 +160,23 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun checkoutWithoutPreparationFinalizesWithNoRequestedDocument() = onDatabaseThread {
+        val intent = checkoutIntent("no-preparation")
+        intent.put("printCustomerReceipt", false)
+        intent.getJSONArray("cartSnapshot").getJSONObject(0).put("requiresPreparation", false)
+        store.createCheckoutIntent(intent)
+        store.markCheckoutPaymentToVerify("no-preparation", "2026-09-01T12:01:00.000Z")
+        store.confirmCheckoutPayment("no-preparation", "2026-09-01T12:02:00.000Z")
+
+        val order =
+            store.finalizeCheckoutIntent("no-preparation", "2026-09-01T12:03:00.000Z")
+        val state = order.getJSONObject("printing")
+        assertEquals("printed", state.getString("status"))
+        assertEquals("not_requested", state.getString("customerReceipt"))
+        assertEquals("not_requested", state.getString("preparationTicket"))
+    }
+
+    @Test
     fun abandonedCheckoutIntentCreatesNoFinancialRecord() = onDatabaseThread {
         store.createCheckoutIntent(checkoutIntent("abandoned-intent"))
         store.markCheckoutPaymentToVerify("abandoned-intent", "2026-09-01T12:01:00.000Z")

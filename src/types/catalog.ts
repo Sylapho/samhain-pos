@@ -60,6 +60,7 @@ export type Product = {
   id: string
   name: string
   categoryId: CategoryId
+  requiresPreparation: boolean
   availability: ProductAvailability
   priceCents?: number
   description?: string
