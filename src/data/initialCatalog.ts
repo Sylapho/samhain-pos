@@ -1,6 +1,6 @@
 import type { Product } from '../types/catalog.ts'
 
-export const products: Product[] = [
+const seedProducts: Omit<Product, 'active' | 'displayOrder'>[] = [
   {
     id: 'menu-enfant',
     name: 'Menu enfant',
@@ -259,3 +259,13 @@ export const products: Product[] = [
     description: 'Au verre · 33 cl',
   },
 ]
+
+/**
+ * Catalogue utilisé exclusivement pour initialiser une installation vierge.
+ * Les lectures runtime passent toujours par CatalogService.
+ */
+export const initialCatalogProducts: Product[] = seedProducts.map((product, displayOrder) => ({
+  ...product,
+  active: true,
+  displayOrder,
+}))

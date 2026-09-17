@@ -1,11 +1,10 @@
-import { products } from '../mocks/products.ts'
 import type { Product } from '../types/catalog.ts'
 
 function formatNote(note: string | undefined): string {
   return note ? ` — Note : ${note}` : ''
 }
 
-export function assertCatalogReadyForProduction(catalog: readonly Product[] = products): void {
+export function assertCatalogReadyForProduction(catalog: readonly Product[]): void {
   const temporaryEntries: string[] = []
 
   for (const product of catalog) {

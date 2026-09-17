@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
-import { products } from '../mocks/products'
+import { initialCatalogProducts as products } from '../data/initialCatalog'
 import { createCartItemDraft } from '../utils/cart'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { encodeCp858 } from './escPos'

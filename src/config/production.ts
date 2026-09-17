@@ -1,4 +1,4 @@
-import { products } from '../mocks/products.ts'
+import { initialCatalogProducts } from '../data/initialCatalog.ts'
 import type { Product } from '../types/catalog.ts'
 import { assertCatalogReadyForProduction } from './catalog.ts'
 import {
@@ -23,7 +23,10 @@ function getErrorMessage(error: unknown): string {
 
 export function assertProductionBuildReady(
   { command, mode }: BuildContext,
-  { businessInfo = receiptBusinessInfo, catalog = products }: ProductionConfiguration = {},
+  {
+    businessInfo = receiptBusinessInfo,
+    catalog = initialCatalogProducts,
+  }: ProductionConfiguration = {},
 ): void {
   if (command !== 'build' || mode !== 'production') return
 

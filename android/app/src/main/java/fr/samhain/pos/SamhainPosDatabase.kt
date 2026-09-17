@@ -138,6 +138,36 @@ data class CheckoutIntentEntity(
     @ColumnInfo(name = "payload_json") val payloadJson: String,
 )
 
+@Entity(
+    tableName = "products",
+    indices = [
+        Index(value = ["active"]),
+        Index(value = ["category_id"]),
+        Index(value = ["display_order"]),
+    ],
+)
+data class ProductEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    @ColumnInfo(name = "category_id") val categoryId: String,
+    @ColumnInfo(name = "price_cents") val priceCents: Long?,
+    @ColumnInfo(name = "vat_rate") val vatRate: Int,
+    val availability: String,
+    val active: Boolean,
+    @ColumnInfo(name = "display_order") val displayOrder: Int,
+    @ColumnInfo(name = "product_json") val productJson: String,
+)
+
+@Entity(tableName = "catalog_metadata")
+data class CatalogMetadataEntity(
+    @PrimaryKey val id: Int = SINGLETON_ID,
+    @ColumnInfo(name = "initialized_at") val initializedAt: String,
+) {
+    companion object {
+        const val SINGLETON_ID = 1
+    }
+}
+
 @Dao
 interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -213,6 +243,36 @@ interface CheckoutIntentDao {
     fun getAll(): List<CheckoutIntentEntity>
 }
 
+@Dao
+interface ProductDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insert(product: ProductEntity)
+
+    @Update
+    fun update(product: ProductEntity): Int
+
+    @Query("SELECT * FROM products WHERE id = :id")
+    fun findById(id: String): ProductEntity?
+
+    @Query("SELECT * FROM products ORDER BY display_order ASC, name ASC, id ASC")
+    fun getAll(): List<ProductEntity>
+
+    @Query("SELECT * FROM products WHERE active = 1 AND availability = 'available' ORDER BY display_order ASC, name ASC, id ASC")
+    fun getSellable(): List<ProductEntity>
+
+    @Query("SELECT COUNT(*) FROM products")
+    fun count(): Int
+}
+
+@Dao
+interface CatalogMetadataDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    fun insert(metadata: CatalogMetadataEntity)
+
+    @Query("SELECT * FROM catalog_metadata WHERE id = 1")
+    fun get(): CatalogMetadataEntity?
+}
+
 @Database(
     entities = [
         OrderEntity::class,
@@ -220,8 +280,10 @@ interface CheckoutIntentDao {
         SalesLedgerEntity::class,
         PosMetadataEntity::class,
         CheckoutIntentEntity::class,
+        ProductEntity::class,
+        CatalogMetadataEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
@@ -234,6 +296,10 @@ abstract class SamhainPosDatabase : RoomDatabase() {
     abstract fun metadataDao(): PosMetadataDao
 
     abstract fun checkoutIntentDao(): CheckoutIntentDao
+
+    abstract fun productDao(): ProductDao
+
+    abstract fun catalogMetadataDao(): CatalogMetadataDao
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
@@ -302,6 +368,42 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                 }
             }
 
+        val MIGRATION_4_5 =
+            object : Migration(4, 5) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS products (
+                            id TEXT NOT NULL PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            category_id TEXT NOT NULL,
+                            price_cents INTEGER,
+                            vat_rate INTEGER NOT NULL,
+                            availability TEXT NOT NULL,
+                            active INTEGER NOT NULL,
+                            display_order INTEGER NOT NULL,
+                            product_json TEXT NOT NULL
+                        )
+                        """.trimIndent(),
+                    )
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_products_active ON products(active)")
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_products_category_id ON products(category_id)",
+                    )
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS index_products_display_order ON products(display_order)",
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS catalog_metadata (
+                            id INTEGER NOT NULL PRIMARY KEY,
+                            initialized_at TEXT NOT NULL
+                        )
+                        """.trimIndent(),
+                    )
+                }
+            }
+
         @Volatile private var instance: SamhainPosDatabase? = null
 
         fun getInstance(context: Context): SamhainPosDatabase =
@@ -310,7 +412,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

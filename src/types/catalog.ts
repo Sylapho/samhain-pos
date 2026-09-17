@@ -60,6 +60,8 @@ export type Product = {
   id: string
   name: string
   categoryId: CategoryId
+  active: boolean
+  displayOrder: number
   requiresPreparation: boolean
   availability: ProductAvailability
   priceCents?: number

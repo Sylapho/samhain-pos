@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { products } from '../mocks/products'
+import { initialCatalogProducts as products } from '../data/initialCatalog'
 import type { Product } from '../types/catalog'
 import { createCartItemDraft, getDefaultProductSelection } from '../utils/cart'
 import { getCartTotalCents, useCartStore } from './cartStore'
@@ -12,6 +12,8 @@ const configurableSnack: Product = {
   id: 'snack-configurable-test',
   name: 'Snack configurable',
   categoryId: 'assiettes',
+  active: true,
+  displayOrder: 0,
   requiresPreparation: true,
   availability: 'available',
   priceCents: 1000,

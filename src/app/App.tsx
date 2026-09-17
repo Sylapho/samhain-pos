@@ -4,6 +4,7 @@ import { CartPanel } from '../features/cart/CartPanel'
 import { CategoryTabs } from '../features/catalog/CategoryTabs'
 import { ProductGrid } from '../features/catalog/ProductGrid'
 import { ProductOptionsSheet } from '../features/catalog/ProductOptionsSheet'
+import { ProductManagementDialog } from '../features/catalog/ProductManagementDialog'
 import { CheckoutFlow } from '../features/checkout/CheckoutFlow'
 import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
@@ -14,7 +15,7 @@ import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
-import { products } from '../mocks/products'
+import { CatalogService, getCatalogService } from '../services/catalogService'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { checkoutService } from '../services/checkoutService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
@@ -55,6 +56,8 @@ type Props = {
     LedgerManagementProps,
     'ledgerService' | 'backupService' | 'now'
   >
+  catalogService?: CatalogService
+  initialCatalog?: Product[]
 }
 
 const defaultTerminalManagement = {
@@ -74,13 +77,24 @@ export function App({
   loadPendingTabletReplacement = hasPendingTabletReplacement,
   checkoutDependencies,
   ledgerManagementDependencies,
+  catalogService,
+  initialCatalog,
 }: Props = {}) {
+  const catalogManagement = useMemo(
+    () => catalogService ?? (initialCatalog ? null : getCatalogService()),
+    [catalogService, initialCatalog],
+  )
+  const [products, setProducts] = useState<Product[]>(() => initialCatalog ?? [])
+  const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>(
+    initialCatalog ? 'ready' : 'loading',
+  )
   const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [ledgerManagementOpen, setLedgerManagementOpen] = useState(false)
+  const [productManagementOpen, setProductManagementOpen] = useState(false)
   const [terminalState, setTerminalState] = useState<{
     configuration: TerminalConfiguration | null
     error: boolean
@@ -132,6 +146,24 @@ export function App({
     [loadRecoverableIntents, loadRecoverableOrders],
   )
 
+  useEffect(() => {
+    if (initialCatalog || !catalogManagement) return
+    let active = true
+    void catalogManagement.loadCatalog().then(
+      (loadedProducts) => {
+        if (!active) return
+        setProducts(loadedProducts)
+        setCatalogStatus('ready')
+      },
+      () => {
+        if (active) setCatalogStatus('error')
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [catalogManagement, initialCatalog])
+
   const requestResponsibleAccess = useCallback((): Promise<boolean> => {
     try {
       responsibleMode.requireUnlocked()
@@ -150,6 +182,7 @@ export function App({
         setTerminalConfigurationOpen(false)
         setLedgerManagementOpen(false)
         setPrinterConfigurationOpen(false)
+        setProductManagementOpen(false)
       }
     }
     document.addEventListener('visibilitychange', lockWhenHidden)
@@ -184,8 +217,12 @@ export function App({
   }, [loadRecoverableOrders, recoverableIntentLoader, terminalConfiguration])
 
   const filteredProducts = useMemo(
-    () => products.filter((product) => product.categoryId === category),
-    [category],
+    () =>
+      products.filter(
+        (product) =>
+          product.active && product.availability === 'available' && product.categoryId === category,
+      ),
+    [category, products],
   )
 
   const showAddedFeedback = (productId: string) => {
@@ -335,6 +372,17 @@ export function App({
         </div>
         <div className="flex items-center gap-3">
           <Button
+            variant="headerSecondary"
+            className="min-h-11 px-4 py-2"
+            onClick={() => {
+              void requestResponsibleAccess().then((authorized) => {
+                if (authorized) setProductManagementOpen(true)
+              })
+            }}
+          >
+            Administration
+          </Button>
+          <Button
             variant="headerImportant"
             className="min-h-11 px-4 py-2"
             onClick={() => {
@@ -407,6 +455,7 @@ export function App({
 
       {devPanelEnabled ? (
         <DevPanel
+          products={products.filter((product) => product.active)}
           printerOverride={printerOverride}
           onPrinterOverride={setPrinterOverride}
         />
@@ -428,6 +477,8 @@ export function App({
             products={filteredProducts}
             onSelect={selectProduct}
             lastAddedProductId={lastAddedProductId}
+            status={catalogStatus}
+            errorMessage="Le catalogue est momentanément indisponible. Redémarrez l’application, puis réessayez."
           />
         </section>
         <CartPanel onCheckout={validateOrder} products={products} />
@@ -484,6 +535,21 @@ export function App({
           reprovisioningBlockReason={reprovisioningBlockReason}
           onClose={() => {
             setTerminalConfigurationOpen(false)
+            responsibleMode.lock()
+          }}
+        />
+      ) : null}
+
+      {productManagementOpen && catalogManagement ? (
+        <ProductManagementDialog
+          products={products}
+          service={catalogManagement}
+          onProductsChanged={(updatedProducts) => {
+            setProducts(updatedProducts)
+            setCatalogStatus('ready')
+          }}
+          onClose={() => {
+            setProductManagementOpen(false)
             responsibleMode.lock()
           }}
         />

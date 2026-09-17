@@ -1,16 +1,17 @@
 import { Button } from '../../components/ui/Button'
-import { products } from '../../mocks/products'
+import type { Product } from '../../types/catalog'
 import { useCartStore } from '../../store/cartStore'
 import type { PrinterStatus } from '../../types/system'
 import { createCartItemDraft, getDefaultProductSelection } from '../../utils/cart'
 import { UsbPrinterPanel } from './UsbPrinterPanel'
 
 type Props = {
+  products: Product[]
   printerOverride: PrinterStatus | null
   onPrinterOverride: (value: PrinterStatus | null) => void
 }
 
-export function DevPanel({ printerOverride, onPrinterOverride }: Props) {
+export function DevPanel({ products, printerOverride, onPrinterOverride }: Props) {
   const clear = useCartStore((state) => state.clearCart)
   const add = useCartStore((state) => state.addItem)
   const loadBusyCart = () => {

@@ -30,7 +30,7 @@ function setOrderSequence(
   nextOrderSequence: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const open = indexedDb.open(databaseName, 3)
+    const open = indexedDb.open(databaseName, 4)
     open.onerror = () => reject(open.error)
     open.onsuccess = () => {
       const database = open.result
