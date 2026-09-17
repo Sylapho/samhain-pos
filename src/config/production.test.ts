@@ -18,6 +18,7 @@ const temporaryCatalog: Product[] = [
     id: 'produit-temporaire',
     name: 'Produit temporaire',
     categoryId: 'assiettes',
+    requiresPreparation: true,
     availability: 'available',
     priceCents: 1_000,
     vatRate: 10,

@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
-import { createValidOrderItems } from '../test/orderFixtures'
+import { createValidCartItem, createValidOrderItems } from '../test/orderFixtures'
 import { createLedgerSource } from './ledgerSource'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { CheckoutService } from './checkoutService'
@@ -53,6 +53,28 @@ function setOrderSequence(
 }
 
 describe('frontière durable entre paiement et vente', () => {
+  it('finalise sans préparation quand le snapshot ne contient aucune ligne à préparer', async () => {
+    const { repository, service } = setup('checkout-no-preparation')
+    const intent = await service.createIntent(
+      [createValidCartItem({ requiresPreparation: false })],
+      'card',
+      false,
+      new Date('2026-09-01T10:00:00.000Z'),
+    )
+    await service.beginPayment(intent.id, new Date('2026-09-01T10:01:00.000Z'))
+    await service.confirmPayment(intent.id, new Date('2026-09-01T10:02:00.000Z'))
+
+    const order = await service.finalize(intent.id, new Date('2026-09-01T10:03:00.000Z'))
+
+    expect(order.items[0]?.requiresPreparation).toBe(false)
+    expect(order.printing).toMatchObject({
+      status: 'printed',
+      customerReceipt: 'not_requested',
+      preparationTicket: 'not_requested',
+    })
+    await repository.close()
+  })
+
   it('crée un snapshot durable sans vente, ledger ni consommation de séquence', async () => {
     const { indexedDb, repository, service } = setup('checkout-create')
     const items = createValidOrderItems()

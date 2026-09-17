@@ -253,6 +253,73 @@ describe('encaissement et impression', () => {
     expect(printOrder).not.toHaveBeenCalled()
   })
 
+  it('termine normalement sans avertissement ni action de préparation non demandée', () => {
+    const customerOnlyOrder = {
+      ...printPreviewOrder,
+      items: printPreviewOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'printed' as const,
+        preparationTicket: 'not_requested' as const,
+      },
+    }
+
+    render(
+      <CheckoutFlow
+        items={[]}
+        initialOrder={customerOnlyOrder}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
+    expect(screen.getByText('Ticket de préparation : non demandé')).toBeInTheDocument()
+    expect(screen.queryByText(/La cuisine peut ne pas avoir reçu/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Préparation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Les deux' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ticket client' })).toBeInTheDocument()
+  })
+
+  it('ne démarre aucun cycle d’impression après une vente sans document demandé', async () => {
+    const orderWithoutDocument = {
+      ...printPreviewOrder,
+      items: printPreviewOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        customerReceipt: 'not_requested' as const,
+        preparationTicket: 'not_requested' as const,
+      },
+    }
+    const createOrder = vi.fn().mockResolvedValue(orderWithoutDocument)
+    const printOrder = vi.fn()
+    const lifecycle = createLifecycle(orderWithoutDocument)
+
+    render(
+      <CheckoutFlow
+        items={orderWithoutDocument.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={createOrder}
+        printOrder={printOrder}
+        lifecycle={lifecycle}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Imprimer le ticket client/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser sans impression' }))
+
+    expect(
+      await screen.findByText('Aucun ticket n’était nécessaire pour cette commande.'),
+    ).toBeInTheDocument()
+    expect(printOrder).not.toHaveBeenCalled()
+    expect(lifecycle.beginPrinting).not.toHaveBeenCalled()
+    expect(lifecycle.completePrinting).not.toHaveBeenCalled()
+  })
+
   it('n’imprime rien et autorise un nouvel essai si la persistance échoue', async () => {
     const createOrder = vi.fn().mockRejectedValue(new Error('IndexedDB indisponible'))
     const printOrder = vi.fn()

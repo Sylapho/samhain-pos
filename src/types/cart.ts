@@ -17,6 +17,7 @@ export type SelectedOption = {
 export type CartItemDraft = {
   productId: string
   name: string
+  requiresPreparation: boolean
   unitPriceCents: number
   variant?: SelectedVariant
   options: SelectedOption[]

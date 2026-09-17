@@ -17,6 +17,7 @@ import type { CartItem } from '../../types/cart'
 import type { CheckoutIntent } from '../../types/checkout'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
+import { itemRequiresPreparation } from '../../utils/preparation'
 
 type Props = {
   items: CartItem[]
@@ -80,6 +81,8 @@ export function CheckoutFlow({
     0,
   )
   const hasSufficientCash = cashReceivedCents !== null && cashReceivedCents >= totalCents
+  const hasRequestedPrintDocument =
+    printCustomerReceipt || displayedItems.some(itemRequiresPreparation)
 
   const storeUpdatedOrder = (updatedOrder: Order) => {
     setOrder(updatedOrder)
@@ -98,7 +101,20 @@ export function CheckoutFlow({
     options: PrintOrderOptions,
     trackLifecycle: boolean,
   ) => {
-    const selection = options.selection ?? 'both'
+    const pendingSelection = trackLifecycle ? getPendingSelection(targetOrder) : null
+    if (trackLifecycle && !options.selection && !pendingSelection) {
+      setPrintingComplete(targetOrder.printing.status === 'printed')
+      setManualReprintMode(targetOrder.printing.status !== 'printed')
+      if (targetOrder.printing.status === 'printed') {
+        setFeedback({
+          kind: 'success',
+          text: 'Aucun ticket n’était nécessaire pour cette commande.',
+        })
+      }
+      return
+    }
+    const selection = options.selection ?? pendingSelection ?? 'both'
+    const effectiveOptions = { ...options, selection }
     let printingOrder = targetOrder
     if (trackLifecycle) {
       try {
@@ -110,7 +126,7 @@ export function CheckoutFlow({
 
     let result: PrintJobResult
     try {
-      result = await printOrder(targetOrder, options)
+      result = await printOrder(targetOrder, effectiveOptions)
     } catch (error) {
       if (trackLifecycle) {
         const message =
@@ -120,7 +136,7 @@ export function CheckoutFlow({
             await lifecycle.failPrinting(
               targetOrder.id,
               selection,
-              getCompletedDocumentsFromPrintError(error, options),
+              getCompletedDocumentsFromPrintError(error, effectiveOptions),
               message,
               getUnknownDocumentsFromPrintError(error),
             ),
@@ -390,7 +406,7 @@ export function CheckoutFlow({
 
   const deferPrintingAndStartNewOrder = () => {
     if (busy || deferringRef.current || !order || order.printing.status === 'printed') return
-    if (order.printing.preparationTicket !== 'printed') {
+    if (!['printed', 'not_requested'].includes(order.printing.preparationTicket)) {
       setDeferConfirmationOpen(true)
       return
     }
@@ -485,13 +501,14 @@ export function CheckoutFlow({
               <input
                 type="checkbox"
                 className="size-6 accent-[#1f6a4b]"
+                aria-label="Imprimer le ticket client"
                 checked={printCustomerReceipt}
                 disabled={busy || order !== null || intent !== null}
                 onChange={(event) => setPrintCustomerReceipt(event.target.checked)}
               />
               Imprimer le ticket client
               <span className="ml-auto text-xs text-stone-500">
-                Le ticket préparation est toujours imprimé
+                Le ticket préparation est imprimé uniquement si nécessaire
               </span>
             </label>
 
@@ -573,10 +590,14 @@ export function CheckoutFlow({
                           ? 'Finaliser la vente'
                           : paymentMethod === 'card'
                             ? createOrder
-                              ? 'Encaisser et imprimer'
+                              ? hasRequestedPrintDocument
+                                ? 'Encaisser et imprimer'
+                                : 'Encaisser sans impression'
                               : 'Préparer le paiement TPE'
                             : createOrder
-                              ? 'Encaisser et imprimer'
+                              ? hasRequestedPrintDocument
+                                ? 'Encaisser et imprimer'
+                                : 'Encaisser sans impression'
                               : 'Préparer l’encaissement'}
               </Button>
             </div>
@@ -614,17 +635,14 @@ export function CheckoutFlow({
               <p className="mt-4 mb-3 text-sm font-black text-stone-600">
                 Choisissez uniquement un ticket dont la sortie a été vérifiée.
               </p>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Button disabled={busy} onClick={() => void reprint('both')}>
-                  Les deux
-                </Button>
-                <Button disabled={busy} onClick={() => void reprint('customer')}>
-                  Ticket client
-                </Button>
-                <Button disabled={busy} onClick={() => void reprint('preparation')}>
-                  Préparation
-                </Button>
-              </div>
+              {order ? (
+                <ReprintButtons
+                  order={order}
+                  busy={busy}
+                  printing={null}
+                  onReprint={(selection) => void reprint(selection)}
+                />
+              ) : null}
             </div>
 
             <Button
@@ -654,17 +672,14 @@ export function CheckoutFlow({
               <p className="mb-3 text-sm font-black text-stone-600">
                 Réimpression — conserve les mêmes numéros
               </p>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Button disabled={busy} onClick={() => void reprint('both')}>
-                  Les deux
-                </Button>
-                <Button disabled={busy} onClick={() => void reprint('customer')}>
-                  Ticket client
-                </Button>
-                <Button disabled={busy} onClick={() => void reprint('preparation')}>
-                  Préparation
-                </Button>
-              </div>
+              {order ? (
+                <ReprintButtons
+                  order={order}
+                  busy={busy}
+                  printing={null}
+                  onReprint={(selection) => void reprint(selection)}
+                />
+              ) : null}
             </div>
 
             <Button
@@ -840,7 +855,7 @@ function DocumentStatuses({ order }: { order: Order }) {
 }
 
 function PreparationWarning({ order }: { order: Order }) {
-  if (order.printing.preparationTicket === 'printed') return null
+  if (['printed', 'not_requested'].includes(order.printing.preparationTicket)) return null
   return (
     <div
       className="mt-4 border-2 border-amber-500 bg-amber-100 p-3 font-black text-amber-950"
@@ -848,6 +863,41 @@ function PreparationWarning({ order }: { order: Order }) {
     >
       Attention : le ticket de préparation n’a pas été imprimé. La cuisine peut ne pas avoir reçu
       cette commande.
+    </div>
+  )
+}
+
+function ReprintButtons({
+  order,
+  busy,
+  printing,
+  onReprint,
+}: {
+  order: Order
+  busy: boolean
+  printing: PrintSelection | null
+  onReprint: (selection: PrintSelection) => void
+}) {
+  const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
+  return (
+    <div className={`grid gap-2 ${hasPreparationTicket ? 'sm:grid-cols-3' : ''}`}>
+      {hasPreparationTicket ? (
+        <Button disabled={busy} onClick={() => onReprint('both')}>
+          {printing === 'both' ? 'Impression en cours…' : 'Les deux'}
+        </Button>
+      ) : null}
+      <Button
+        variant={hasPreparationTicket ? 'secondary' : 'primary'}
+        disabled={busy}
+        onClick={() => onReprint('customer')}
+      >
+        {printing === 'customer' ? 'Impression en cours…' : 'Ticket client'}
+      </Button>
+      {hasPreparationTicket ? (
+        <Button disabled={busy} onClick={() => onReprint('preparation')}>
+          {printing === 'preparation' ? 'Impression en cours…' : 'Préparation'}
+        </Button>
+      ) : null}
     </div>
   )
 }

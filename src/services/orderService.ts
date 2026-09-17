@@ -13,6 +13,7 @@ import type { OrderRepository } from './orderRepository'
 import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
+import { orderRequiresPreparation } from '../utils/preparation'
 import {
   toIsoTimestamp,
   validateOrderDraft,
@@ -87,6 +88,22 @@ function derivePrintStatus(printing: OrderPrinting): OrderPrinting['status'] {
   return 'failed'
 }
 
+function initialPrinting(
+  items: CartItem[],
+  printCustomerReceipt: boolean,
+  updatedAt: string,
+): OrderPrinting {
+  const printing: OrderPrinting = {
+    status: 'pending',
+    customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
+    preparationTicket: orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
+    attempts: 0,
+    updatedAt,
+  }
+  printing.status = derivePrintStatus(printing)
+  return printing
+}
+
 export class OrderService {
   constructor(
     private readonly repository: OrderRepository,
@@ -121,13 +138,7 @@ export class OrderService {
         orderNumberPrefix: validated.terminal.terminalCode,
         receiptNumberPrefix: receiptNumberPrefix(validated.terminal.terminalCode, createdAt),
         items: persistedItems,
-        printing: {
-          status: 'pending',
-          customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
-          preparationTicket: 'pending',
-          attempts: 0,
-          updatedAt: createdAtIso,
-        },
+        printing: initialPrinting(persistedItems, printCustomerReceipt, createdAtIso),
       },
       this.buildLedgerSource(validated.terminal),
     )

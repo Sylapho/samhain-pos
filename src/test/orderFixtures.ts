@@ -5,6 +5,7 @@ export function createValidCartItem(overrides: Partial<CartItem> = {}): CartItem
     lineId: 'test-product::default',
     productId: 'test-product',
     name: 'Produit de test',
+    requiresPreparation: true,
     unitPriceCents: 500,
     quantity: 1,
     options: [],

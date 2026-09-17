@@ -4,6 +4,15 @@ import { buildOrderPrintJob, OrderPrintService } from './orderPrintService'
 import type { PrintJobStep, ReceiptPrinter } from './types'
 
 describe('orchestration d’impression', () => {
+  const orderWithoutPreparation = {
+    ...printPreviewOrder,
+    items: printPreviewOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
+    printing: {
+      ...printPreviewOrder.printing,
+      preparationTicket: 'not_requested' as const,
+    },
+  }
+
   it('ordonne client, coupe, préparation, coupe dans un seul job', () => {
     const job = buildOrderPrintJob(printPreviewOrder)
     expect(
@@ -23,6 +32,26 @@ describe('orchestration d’impression', () => {
     expect(
       job.steps.map((step) => (step.type === 'document' ? step.documentType : step.type)),
     ).toEqual(['preparationTicket', 'cut'])
+  })
+
+  it('réduit une sélection des deux tickets au seul ticket client sans préparation', () => {
+    const job = buildOrderPrintJob(orderWithoutPreparation, { selection: 'both' })
+    expect(job.documents.map((document) => document.type)).toEqual(['customerReceipt'])
+    expect(
+      job.steps.map((step) =>
+        step.type === 'document' ? step.documentType : `cut:${step.afterDocument}`,
+      ),
+    ).toEqual(['customerReceipt', 'cut:customerReceipt'])
+  })
+
+  it('traite une sélection préparation sans besoin comme un succès sans transport', async () => {
+    const printJob = vi.fn<ReceiptPrinter['printJob']>()
+    const service = new OrderPrintService({ printJob })
+
+    await expect(
+      service.printOrder(orderWithoutPreparation, { selection: 'preparation', reprint: true }),
+    ).resolves.toEqual({ ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] })
+    expect(printJob).not.toHaveBeenCalled()
   })
 
   it('envoie toutes les étapes au transport avec un seul appel', async () => {

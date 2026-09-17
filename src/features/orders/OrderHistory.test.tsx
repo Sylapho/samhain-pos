@@ -22,6 +22,39 @@ const printedOrder = {
 }
 
 describe('historique des commandes', () => {
+  it('ne propose aucune réimpression de préparation quand elle était non demandée', async () => {
+    const customerOnlyOrder = {
+      ...printedOrder,
+      items: printedOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
+      printing: {
+        ...printedOrder.printing,
+        preparationTicket: 'not_requested' as const,
+      },
+    }
+    const printOrder = vi.fn().mockResolvedValue(success)
+
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [customerOnlyOrder]}
+        printOrder={printOrder}
+      />,
+    )
+
+    const detail = await screen.findByRole('article', { name: 'Commande A-0001' })
+    expect(within(detail).getByText('Ticket de préparation : Non demandé')).toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: 'Préparation' })).not.toBeInTheDocument()
+    expect(within(detail).queryByRole('button', { name: 'Les deux tickets' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(detail).getByRole('button', { name: 'Ticket client' }))
+    await screen.findByText('Réimpression terminée pour la commande A-0001.')
+    expect(printOrder).toHaveBeenCalledWith(customerOnlyOrder, {
+      selection: 'customer',
+      printCustomerReceipt: true,
+      reprint: true,
+    })
+  })
+
   it('affiche la liste récente et le détail complet de la commande sélectionnée', async () => {
     const cashOrder = {
       ...printedOrder,
