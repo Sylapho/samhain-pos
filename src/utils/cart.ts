@@ -12,7 +12,11 @@ export function getProductStartingPriceCents(product: Product): number {
 }
 
 export function requiresProductConfiguration(product: Product): boolean {
-  return Boolean((product.variants?.length ?? 0) > 1 || product.optionGroups?.length)
+  return Boolean(
+    (product.variants?.length ?? 0) > 1 ||
+    product.optionGroups?.length ||
+    product.ingredients?.length,
+  )
 }
 
 export function getDefaultProductSelection(product: Product): ProductSelection {

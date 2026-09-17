@@ -55,7 +55,7 @@ describe('rendus thermiques', () => {
 
   it('met très visiblement en avant les ingrédients retirés uniquement en préparation', () => {
     const burger = products.find((product) => product.id === 'burger-samhain')!
-    const draft = createCartItemDraft(burger)
+    const draft = createCartItemDraft(burger, undefined, ['cheddar', 'salade'])
     const personalizedOrder = {
       ...printPreviewOrder,
       itemCount: 1,
@@ -65,7 +65,6 @@ describe('rendus thermiques', () => {
           ...draft,
           lineId: 'burger-sans-cheddar-salade',
           quantity: 1,
-          removedIngredientIds: ['cheddar', 'salade'],
         },
       ],
     }
