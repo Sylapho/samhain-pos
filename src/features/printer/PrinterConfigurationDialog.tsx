@@ -228,7 +228,8 @@ export function PrinterConfigurationDialog({
     >
       <header className="sticky top-0 z-10 flex min-h-16 items-center gap-4 border-b border-stone-700 bg-[#18231e] px-4 py-2 text-white sm:px-6">
         <Button
-          className="min-h-11 border-stone-500 bg-transparent px-4 py-2 text-white active:bg-white/10"
+          variant="headerSecondary"
+          className="min-h-11 px-4 py-2"
           onClick={onClose}
         >
           Retour

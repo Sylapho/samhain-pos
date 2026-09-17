@@ -1,6 +1,12 @@
 import type { ButtonHTMLAttributes, PropsWithChildren } from 'react'
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'quiet'
+type ButtonVariant =
+  | 'primary'
+  | 'secondary'
+  | 'danger'
+  | 'quiet'
+  | 'headerSecondary'
+  | 'headerImportant'
 
 type ButtonProps = PropsWithChildren<
   ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -17,6 +23,10 @@ const variants: Record<ButtonVariant, string> = {
   danger:
     'border-red-300 bg-white text-red-800 active:bg-red-50 disabled:border-stone-200 disabled:text-stone-400',
   quiet: 'border-stone-300 bg-stone-100 text-stone-800 active:bg-stone-200 disabled:text-stone-400',
+  headerSecondary:
+    'border-stone-300 bg-stone-100 text-stone-950 active:border-stone-400 active:bg-stone-200 disabled:border-stone-600 disabled:bg-stone-700 disabled:text-stone-300',
+  headerImportant:
+    'border-amber-400 bg-amber-300 text-stone-950 active:border-amber-500 active:bg-amber-400 disabled:border-stone-600 disabled:bg-stone-700 disabled:text-stone-300',
 }
 
 export function Button({

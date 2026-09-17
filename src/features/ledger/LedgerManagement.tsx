@@ -158,7 +158,7 @@ export function LedgerManagement({
           <p className="text-sm font-bold text-stone-300">Mode responsable</p>
         </div>
         <Button
-          className="border-stone-500 bg-transparent text-white active:bg-white/10"
+          variant="headerSecondary"
           disabled={busy !== null}
           onClick={onClose}
         >
