@@ -35,6 +35,17 @@ const product: Product = {
 }
 
 describe('fiche d’options générique', () => {
+  it('annule au clic sur l’overlay sans annuler les interactions internes', () => {
+    const onCancel = vi.fn()
+    render(<ProductOptionsSheet product={product} onCancel={onCancel} onConfirm={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Grande/ }))
+    expect(onCancel).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('dialog', { name: 'Produit configurable' }))
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
   it('bloque un groupe obligatoire et transmet plusieurs choix après validation', () => {
     const onConfirm = vi.fn()
     render(<ProductOptionsSheet product={product} onCancel={vi.fn()} onConfirm={onConfirm} />)

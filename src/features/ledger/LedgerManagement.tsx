@@ -355,8 +355,12 @@ export function LedgerManagement({
           role="alertdialog"
           aria-modal="true"
           aria-labelledby="confirm-closure-title"
+          onClick={() => setConfirmClosure(false)}
         >
-          <section className="w-full max-w-lg border border-stone-300 bg-[#fffdf8] p-6">
+          <section
+            className="w-full max-w-lg border border-stone-300 bg-[#fffdf8] p-6"
+            onClick={(event) => event.stopPropagation()}
+          >
             <h3 id="confirm-closure-title" className="text-2xl font-black">
               Confirmer cette clôture ?
             </h3>

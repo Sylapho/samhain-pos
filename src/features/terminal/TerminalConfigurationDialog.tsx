@@ -95,8 +95,15 @@ export function TerminalConfigurationDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="terminal-reprovision-confirmation-title"
+        onClick={() => {
+          setPendingReprovision(null)
+          setError(null)
+        }}
       >
-        <section className="my-auto w-full max-w-xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
+        <section
+          className="my-auto w-full max-w-xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7"
+          onClick={(event) => event.stopPropagation()}
+        >
           <h1 id="terminal-reprovision-confirmation-title" className="text-2xl font-black">
             Changer cette tablette de Caisse {configuration.terminalCode} vers Caisse{' '}
             {pendingReprovision.terminalCode} ?
@@ -150,8 +157,22 @@ export function TerminalConfigurationDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="terminal-configuration-title"
+      onClick={() => {
+        if (isInitialProvisioning) return
+        if (reprovisioning) {
+          setReprovisioning(false)
+          setTerminalCode(configuration.terminalCode)
+          setDisplayName(configuration.displayName)
+          setError(null)
+          return
+        }
+        onClose?.()
+      }}
     >
-      <section className="my-auto w-full max-w-xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
+      <section
+        className="my-auto w-full max-w-xl rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
         <h1 id="terminal-configuration-title" className="text-2xl font-black">
           {isInitialProvisioning
             ? 'Configurer cette tablette'

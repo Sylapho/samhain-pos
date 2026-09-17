@@ -412,6 +412,31 @@ describe('caisse', () => {
     expect(screen.getByText('Commande vide')).toBeInTheDocument()
   })
 
+  it('ferme la confirmation d’annulation au clic extérieur sans vider le panier', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler la commande' }))
+
+    fireEvent.click(screen.getByRole('dialog', { name: 'Annuler cette commande ?' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Annuler cette commande ?' })).not.toBeInTheDocument()
+    expect(within(screen.getByLabelText('Commande en cours')).getByText('Omelette')).toBeInTheDocument()
+  })
+
+  it('abandonne les personnalisations non validées au clic extérieur', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Burger spécial Samhain, 16,00/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Burger spécial Samhain' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Cheddar' }))
+
+    fireEvent.click(screen.getByRole('dialog', { name: 'Burger spécial Samhain' }))
+
+    expect(screen.queryByRole('dialog', { name: 'Burger spécial Samhain' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Sans cheddar')).not.toBeInTheDocument()
+  })
+
   it('propose de reprendre une impression persistée après redémarrage', async () => {
     const partialOrder = {
       ...printPreviewOrder,

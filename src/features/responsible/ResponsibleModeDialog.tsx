@@ -74,8 +74,12 @@ export function ResponsibleModeDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="responsible-mode-title"
+      onClick={!requireSetup ? cancel : undefined}
     >
-      <section className="w-full max-w-md rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7">
+      <section
+        className="w-full max-w-md rounded-[12px] border border-stone-300 bg-[#fffdf8] p-5 sm:p-7"
+        onClick={(event) => event.stopPropagation()}
+      >
         <h2 id="responsible-mode-title" className="text-2xl font-black">
           {setup ? 'Configurer le mode responsable' : 'Mode responsable'}
         </h2>
