@@ -414,7 +414,6 @@ class EpsonUsbPrinterPlugin : Plugin() {
         }
 
         var claimed = false
-        var customerReceiptPrinted = false
         var bytesWritten = 0
         val completedDocuments = JSArray()
         val unknownDocuments = JSArray()
@@ -481,34 +480,28 @@ class EpsonUsbPrinterPlugin : Plugin() {
                         if (transfer.status == UsbWriteStatus.PARTIAL) {
                             unknownDocuments.put(documentType)
                         }
-                        val code =
-                            if (documentType == "customerReceipt") {
-                                if (transfer.status == UsbWriteStatus.PARTIAL) {
-                                    "USB_CUSTOMER_RECEIPT_WRITE_PARTIAL"
-                                } else {
-                                    "USB_CUSTOMER_RECEIPT_WRITE_FAILED"
-                                }
-                            } else {
-                                if (transfer.status == UsbWriteStatus.PARTIAL) {
-                                    "USB_PREPARATION_WRITE_PARTIAL"
-                                } else {
-                                    "USB_PREPARATION_WRITE_FAILED"
-                                }
+                        val documentCode =
+                            when (documentType) {
+                                "pickupTicket" -> "PICKUP"
+                                "customerReceipt" -> "CUSTOMER_RECEIPT"
+                                "preparationTicket" -> "PREPARATION"
+                                else -> "PRINT_JOB"
+                            }
+                        val outcome =
+                            if (transfer.status == UsbWriteStatus.PARTIAL) "PARTIAL" else "FAILED"
+                        val code = "USB_${documentCode}_WRITE_$outcome"
+                        val label =
+                            when (documentType) {
+                                "pickupTicket" -> "bon de retrait"
+                                "customerReceipt" -> "reçu de caisse"
+                                "preparationTicket" -> "ticket de préparation"
+                                else -> "document"
                             }
                         val prefix =
-                            when {
-                                transfer.status == UsbWriteStatus.PARTIAL &&
-                                    documentType == "customerReceipt" ->
-                                    "L’envoi du ticket client a été interrompu. "
-                                transfer.status == UsbWriteStatus.PARTIAL && customerReceiptPrinted ->
-                                    "Le ticket client a été imprimé, mais l’envoi du ticket de préparation a été interrompu. "
-                                transfer.status == UsbWriteStatus.PARTIAL ->
-                                    "L’envoi du ticket de préparation a été interrompu. "
-                                documentType == "customerReceipt" ->
-                                    "L’impression du ticket client a échoué. "
-                                customerReceiptPrinted ->
-                                    "Le ticket client a été imprimé, mais le ticket de préparation a échoué. "
-                                else -> "L’impression du ticket de préparation a échoué. "
+                            if (transfer.status == UsbWriteStatus.PARTIAL) {
+                                "L’envoi du $label a été interrompu. "
+                            } else {
+                                "L’impression du $label a échoué. "
                             }
                         rejectPrintJob(
                             call,
@@ -523,7 +516,6 @@ class EpsonUsbPrinterPlugin : Plugin() {
 
                     bytesWritten += transfer.bytesWritten
                     completedDocuments.put(documentType)
-                    if (documentType == "customerReceipt") customerReceiptPrinted = true
                     continue
                 }
 
@@ -570,12 +562,13 @@ class EpsonUsbPrinterPlugin : Plugin() {
                             fallback,
                         )
                     if (fallbackTransfer.status != UsbWriteStatus.COMPLETE) {
-                        val code =
-                            if (afterDocument == "customerReceipt") {
-                                "USB_CUSTOMER_CUT_FAILED"
-                            } else {
-                                "USB_PREPARATION_CUT_FAILED"
+                        val documentCode =
+                            when (afterDocument) {
+                                "pickupTicket" -> "PICKUP"
+                                "customerReceipt" -> "CUSTOMER"
+                                else -> "PREPARATION"
                             }
+                        val code = "USB_${documentCode}_CUT_FAILED"
                         rejectPrintJob(
                             call,
                             completedDocuments,

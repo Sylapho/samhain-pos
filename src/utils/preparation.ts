@@ -15,3 +15,7 @@ export function getPreparationItems(order: Pick<Order, 'items'>): CartItem[] {
 export function orderRequiresPreparation(order: Pick<Order, 'items'>): boolean {
   return order.items.some(itemRequiresPreparation)
 }
+
+export function orderRequiresPickupTicket(order: Pick<Order, 'items'>): boolean {
+  return orderRequiresPreparation(order)
+}

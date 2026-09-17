@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+import { assertReceiptBusinessInfoCanBePrinted } from '../config/organization'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { buildOrderPrintJob, OrderPrintService } from './orderPrintService'
 import type { PrintJobStep, ReceiptPrinter } from './types'
+
+vi.mock('../config/organization', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../config/organization')>()
+  return { ...actual, assertReceiptBusinessInfoCanBePrinted: vi.fn() }
+})
 
 describe('orchestration d’impression', () => {
   const orderWithoutPreparation = {
@@ -9,17 +15,20 @@ describe('orchestration d’impression', () => {
     items: printPreviewOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
     printing: {
       ...printPreviewOrder.printing,
+      pickupTicket: 'not_requested' as const,
       preparationTicket: 'not_requested' as const,
     },
   }
 
-  it('ordonne client, coupe, préparation, coupe dans un seul job', () => {
+  it('ordonne retrait, reçu, préparation avec une coupe après chaque document', () => {
     const job = buildOrderPrintJob(printPreviewOrder)
     expect(
       job.steps.map((step) =>
         step.type === 'document' ? step.documentType : `cut:${step.afterDocument}`,
       ),
     ).toEqual([
+      'pickupTicket',
+      'cut:pickupTicket',
       'customerReceipt',
       'cut:customerReceipt',
       'preparationTicket',
@@ -28,14 +37,29 @@ describe('orchestration d’impression', () => {
   })
 
   it('peut désactiver le ticket client sans supprimer la préparation', () => {
-    const job = buildOrderPrintJob(printPreviewOrder, { printCustomerReceipt: false })
+    const job = buildOrderPrintJob(printPreviewOrder, {
+      selection: ['pickupTicket', 'preparationTicket'],
+    })
     expect(
       job.steps.map((step) => (step.type === 'document' ? step.documentType : step.type)),
-    ).toEqual(['preparationTicket', 'cut'])
+    ).toEqual(['pickupTicket', 'cut', 'preparationTicket', 'cut'])
+  })
+
+  it('ne valide les informations légales que si le reçu financier est sélectionné', () => {
+    const validateBusinessInfo = vi.mocked(assertReceiptBusinessInfoCanBePrinted)
+    validateBusinessInfo.mockClear()
+
+    buildOrderPrintJob(printPreviewOrder, { selection: ['pickupTicket'] })
+    expect(validateBusinessInfo).not.toHaveBeenCalled()
+
+    buildOrderPrintJob(printPreviewOrder, { selection: ['customerReceipt'] })
+    expect(validateBusinessInfo).toHaveBeenCalledOnce()
   })
 
   it('réduit une sélection des deux tickets au seul ticket client sans préparation', () => {
-    const job = buildOrderPrintJob(orderWithoutPreparation, { selection: 'both' })
+    const job = buildOrderPrintJob(orderWithoutPreparation, {
+      selection: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+    })
     expect(job.documents.map((document) => document.type)).toEqual(['customerReceipt'])
     expect(
       job.steps.map((step) =>
@@ -49,7 +73,10 @@ describe('orchestration d’impression', () => {
     const service = new OrderPrintService({ printJob })
 
     await expect(
-      service.printOrder(orderWithoutPreparation, { selection: 'preparation', reprint: true }),
+      service.printOrder(orderWithoutPreparation, {
+        selection: ['preparationTicket'],
+        reprint: true,
+      }),
     ).resolves.toEqual({ ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] })
     expect(printJob).not.toHaveBeenCalled()
   })
@@ -58,7 +85,7 @@ describe('orchestration d’impression', () => {
     const printJob = vi.fn<ReceiptPrinter['printJob']>(async () => ({
       ok: true as const,
       bytesWritten: 123,
-      completedDocuments: ['customerReceipt', 'preparationTicket'],
+      completedDocuments: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
       warnings: [],
     }))
     const printer: ReceiptPrinter = { printJob }
@@ -67,7 +94,7 @@ describe('orchestration d’impression', () => {
     await service.printOrder(printPreviewOrder)
 
     expect(printJob).toHaveBeenCalledOnce()
-    expect(printJob.mock.calls[0]?.[0]).toHaveLength(4)
+    expect(printJob.mock.calls[0]?.[0]).toHaveLength(6)
   })
 
   it('réimprime seulement le document demandé avec les mêmes identifiants', async () => {
@@ -78,11 +105,12 @@ describe('orchestration d’impression', () => {
       warnings: [],
     }))
     const service = new OrderPrintService({ printJob })
-    await service.printOrder(printPreviewOrder, { selection: 'preparation' })
+    await service.printOrder(printPreviewOrder, { selection: ['preparationTicket'] })
     const steps = printJob.mock.calls[0]?.[0] as PrintJobStep[]
     expect(steps).toHaveLength(2)
     expect(
-      buildOrderPrintJob(printPreviewOrder, { selection: 'preparation' }).documents[0]?.preview,
+      buildOrderPrintJob(printPreviewOrder, { selection: ['preparationTicket'] }).documents[0]
+        ?.preview,
     ).toContain('A-0001')
   })
 
@@ -97,9 +125,14 @@ describe('orchestration d’impression', () => {
     await service.printOrder(
       {
         ...printPreviewOrder,
-        printing: { ...printPreviewOrder.printing, customerReceipt: 'printed', status: 'partial' },
+        printing: {
+          ...printPreviewOrder.printing,
+          pickupTicket: 'printed',
+          customerReceipt: 'printed',
+          status: 'partial',
+        },
       },
-      { selection: 'both' },
+      { selection: ['pickupTicket', 'customerReceipt', 'preparationTicket'] },
     )
     expect(
       printJob.mock.calls[0]?.[0].map((step) =>
@@ -120,6 +153,7 @@ describe('orchestration d’impression', () => {
       ...printPreviewOrder,
       printing: {
         ...printPreviewOrder.printing,
+        pickupTicket: 'printed' as const,
         customerReceipt: 'printed' as const,
         preparationTicket: 'printed' as const,
         status: 'printed' as const,
@@ -127,7 +161,7 @@ describe('orchestration d’impression', () => {
     }
     await service.printOrder(order)
     expect(printJob).not.toHaveBeenCalled()
-    await service.printOrder(order, { selection: 'customer', reprint: true })
+    await service.printOrder(order, { selection: ['customerReceipt'], reprint: true })
     expect(printJob).toHaveBeenCalledOnce()
     expect(printJob.mock.calls[0]?.[0]).toHaveLength(2)
     expect(printJob.mock.calls[0]?.[0][0]).toMatchObject({ documentType: 'customerReceipt' })
@@ -140,13 +174,16 @@ describe('orchestration d’impression', () => {
       ...printPreviewOrder,
       printing: {
         ...printPreviewOrder.printing,
+        pickupTicket: 'printed' as const,
         customerReceipt: 'printed' as const,
         preparationTicket: 'unknown' as const,
         status: 'unknown' as const,
       },
     }
 
-    await service.printOrder(order, { selection: 'both' })
+    await service.printOrder(order, {
+      selection: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+    })
     expect(printJob).not.toHaveBeenCalled()
 
     vi.mocked(printJob).mockResolvedValue({
@@ -155,7 +192,7 @@ describe('orchestration d’impression', () => {
       completedDocuments: ['preparationTicket'],
       warnings: [],
     })
-    await service.printOrder(order, { selection: 'preparation', reprint: true })
+    await service.printOrder(order, { selection: ['preparationTicket'], reprint: true })
     expect(printJob).toHaveBeenCalledOnce()
   })
 
@@ -170,14 +207,18 @@ describe('orchestration d’impression', () => {
       printing: {
         ...printPreviewOrder.printing,
         status: 'printed' as const,
+        pickupTicket: 'printed' as const,
         customerReceipt: 'printed' as const,
         preparationTicket: 'printed' as const,
       },
     }
 
-    await expect(service.printOrder(order, { selection: 'both', reprint: true })).rejects.toThrow(
-      /Mode responsable requis/,
-    )
+    await expect(
+      service.printOrder(order, {
+        selection: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+        reprint: true,
+      }),
+    ).rejects.toThrow(/Mode responsable requis/)
     expect(requireResponsibleMode).toHaveBeenCalledOnce()
     expect(printJob).not.toHaveBeenCalled()
   })
@@ -196,7 +237,7 @@ describe('orchestration d’impression', () => {
       printing: { ...printPreviewOrder.printing, customerReceipt: 'failed' as const },
     }
 
-    await service.printOrder(order, { selection: 'customer', reprint: true })
+    await service.printOrder(order, { selection: ['customerReceipt'], reprint: true })
     expect(requireResponsibleMode).not.toHaveBeenCalled()
     expect(printJob).toHaveBeenCalledOnce()
   })

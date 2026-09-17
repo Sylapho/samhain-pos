@@ -17,6 +17,7 @@ export type OrderIntegrity = {
 
 export type OrderPrinting = {
   status: OrderPrintStatus
+  pickupTicket: PrintDocumentStatus
   customerReceipt: PrintDocumentStatus
   preparationTicket: PrintDocumentStatus
   attempts: number

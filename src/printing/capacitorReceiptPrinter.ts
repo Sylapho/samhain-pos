@@ -20,7 +20,9 @@ function parseDocuments(value: unknown): PrintDocumentType[] | undefined {
   return Array.isArray(value)
     ? value.filter(
         (document): document is PrintDocumentType =>
-          document === 'customerReceipt' || document === 'preparationTicket',
+          document === 'pickupTicket' ||
+          document === 'customerReceipt' ||
+          document === 'preparationTicket',
       )
     : undefined
 }
@@ -66,6 +68,26 @@ function mapNativeError(error: unknown): OrderPrintError {
   const unknownDocuments = parseDocuments(nativeError?.data?.unknownDocuments)
   const transfer = parseTransfer(nativeError?.data?.transfer)
 
+  if (code.startsWith('USB_PICKUP_WRITE')) {
+    return new OrderPrintError(
+      `${unknownDocuments?.includes('pickupTicket') ? 'L’état du bon de retrait est incertain ; vérifiez le papier avant toute réimpression.' : 'Le bon de retrait n’a pas pu être imprimé.'} ${nativeMessage}`,
+      'pickupTicket',
+      code,
+      completedDocuments,
+      unknownDocuments,
+      transfer,
+    )
+  }
+  if (code.startsWith('USB_PICKUP_CUT')) {
+    return new OrderPrintError(
+      `Le bon de retrait est imprimé, mais sa coupe a échoué. ${nativeMessage}`,
+      'pickupCut',
+      code,
+      completedDocuments,
+      unknownDocuments,
+      transfer,
+    )
+  }
   if (code.startsWith('USB_CUSTOMER_RECEIPT')) {
     return new OrderPrintError(
       `${unknownDocuments?.includes('customerReceipt') ? 'L’état du ticket client est incertain ; vérifiez le papier avant toute réimpression.' : 'Le ticket client n’a pas pu être imprimé.'} ${nativeMessage}`,

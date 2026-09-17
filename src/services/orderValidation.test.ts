@@ -45,6 +45,7 @@ function validRequest(overrides: Partial<OrderCreationRequest> = {}): OrderCreat
     totalCents: 500,
     printing: {
       status: 'pending',
+      pickupTicket: 'pending',
       customerReceipt: 'pending',
       preparationTicket: 'pending',
       attempts: 0,
@@ -59,9 +60,9 @@ describe('validation métier des nouvelles commandes', () => {
     const legacyItem = createValidCartItem() as Partial<ReturnType<typeof createValidCartItem>>
     delete legacyItem.requiresPreparation
 
-    expect(validateOrderDraft(validDraft({ items: [legacyItem] })).items[0]?.requiresPreparation).toBe(
-      true,
-    )
+    expect(
+      validateOrderDraft(validDraft({ items: [legacyItem] })).items[0]?.requiresPreparation,
+    ).toBe(true)
   })
 
   it('refuse une valeur de préparation non booléenne', () => {

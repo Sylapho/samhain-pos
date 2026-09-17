@@ -1,5 +1,7 @@
-export type PrintDocumentType = 'customerReceipt' | 'preparationTicket'
-export type PrintSelection = 'both' | 'customer' | 'preparation'
+export const printDocumentTypes = ['pickupTicket', 'customerReceipt', 'preparationTicket'] as const
+
+export type PrintDocumentType = (typeof printDocumentTypes)[number]
+export type PrintSelection = readonly PrintDocumentType[]
 
 export type RenderedTicket = {
   type: PrintDocumentType
@@ -45,6 +47,8 @@ export class OrderPrintError extends Error {
       | 'configuration'
       | 'connection'
       | 'permission'
+      | 'pickupTicket'
+      | 'pickupCut'
       | 'customerReceipt'
       | 'customerCut'
       | 'preparationTicket'

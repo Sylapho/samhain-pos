@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
+import { posConfig } from '../../config/pos'
 import {
   getCompletedDocumentsFromPrintError,
   getUnknownDocumentsFromPrintError,
@@ -8,6 +9,7 @@ import {
   type PrintOrderOptions,
 } from '../../printing/orderPrintService'
 import type { PrintJobResult, PrintSelection } from '../../printing/types'
+import { getRetryableDocuments } from '../../printing/orderPrinting'
 import {
   createOrder as persistOrder,
   orderLifecycle as persistedOrderLifecycle,
@@ -61,7 +63,9 @@ export function CheckoutFlow({
   )
   const [cashReceivedCents, setCashReceivedCents] = useState<number | null>(null)
   const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
-    initialOrder?.printing.customerReceipt !== 'not_requested',
+    initialOrder
+      ? initialOrder.printing.customerReceipt !== 'not_requested'
+      : (initialIntent?.printCustomerReceipt ?? posConfig.defaultPrintCustomerReceipt),
   )
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [intent, setIntent] = useState<CheckoutIntent | null>(initialIntent ?? null)
@@ -113,7 +117,7 @@ export function CheckoutFlow({
       }
       return
     }
-    const selection = options.selection ?? pendingSelection ?? 'both'
+    const selection = options.selection ?? pendingSelection ?? []
     const effectiveOptions = { ...options, selection }
     let printingOrder = targetOrder
     if (trackLifecycle) {
@@ -243,7 +247,7 @@ export function CheckoutFlow({
         else setManualReprintMode(true)
         return
       }
-      void runPrint(order, { printCustomerReceipt, selection })
+      void runPrint(order, { selection })
       return
     }
     if (printingRef.current) return
@@ -296,7 +300,7 @@ export function CheckoutFlow({
             })
             storeUpdatedOrder(persistedOrder)
             try {
-              await performPrint(persistedOrder, { printCustomerReceipt }, true)
+              await performPrint(persistedOrder, {}, true)
             } catch (error) {
               if (error instanceof PrintStatePersistenceError) {
                 setFeedback({
@@ -339,7 +343,7 @@ export function CheckoutFlow({
 
         storeUpdatedOrder(persistedOrder)
         try {
-          await performPrint(persistedOrder, { printCustomerReceipt }, true)
+          await performPrint(persistedOrder, {}, true)
         } catch (error) {
           if (error instanceof PrintStatePersistenceError) {
             setFeedback({
@@ -384,7 +388,7 @@ export function CheckoutFlow({
 
   const reprint = async (selection: PrintSelection) => {
     if (!order) return
-    const options = { selection, printCustomerReceipt: true, reprint: true } as const
+    const options = { selection, reprint: true } as const
     if (isProtectedCustomerReprint(order, options)) {
       if (authorizingRef.current) return
       authorizingRef.current = true
@@ -501,14 +505,14 @@ export function CheckoutFlow({
               <input
                 type="checkbox"
                 className="size-6 accent-[#1f6a4b]"
-                aria-label="Imprimer le ticket client"
+                aria-label="Imprimer le reçu de caisse détaillé"
                 checked={printCustomerReceipt}
                 disabled={busy || order !== null || intent !== null}
                 onChange={(event) => setPrintCustomerReceipt(event.target.checked)}
               />
-              Imprimer le ticket client
+              Imprimer le reçu de caisse détaillé
               <span className="ml-auto text-xs text-stone-500">
-                Le ticket préparation est imprimé uniquement si nécessaire
+                Bon de retrait et préparation gérés automatiquement si nécessaires
               </span>
             </label>
 
@@ -822,12 +826,8 @@ function CashPayment({
 }
 
 function getPendingSelection(order: Order): PrintSelection | null {
-  const needsCustomer = ['pending', 'failed'].includes(order.printing.customerReceipt)
-  const needsPreparation = ['pending', 'failed'].includes(order.printing.preparationTicket)
-  if (needsCustomer && needsPreparation) return 'both'
-  if (needsCustomer) return 'customer'
-  if (needsPreparation) return 'preparation'
-  return null
+  const documents = getRetryableDocuments(order.printing)
+  return documents.length ? documents : null
 }
 
 function printStatusLabel(order: Order): string {
@@ -848,7 +848,8 @@ function DocumentStatuses({ order }: { order: Order }) {
   }
   return (
     <div className="mt-2 text-sm text-stone-800" aria-live="polite">
-      <p>Ticket client : {labels[order.printing.customerReceipt]}</p>
+      <p>Bon de retrait : {labels[order.printing.pickupTicket]}</p>
+      <p>Reçu de caisse : {labels[order.printing.customerReceipt]}</p>
       <p>Ticket de préparation : {labels[order.printing.preparationTicket]}</p>
     </div>
   )
@@ -878,24 +879,36 @@ function ReprintButtons({
   printing: PrintSelection | null
   onReprint: (selection: PrintSelection) => void
 }) {
+  const available = [
+    ...(order.printing.pickupTicket !== 'not_requested' ? (['pickupTicket'] as const) : []),
+    'customerReceipt' as const,
+    ...(order.printing.preparationTicket !== 'not_requested'
+      ? (['preparationTicket'] as const)
+      : []),
+  ]
   const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
   return (
-    <div className={`grid gap-2 ${hasPreparationTicket ? 'sm:grid-cols-3' : ''}`}>
-      {hasPreparationTicket ? (
-        <Button disabled={busy} onClick={() => onReprint('both')}>
-          {printing === 'both' ? 'Impression en cours…' : 'Les deux'}
+    <div className="grid gap-2 sm:grid-cols-2">
+      {order.printing.pickupTicket !== 'not_requested' ? (
+        <Button disabled={busy} onClick={() => onReprint(['pickupTicket'])}>
+          {printing?.includes('pickupTicket') ? 'Impression en cours…' : 'Bon de retrait'}
         </Button>
       ) : null}
       <Button
         variant={hasPreparationTicket ? 'secondary' : 'primary'}
         disabled={busy}
-        onClick={() => onReprint('customer')}
+        onClick={() => onReprint(['customerReceipt'])}
       >
-        {printing === 'customer' ? 'Impression en cours…' : 'Ticket client'}
+        {printing?.includes('customerReceipt') ? 'Impression en cours…' : 'Reçu de caisse'}
       </Button>
       {hasPreparationTicket ? (
-        <Button disabled={busy} onClick={() => onReprint('preparation')}>
-          {printing === 'preparation' ? 'Impression en cours…' : 'Préparation'}
+        <Button disabled={busy} onClick={() => onReprint(['preparationTicket'])}>
+          {printing?.includes('preparationTicket') ? 'Impression en cours…' : 'Préparation'}
+        </Button>
+      ) : null}
+      {available.length > 1 ? (
+        <Button variant="primary" disabled={busy} onClick={() => onReprint(available)}>
+          Tous les documents
         </Button>
       ) : null}
     </div>

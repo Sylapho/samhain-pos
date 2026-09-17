@@ -12,7 +12,7 @@ import type { CheckoutIntent } from '../../types/checkout'
 const success: PrintJobResult = {
   ok: true,
   bytesWritten: 100,
-  completedDocuments: ['customerReceipt', 'preparationTicket'],
+  completedDocuments: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
   warnings: [],
 }
 
@@ -47,6 +47,9 @@ function createLifecycle(initialOrder = printPreviewOrder) {
         printing: {
           ...current.printing,
           status: 'printed',
+          pickupTicket: completedDocuments.includes('pickupTicket')
+            ? 'printed'
+            : current.printing.pickupTicket,
           customerReceipt: completedDocuments.includes('customerReceipt')
             ? 'printed'
             : current.printing.customerReceipt,
@@ -68,6 +71,13 @@ function createLifecycle(initialOrder = printPreviewOrder) {
               : completedDocuments.length
                 ? 'partial'
                 : 'failed',
+            pickupTicket: completedDocuments.includes('pickupTicket')
+              ? 'printed'
+              : unknownDocuments.includes('pickupTicket')
+                ? 'unknown'
+                : current.printing.pickupTicket === 'not_requested'
+                  ? 'not_requested'
+                  : 'failed',
             customerReceipt: completedDocuments.includes('customerReceipt')
               ? 'printed'
               : unknownDocuments.includes('customerReceipt')
@@ -217,7 +227,7 @@ describe('encaissement et impression', () => {
     expect(printOrder.mock.calls[1]?.[0].receiptNumber).toBe(
       printOrder.mock.calls[0]?.[0].receiptNumber,
     )
-    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: ['preparationTicket'] })
     expect(createOrder).toHaveBeenCalledOnce()
     expect(requestResponsibleAccess).not.toHaveBeenCalled()
     expect(
@@ -231,6 +241,7 @@ describe('encaissement et impression', () => {
       printing: {
         ...printPreviewOrder.printing,
         status: 'printed' as const,
+        pickupTicket: 'not_requested' as const,
         customerReceipt: 'printed' as const,
         preparationTicket: 'printed' as const,
       },
@@ -248,7 +259,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reçu de caisse' }))
     await waitFor(() => expect(requestResponsibleAccess).toHaveBeenCalledOnce())
     expect(printOrder).not.toHaveBeenCalled()
   })
@@ -279,7 +290,7 @@ describe('encaissement et impression', () => {
     expect(screen.queryByText(/La cuisine peut ne pas avoir reçu/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Préparation' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Les deux' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Ticket client' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reçu de caisse' })).toBeInTheDocument()
   })
 
   it('ne démarre aucun cycle d’impression après une vente sans document demandé', async () => {
@@ -289,6 +300,7 @@ describe('encaissement et impression', () => {
       printing: {
         ...printPreviewOrder.printing,
         status: 'printed' as const,
+        pickupTicket: 'not_requested' as const,
         customerReceipt: 'not_requested' as const,
         preparationTicket: 'not_requested' as const,
       },
@@ -309,7 +321,7 @@ describe('encaissement et impression', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /^Imprimer le ticket client/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Imprimer le reçu de caisse détaillé/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser sans impression' }))
 
     expect(
@@ -458,7 +470,7 @@ describe('encaissement et impression', () => {
     expect(
       screen.getByText('Paiement enregistré · impression échouée à reprendre'),
     ).toBeInTheDocument()
-    expect(screen.getByText('Ticket client : échec — à reprendre')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : échec — à reprendre')).toBeInTheDocument()
     expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Attention : le ticket de préparation n’a pas été imprimé.',
@@ -593,19 +605,19 @@ describe('encaissement et impression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(await screen.findByText(/impression partielle à reprendre/)).toBeInTheDocument()
-    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
     expect(lifecycle.failPrinting).toHaveBeenCalledWith(
       printPreviewOrder.id,
-      'both',
-      ['customerReceipt'],
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['pickupTicket', 'customerReceipt'],
       'Ticket de préparation interrompu.',
       [],
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Réessayer l’impression' }))
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
-    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: ['preparationTicket'] })
   })
 
   it('conserve un ticket client imprimé pendant la mise en attente puis reprend seulement la préparation', async () => {
@@ -633,7 +645,7 @@ describe('encaissement et impression', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
-    await screen.findByText('Ticket client : imprimé')
+    await screen.findByText('Reçu de caisse : imprimé')
     fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
     fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
 
@@ -665,7 +677,7 @@ describe('encaissement et impression', () => {
       orderNumber: printPreviewOrder.orderNumber,
       receiptNumber: printPreviewOrder.receiptNumber,
     })
-    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(printOrder.mock.calls[1]?.[1]).toMatchObject({ selection: ['preparationTicket'] })
     expect(createOrder).toHaveBeenCalledOnce()
   })
 
@@ -698,13 +710,13 @@ describe('encaissement et impression', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
-    expect(await screen.findByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(await screen.findByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     expect(
       screen.getByText('Ticket de préparation : à vérifier avant réimpression'),
     ).toBeInTheDocument()
     expect(lifecycle.failPrinting).toHaveBeenCalledWith(
       printPreviewOrder.id,
-      'both',
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
       ['customerReceipt'],
       'Préparation partiellement transmise.',
       ['preparationTicket'],
@@ -745,7 +757,7 @@ describe('encaissement et impression', () => {
         'L’état de certains tickets est incertain. Vérifiez les tickets déjà sortis puis choisissez explicitement celui à réimprimer.',
       ),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Ticket client' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reçu de caisse' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Préparation' })).toBeInTheDocument()
   })
 
@@ -806,8 +818,13 @@ describe('encaissement et impression', () => {
     const repository = new IndexedDbOrderRepository(indexedDb)
     const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card')
-    await service.beginPrinting(order.id, 'both')
-    await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation interrompue')
+    await service.beginPrinting(order.id, ['pickupTicket', 'customerReceipt', 'preparationTicket'])
+    await service.failPrinting(
+      order.id,
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['pickupTicket', 'customerReceipt'],
+      'Préparation interrompue',
+    )
     await repository.close()
     const reopenedRepository = new IndexedDbOrderRepository(indexedDb)
     const reopened = createOrderService(reopenedRepository)
@@ -828,27 +845,27 @@ describe('encaissement et impression', () => {
         printOrder={printOrder}
       />,
     )
-    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     const retry = screen.getByRole('button', { name: 'Reprendre l’impression' })
     fireEvent.click(retry)
     fireEvent.click(retry)
     await screen.findByText(/Commande .* enregistrée. Déconnexion/)
     expect(printOrder).toHaveBeenCalledOnce()
-    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
     await screen.findByRole('heading', { name: 'Commande validée' })
     expect(printOrder).toHaveBeenCalledTimes(2)
     for (const [printedOrder, options] of printOrder.mock.calls) {
       expect(printedOrder.id).toBe(order.id)
-      expect(options.selection).toBe('preparation')
+      expect(options.selection).toEqual(['preparationTicket'])
     }
     expect(await reopened.getRecoverableOrders()).toEqual([])
     await reopenedRepository.close()
   })
 
   it.each([
-    ['customerCut', ['customerReceipt'], 'partial'],
-    ['preparationCut', ['customerReceipt', 'preparationTicket'], 'printed'],
+    ['customerCut', ['pickupTicket', 'customerReceipt'], 'partial'],
+    ['preparationCut', ['pickupTicket', 'customerReceipt', 'preparationTicket'], 'printed'],
   ] as const)(
     'ne réimprime pas les documents terminés après %s',
     async (stage, documents, status) => {
@@ -871,7 +888,7 @@ describe('encaissement et impression', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
       await screen.findByText(/Coupe échouée/)
       expect((await service.getOrders())[0]?.printing.status).toBe(status)
-      expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+      expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
       if (status === 'printed') {
         expect(screen.getByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
         expect(
@@ -918,8 +935,13 @@ describe('encaissement et impression', () => {
     const repository = new IndexedDbOrderRepository(indexedDb)
     const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card')
-    await service.failPrinting(order.id, 'both', ['customerReceipt'], 'Préparation échouée')
-    await service.beginPrinting(order.id, 'preparation')
+    await service.failPrinting(
+      order.id,
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['pickupTicket', 'customerReceipt'],
+      'Préparation échouée',
+    )
+    await service.beginPrinting(order.id, ['preparationTicket'])
     await repository.close()
     const restartedRepository = new IndexedDbOrderRepository(indexedDb)
     const restarted = createOrderService(restartedRepository)
@@ -939,11 +961,11 @@ describe('encaissement et impression', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Vérifier les tickets' }))
     expect(printOrder).not.toHaveBeenCalled()
-    expect(screen.getByText('Ticket client : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
     await screen.findByText('Impression terminée : tous les tickets demandés ont été envoyés.')
     expect(printOrder).toHaveBeenCalledOnce()
-    expect(printOrder.mock.calls[0]?.[1]).toMatchObject({ selection: 'preparation' })
+    expect(printOrder.mock.calls[0]?.[1]).toMatchObject({ selection: ['preparationTicket'] })
     expect(await restarted.getRecoverableOrders()).toEqual([])
     await restartedRepository.close()
   })

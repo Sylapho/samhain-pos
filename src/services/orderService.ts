@@ -14,6 +14,12 @@ import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 import { orderRequiresPreparation } from '../utils/preparation'
+import { orderRequiresPickupTicket } from '../utils/preparation'
+import {
+  derivePrintStatus,
+  normalizeOrderPrinting,
+  uniquePrintSelection,
+} from '../printing/orderPrinting'
 import {
   toIsoTimestamp,
   validateOrderDraft,
@@ -55,37 +61,16 @@ function cloneCartItems(items: CartItem[]): CartItem[] {
 }
 
 function normalizeOrder(order: Order): Order {
-  if (order.printing && order.paymentStatus) return order
   return {
     ...order,
-    paymentStatus: 'paid',
-    paidAt: order.createdAt,
-    printing: {
-      status: 'unknown',
-      customerReceipt: 'unknown',
-      preparationTicket: 'unknown',
-      attempts: 0,
-      updatedAt: order.createdAt,
-      lastError: 'État d’impression antérieur inconnu.',
-    },
+    paymentStatus: order.paymentStatus ?? 'paid',
+    paidAt: order.paidAt ?? order.createdAt,
+    printing: normalizeOrderPrinting(order.printing, order.createdAt),
   }
 }
 
 function selectedDocuments(selection: PrintSelection): PrintDocumentType[] {
-  if (selection === 'customer') return ['customerReceipt']
-  if (selection === 'preparation') return ['preparationTicket']
-  return ['customerReceipt', 'preparationTicket']
-}
-
-function derivePrintStatus(printing: OrderPrinting): OrderPrinting['status'] {
-  const states = [printing.customerReceipt, printing.preparationTicket].filter(
-    (status) => status !== 'not_requested',
-  )
-  if (states.some((status) => status === 'unknown')) return 'unknown'
-  if (states.every((status) => status === 'printed')) return 'printed'
-  if (states.some((status) => status === 'printed')) return 'partial'
-  if (states.some((status) => status === 'pending')) return 'pending'
-  return 'failed'
+  return uniquePrintSelection(selection)
 }
 
 function initialPrinting(
@@ -95,6 +80,7 @@ function initialPrinting(
 ): OrderPrinting {
   const printing: OrderPrinting = {
     status: 'pending',
+    pickupTicket: orderRequiresPickupTicket({ items }) ? 'pending' : 'not_requested',
     customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
     preparationTicket: orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
     attempts: 0,
@@ -116,7 +102,7 @@ export class OrderService {
     items: CartItem[],
     paymentMethod: PaymentMethod,
     createdAt = new Date(),
-    printCustomerReceipt = true,
+    printCustomerReceipt: boolean = posConfig.defaultPrintCustomerReceipt,
   ): Promise<Order> {
     const createdAtIso = toIsoTimestamp(createdAt, 'La date de création')
     const terminalConfiguration = validateTerminalConfiguration(this.loadTerminalConfiguration())
@@ -250,7 +236,7 @@ export function createOrder(
   items: CartItem[],
   paymentMethod: PaymentMethod,
   createdAt = new Date(),
-  printCustomerReceipt = true,
+  printCustomerReceipt: boolean = posConfig.defaultPrintCustomerReceipt,
 ): Promise<Order> {
   return getDefaultOrderService().createOrder(items, paymentMethod, createdAt, printCustomerReceipt)
 }

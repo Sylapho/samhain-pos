@@ -6,8 +6,21 @@ import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { encodeCp858 } from './escPos'
 import { wrapText } from './layout'
 import { renderPreparationTicket } from './preparationTicketRenderer'
+import { renderPickupTicket } from './pickupTicketRenderer'
 
 describe('rendus thermiques', () => {
+  it('rend un bon de retrait court, lisible et sans donnée financière', () => {
+    const ticket = renderPickupTicket(printPreviewOrder)
+    expect(ticket.type).toBe('pickupTicket')
+    expect(ticket.preview).toContain('SAMHAIN')
+    expect(ticket.preview).toContain('COMMANDE')
+    expect(ticket.preview).toContain('A-0001')
+    expect(ticket.preview).toContain('20:15 - Caisse A')
+    expect(ticket.preview).toContain('À présenter pour retirer')
+    expect(ticket.preview).not.toMatch(/€|TOTAL|TVA|SIRET|Paiement|Burger|41,50/)
+    expect([...ticket.bytes]).toContain(0x11)
+  })
+
   it('rend un ticket client complet avec paiement et TVA', () => {
     const ticket = renderCustomerReceipt(printPreviewOrder)
     expect(ticket.preview).toContain('SAMHAIN')
@@ -23,6 +36,7 @@ describe('rendus thermiques', () => {
     expect(ticket.preview).toContain('TVA 10 %')
     expect(ticket.preview).toContain('TVA 20 %')
     expect(ticket.preview).toContain('TOTAL TTC 41,50 €')
+    expect(ticket.preview).not.toContain('retirer votre commande')
     expect([...ticket.bytes].slice(0, 2)).toEqual([0x1b, 0x40])
   })
 

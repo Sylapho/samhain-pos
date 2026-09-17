@@ -37,7 +37,7 @@ export class CheckoutService {
   createIntent(
     items: CartItem[],
     paymentMethod: PaymentMethod,
-    printCustomerReceipt = true,
+    printCustomerReceipt: boolean = posConfig.defaultPrintCustomerReceipt,
     createdAt = new Date(),
   ): Promise<CheckoutIntent> {
     const createdAtIso = toIsoTimestamp(createdAt, 'La date de création')
@@ -113,8 +113,11 @@ function getDefaultCheckoutService(): CheckoutService {
 }
 
 export const checkoutService = {
-  createIntent: (items: CartItem[], paymentMethod: PaymentMethod, printCustomerReceipt = true) =>
-    getDefaultCheckoutService().createIntent(items, paymentMethod, printCustomerReceipt),
+  createIntent: (
+    items: CartItem[],
+    paymentMethod: PaymentMethod,
+    printCustomerReceipt: boolean = posConfig.defaultPrintCustomerReceipt,
+  ) => getDefaultCheckoutService().createIntent(items, paymentMethod, printCustomerReceipt),
   beginPayment: (id: string) => getDefaultCheckoutService().beginPayment(id),
   confirmPayment: (id: string) => getDefaultCheckoutService().confirmPayment(id),
   abandon: (id: string) => getDefaultCheckoutService().abandon(id),

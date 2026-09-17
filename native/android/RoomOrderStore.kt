@@ -94,6 +94,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             val preparationRequired = requiresPreparation(intent.getJSONArray("cartSnapshot"))
             val customerReceipt =
                 if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested"
+            val pickupTicket = if (preparationRequired) "pending" else "not_requested"
             val preparationTicket = if (preparationRequired) "pending" else "not_requested"
             val request =
                 JSONObject().apply {
@@ -114,12 +115,17 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                         JSONObject().apply {
                             put(
                                 "status",
-                                if (customerReceipt == "pending" || preparationTicket == "pending") {
+                                if (
+                                    pickupTicket == "pending" ||
+                                    customerReceipt == "pending" ||
+                                    preparationTicket == "pending"
+                                ) {
                                     "pending"
                                 } else {
                                     "printed"
                                 },
                             )
+                            put("pickupTicket", pickupTicket)
                             put("customerReceipt", customerReceipt)
                             put("preparationTicket", preparationTicket)
                             put("attempts", 0)
@@ -490,7 +496,9 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 put("hash", hash)
             }
         val stored = JSONObject(immutable.toString()).apply { put("integrity", integrity) }
-        val technical = order.getJSONObject("printing")
+        val technical = JSONObject(order.getJSONObject("printing").toString()).apply {
+            if (!has("pickupTicket")) put("pickupTicket", "unknown")
+        }
         orders.insert(toOrderEntity(stored))
         printing.insert(toPrintingEntity(order.getString("id"), technical))
         ledger.insert(toLedgerEntity(entry))
@@ -596,6 +604,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     private fun printingJson(entity: OrderPrintingEntity): JSONObject =
         JSONObject().apply {
             put("status", entity.status)
+            put("pickupTicket", entity.pickupTicket)
             put("customerReceipt", entity.customerReceipt)
             put("preparationTicket", entity.preparationTicket)
             put("attempts", entity.attempts)
@@ -608,6 +617,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         return OrderPrintingEntity(
             orderId = orderId,
             status = value.getString("status"),
+            pickupTicket = value.optString("pickupTicket", "unknown"),
             customerReceipt = value.getString("customerReceipt"),
             preparationTicket = value.getString("preparationTicket"),
             attempts = value.requiredSafeLong("attempts").toInt(),
@@ -617,11 +627,14 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     }
 
     private fun importPrinting(orderId: String, value: JSONObject) {
+        val normalized = JSONObject(value.toString()).apply {
+            if (!has("pickupTicket")) put("pickupTicket", "unknown")
+        }
         val existing = printing.findByOrderId(orderId)
         if (existing == null) {
-            printing.insert(toPrintingEntity(orderId, value))
+            printing.insert(toPrintingEntity(orderId, normalized))
         } else if (
-            CanonicalJson.stringify(printingJson(existing)) != CanonicalJson.stringify(value)
+            CanonicalJson.stringify(printingJson(existing)) != CanonicalJson.stringify(normalized)
         ) {
             throw IllegalStateException(
                 "Conflit de migration : l’état d’impression de $orderId est différent.",
@@ -863,6 +876,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     "printing",
                     JSONObject()
                         .put("status", "pending")
+                        .put("pickupTicket", "pending")
                         .put("customerReceipt", "pending")
                         .put("preparationTicket", "pending")
                         .put("attempts", 0)
@@ -998,6 +1012,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             "État global d’impression invalide."
         }
         val documentStates = setOf("not_requested", "pending", "printed", "failed", "unknown")
+        require(value.optString("pickupTicket", "unknown") in documentStates)
         require(value.getString("customerReceipt") in documentStates)
         require(value.getString("preparationTicket") in documentStates)
         val attempts = value.requiredSafeLong("attempts")
@@ -1025,6 +1040,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     private fun unknownPrinting(createdAt: String): JSONObject =
         JSONObject().apply {
             put("status", "unknown")
+            put("pickupTicket", "unknown")
             put("customerReceipt", "unknown")
             put("preparationTicket", "unknown")
             put("attempts", 0)

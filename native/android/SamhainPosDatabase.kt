@@ -71,6 +71,7 @@ data class OrderEntity(
 data class OrderPrintingEntity(
     @PrimaryKey @ColumnInfo(name = "order_id") val orderId: String,
     val status: String,
+    @ColumnInfo(name = "pickup_ticket") val pickupTicket: String,
     @ColumnInfo(name = "customer_receipt") val customerReceipt: String,
     @ColumnInfo(name = "preparation_ticket") val preparationTicket: String,
     val attempts: Int,
@@ -220,7 +221,7 @@ interface CheckoutIntentDao {
         PosMetadataEntity::class,
         CheckoutIntentEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
@@ -292,6 +293,15 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                 }
             }
 
+        val MIGRATION_3_4 =
+            object : Migration(3, 4) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE order_printing ADD COLUMN pickup_ticket TEXT NOT NULL DEFAULT 'unknown'",
+                    )
+                }
+            }
+
         @Volatile private var instance: SamhainPosDatabase? = null
 
         fun getInstance(context: Context): SamhainPosDatabase =
@@ -300,7 +310,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
