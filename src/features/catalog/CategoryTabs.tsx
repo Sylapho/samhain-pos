@@ -26,11 +26,6 @@ export function CategoryTabs({ activeCategory, onChange }: CategoryTabsProps) {
             }`}
           >
             <span className="block">{category.label}</span>
-            {active ? (
-              <span className="mt-1 block text-xs font-semibold text-[#d8eadf]">
-                Catégorie active
-              </span>
-            ) : null}
           </button>
         )
       })}
