@@ -45,6 +45,8 @@ describe('cart store', () => {
 
   it('snapshote le besoin de préparation indépendamment de la catégorie', () => {
     expect(water.categoryId).toBe(coca.categoryId)
+    expect(water.variants).toBeUndefined()
+    expect(water.description).toBe('50 cl')
     expect(createCartItemDraft(water).requiresPreparation).toBe(false)
     expect(createCartItemDraft(coca).requiresPreparation).toBe(true)
   })

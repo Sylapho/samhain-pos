@@ -233,7 +233,8 @@ export const products: Product[] = [
     requiresPreparation: false,
     availability: 'available',
     vatRate: 10,
-    variants: [{ id: '50cl', name: 'Bouteille', volume: '50 cl', priceCents: 300 }],
+    priceCents: 300,
+    description: '50 cl',
   },
   {
     id: 'cola-temporaire',
