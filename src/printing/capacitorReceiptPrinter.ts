@@ -64,14 +64,15 @@ function mapNativeError(error: unknown): OrderPrintError {
 
   const nativeError = error as NativeError
   const code = nativeError?.code ?? 'USB_PRINT_ERROR'
-  const nativeMessage = nativeError?.message ?? 'Erreur USB inconnue.'
   const completedDocuments = parseDocuments(nativeError?.data?.completedDocuments)
   const unknownDocuments = parseDocuments(nativeError?.data?.unknownDocuments)
   const transfer = parseTransfer(nativeError?.data?.transfer)
 
   if (code.startsWith('USB_PICKUP_WRITE')) {
     return new OrderPrintError(
-      `${unknownDocuments?.includes('pickupTicket') ? 'L’état du bon de retrait est incertain ; vérifiez le papier avant toute réimpression.' : 'Le bon de retrait n’a pas pu être imprimé.'} ${nativeMessage}`,
+      unknownDocuments?.includes('pickupTicket')
+        ? 'L’état du bon de retrait est incertain. Vérifiez les tickets sortis avant toute réimpression.'
+        : 'Le bon de retrait n’a pas pu être imprimé. Vérifiez l’imprimante puis réessayez.',
       'pickupTicket',
       code,
       completedDocuments,
@@ -81,7 +82,7 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_PICKUP_CUT')) {
     return new OrderPrintError(
-      `Le bon de retrait est imprimé, mais sa coupe a échoué. ${nativeMessage}`,
+      'Le bon de retrait est imprimé, mais la coupe a échoué. Détachez-le manuellement.',
       'pickupCut',
       code,
       completedDocuments,
@@ -91,7 +92,9 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_CUSTOMER_RECEIPT')) {
     return new OrderPrintError(
-      `${unknownDocuments?.includes('customerReceipt') ? 'L’état du ticket client est incertain ; vérifiez le papier avant toute réimpression.' : 'Le ticket client n’a pas pu être imprimé.'} ${nativeMessage}`,
+      unknownDocuments?.includes('customerReceipt')
+        ? 'L’état du reçu de caisse est incertain. Vérifiez les tickets sortis avant toute réimpression.'
+        : 'Le reçu de caisse n’a pas pu être imprimé. Vérifiez l’imprimante puis réessayez.',
       'customerReceipt',
       code,
       completedDocuments,
@@ -101,7 +104,7 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_CUSTOMER_CUT')) {
     return new OrderPrintError(
-      `Le ticket client est imprimé, mais sa coupe a échoué. ${nativeMessage}`,
+      'Le reçu de caisse est imprimé, mais la coupe a échoué. Détachez-le manuellement.',
       'customerCut',
       code,
       completedDocuments,
@@ -111,7 +114,9 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_PREPARATION_WRITE')) {
     return new OrderPrintError(
-      `${unknownDocuments?.includes('preparationTicket') ? 'L’état du ticket de préparation est incertain ; vérifiez le papier avant toute réimpression.' : 'Le ticket de préparation n’a pas pu être imprimé.'} ${nativeMessage}`,
+      unknownDocuments?.includes('preparationTicket')
+        ? 'L’état du ticket de préparation est incertain. Vérifiez les tickets sortis avant toute réimpression.'
+        : 'Le ticket de préparation n’a pas pu être imprimé. Vérifiez l’imprimante puis réessayez.',
       'preparationTicket',
       code,
       completedDocuments,
@@ -121,7 +126,7 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_PREPARATION_CUT')) {
     return new OrderPrintError(
-      `La coupe du ticket de préparation a échoué. ${nativeMessage}`,
+      'Le ticket de préparation est imprimé, mais la coupe a échoué. Détachez-le manuellement.',
       'preparationCut',
       code,
       completedDocuments,
@@ -131,7 +136,7 @@ function mapNativeError(error: unknown): OrderPrintError {
   }
   if (code.startsWith('USB_PERMISSION')) {
     return new OrderPrintError(
-      nativeMessage,
+      'La connexion à l’imprimante n’est pas autorisée. Ouvrez les paramètres de l’imprimante puis réessayez.',
       'permission',
       code,
       completedDocuments,
@@ -140,8 +145,17 @@ function mapNativeError(error: unknown): OrderPrintError {
     )
   }
 
+  const message =
+    code === 'USB_PRINTER_PAPER_OUT'
+      ? 'L’imprimante n’a plus de papier. Remettez un rouleau puis réessayez.'
+      : code === 'USB_PRINTER_COVER_OPEN'
+        ? 'Le capot de l’imprimante est ouvert. Fermez-le puis réessayez.'
+        : code === 'USB_DEVICE_NOT_FOUND'
+          ? 'Imprimante non détectée. Vérifiez qu’elle est allumée et correctement branchée.'
+          : 'Impossible de communiquer avec l’imprimante. Vérifiez-la puis réessayez.'
+
   return new OrderPrintError(
-    nativeMessage,
+    message,
     'connection',
     code,
     completedDocuments,
@@ -154,7 +168,7 @@ export class CapacitorReceiptPrinter implements ReceiptPrinter {
   async printJob(steps: PrintJobStep[], requestedDeviceId?: number) {
     if (!epsonUsbPrinter.isAndroidNative()) {
       throw new OrderPrintError(
-        'L’impression USB est disponible uniquement dans l’application Android.',
+        'L’impression est disponible uniquement depuis l’application installée sur la tablette.',
         'connection',
         'ANDROID_REQUIRED',
       )
@@ -174,7 +188,7 @@ export class CapacitorReceiptPrinter implements ReceiptPrinter {
 
       if (!device) {
         throw new OrderPrintError(
-          'Aucune imprimante USB compatible n’est connectée.',
+          'Imprimante non détectée. Vérifiez qu’elle est allumée et correctement branchée.',
           'connection',
           'USB_DEVICE_NOT_FOUND',
         )
@@ -184,7 +198,7 @@ export class CapacitorReceiptPrinter implements ReceiptPrinter {
         const permission = await epsonUsbPrinter.requestPermission(device.deviceId)
         if (!permission.granted) {
           throw new OrderPrintError(
-            'Autorisation USB refusée. Autorisez l’imprimante puis réessayez.',
+            'Connexion à l’imprimante refusée. Ouvrez les paramètres de l’imprimante puis réessayez.',
             'permission',
             'USB_PERMISSION_DENIED',
           )

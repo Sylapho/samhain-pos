@@ -57,7 +57,7 @@ function openDialog(onStatusChanged = vi.fn()) {
   )
 }
 
-describe('configuration USB de l’imprimante', () => {
+describe('configuration de l’imprimante', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -71,8 +71,8 @@ describe('configuration USB de l’imprimante', () => {
     vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({ devices: [] })
     openDialog()
 
-    expect(await screen.findByText('Imprimante déconnectée')).toBeInTheDocument()
-    expect(screen.getByText(/Aucune imprimante USB détectée/)).toBeInTheDocument()
+    expect(await screen.findByText('Imprimante non détectée')).toBeInTheDocument()
+    expect(screen.getByText(/Aucune imprimante détectée/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connecter' })).toBeDisabled()
   })
 
@@ -85,7 +85,7 @@ describe('configuration USB de l’imprimante', () => {
     })
     openDialog()
 
-    expect(await screen.findByText('Permission USB nécessaire')).toBeInTheDocument()
+    expect(await screen.findByText('Connexion à autoriser')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Connecter' }))
 
     expect(await screen.findByText('Imprimante connectée et prête.')).toBeInTheDocument()
@@ -102,10 +102,10 @@ describe('configuration USB de l’imprimante', () => {
     })
     openDialog()
 
-    await screen.findByText('Permission USB nécessaire')
+    await screen.findByText('Connexion à autoriser')
     fireEvent.click(screen.getByRole('button', { name: 'Connecter' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Permission USB refusée')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Connexion refusée')
     expect(screen.getByRole('button', { name: 'Connecter' })).toBeEnabled()
   })
 
@@ -126,6 +126,7 @@ describe('configuration USB de l’imprimante', () => {
     await waitFor(() => expect(secondChoice).toHaveAttribute('aria-pressed', 'true'))
     expect(getPreferredUsbPrinter()?.serialNumber).toBe('B')
     expect(screen.getByText(/Imprimante sélectionnée :/)).toHaveTextContent('TM-T88V caisse 2')
+    expect(screen.queryByText(/VID|PID|0x04B8/)).not.toBeInTheDocument()
   })
 
   it('reflète une déconnexion pendant la reconnexion', async () => {
@@ -134,27 +135,28 @@ describe('configuration USB de l’imprimante', () => {
       .mockRejectedValueOnce({ code: 'USB_DEVICE_NOT_FOUND' })
     openDialog()
 
-    await screen.findByText('Imprimante prête')
+    await screen.findByText('Imprimante connectée')
     fireEvent.click(screen.getByRole('button', { name: 'Reconnecter' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Imprimante déconnectée')
-    expect(screen.getAllByText('Imprimante déconnectée')).toHaveLength(2)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Imprimante non détectée')
+    expect(screen.getAllByText('Imprimante non détectée')).toHaveLength(2)
   })
 
   it('confirme une impression de test réussie', async () => {
     openDialog()
-    await screen.findByText('Imprimante prête')
+    await screen.findByText('Imprimante connectée')
 
     fireEvent.click(screen.getByRole('button', { name: 'Tester l’impression' }))
 
     expect(await screen.findByText(/Ticket de test imprimé/)).toBeInTheDocument()
+    expect(screen.queryByText(/octets/)).not.toBeInTheDocument()
     expect(printUsbTestTicket).toHaveBeenCalledWith(printer.deviceId)
   })
 
   it('présente simplement un échec d’écriture du ticket de test', async () => {
     vi.mocked(printUsbTestTicket).mockRejectedValue({ code: 'USB_PRINT_JOB_WRITE_FAILED' })
     openDialog()
-    await screen.findByText('Imprimante prête')
+    await screen.findByText('Imprimante connectée')
 
     fireEvent.click(screen.getByRole('button', { name: 'Tester l’impression' }))
 

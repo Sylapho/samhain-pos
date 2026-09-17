@@ -109,18 +109,17 @@ export function TerminalConfigurationDialog({
             {pendingReprovision.terminalCode} ?
           </h1>
           <p className="mt-4 font-bold text-stone-800">
-            Un nouvel identifiant technique sera créé. Les anciennes ventes resteront associées à
-            Caisse {configuration.terminalCode}.
+            Cette tablette sera désormais utilisée comme Caisse {pendingReprovision.terminalCode}.
+            Les anciennes ventes resteront associées à Caisse {configuration.terminalCode}.
           </p>
           <dl className="mt-5 grid gap-3 border-y border-stone-300 py-4 font-bold sm:grid-cols-2">
             <div>
-              <dt className="text-sm text-stone-600">Identité actuelle</dt>
+              <dt className="text-sm text-stone-600">Caisse actuelle</dt>
               <dd>{configuration.displayName}</dd>
               <dd>Code {configuration.terminalCode}</dd>
-              <dd className="break-all font-mono text-xs">{configuration.terminalId}</dd>
             </div>
             <div>
-              <dt className="text-sm text-stone-600">Nouvelle identité</dt>
+              <dt className="text-sm text-stone-600">Nouvelle caisse</dt>
               <dd>{pendingReprovision.displayName.trim()}</dd>
               <dd>Code {pendingReprovision.terminalCode}</dd>
             </div>
@@ -143,7 +142,7 @@ export function TerminalConfigurationDialog({
               Annuler
             </Button>
             <Button variant="primary" className="min-h-14 text-lg" onClick={confirmReprovision}>
-              Confirmer le reprovisionnement
+              Confirmer le changement
             </Button>
           </div>
         </section>
@@ -177,30 +176,27 @@ export function TerminalConfigurationDialog({
           {isInitialProvisioning
             ? 'Configurer cette tablette'
             : reprovisioning
-              ? 'Reprovisionner cette tablette'
-              : 'Configuration de la caisse'}
+              ? 'Changer la caisse de cette tablette'
+              : 'Paramètres de la caisse'}
         </h1>
         <p className="mt-2 font-bold text-stone-700">
           {isChoosingIdentity
             ? 'Choisissez le code physique attribué à cette tablette. Cette opération fonctionne hors ligne.'
-            : 'Le nom peut être modifié sans changer l’identité technique ni les anciennes commandes.'}
+            : 'Vous pouvez modifier le nom affiché sans changer les anciennes commandes.'}
         </p>
 
         {configuration ? (
           <div className="mt-5 border-y border-stone-300 py-3 font-bold">
-            <p className="text-sm text-stone-600">Identité actuelle</p>
+            <p className="text-sm text-stone-600">Caisse actuelle</p>
             <p>Nom : {configuration.displayName}</p>
             <p>Code : {configuration.terminalCode}</p>
-            <p className="mt-1 break-all text-sm text-stone-700">
-              Identifiant technique : {configuration.terminalId}
-            </p>
           </div>
         ) : null}
 
         {isChoosingIdentity ? (
           <fieldset className="mt-5">
             <legend className="font-black">
-              {reprovisioning ? 'Nouvelle identité' : 'Code de la caisse'}
+              {reprovisioning ? 'Nouvelle caisse' : 'Code de la caisse'}
             </legend>
             <div className="mt-2 grid grid-cols-4 gap-2">
               {terminalCodes.map((code) => (
@@ -235,8 +231,8 @@ export function TerminalConfigurationDialog({
 
         {reprovisioning ? (
           <p className="mt-4 border border-amber-300 bg-amber-50 p-3 font-bold text-amber-950">
-            Le reprovisionnement créera un nouvel identifiant technique. Les commandes déjà
-            enregistrées conserveront leur caisse d’origine.
+            Après ce changement, les nouvelles commandes seront rattachées à la caisse choisie. Les
+            commandes déjà enregistrées conserveront leur caisse d’origine.
           </p>
         ) : null}
         {error ? (
@@ -291,7 +287,7 @@ export function TerminalConfigurationDialog({
                 setError(null)
               }}
             >
-              Reprovisionner cette tablette
+              Changer la caisse utilisée
             </Button>
             {reprovisioningBlockReason ? (
               <p

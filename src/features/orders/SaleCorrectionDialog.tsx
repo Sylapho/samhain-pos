@@ -68,11 +68,7 @@ export function SaleCorrectionDialog({
       }
       await onRecorded(action)
     } catch (submitError) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : 'La correction n’a pas été enregistrée. La vente originale reste inchangée.',
-      )
+      setError(correctionErrorMessage(submitError))
     } finally {
       submittingRef.current = false
       setSubmitting(false)
@@ -170,7 +166,7 @@ export function SaleCorrectionDialog({
               </div>
             </dl>
             <p className="mt-4 border-l-4 border-amber-500 bg-amber-50 p-3 font-bold text-amber-950">
-              Cette opération crée une correction dans le journal. La vente originale restera
+              Cette correction sera ajoutée à l’historique de la caisse. La vente originale restera
               conservée. Aucun justificatif ne sera imprimé automatiquement.
             </p>
           </>
@@ -366,4 +362,23 @@ export function SaleCorrectionDialog({
       </section>
     </div>
   )
+}
+
+function correctionErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  const normalized = message.toLocaleLowerCase('fr-FR')
+  if (normalized.includes('responsable') && normalized.includes('expir')) {
+    return 'Le mode responsable a expiré. Déverrouillez-le puis réessayez.'
+  }
+  if (normalized.includes('responsable')) {
+    return 'Le mode responsable doit être déverrouillé pour corriger cette vente.'
+  }
+  if (normalized.includes('déjà été annulée')) return 'Cette vente a déjà été annulée.'
+  if (normalized.includes('période déjà clôturée')) {
+    return 'Cette vente appartient à une période déjà clôturée et ne peut plus être corrigée.'
+  }
+  if (normalized.includes('dépasse') || normalized.includes('quantité vendue')) {
+    return 'La quantité choisie dépasse la quantité encore remboursable.'
+  }
+  return 'La correction n’a pas été enregistrée. La vente originale reste inchangée. Réessayez.'
 }

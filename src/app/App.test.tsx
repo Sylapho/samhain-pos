@@ -141,12 +141,12 @@ describe('caisse', () => {
 
     expect(screen.getByRole('dialog', { name: 'Mode responsable' })).toBeInTheDocument()
     expect(
-      screen.queryByRole('dialog', { name: 'Configuration de la caisse' }),
+      screen.queryByRole('dialog', { name: 'Paramètres de la caisse' }),
     ).not.toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('PIN responsable'), { target: { value: '4826' } })
     fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
     expect(
-      await screen.findByRole('dialog', { name: 'Configuration de la caisse' }),
+      await screen.findByRole('dialog', { name: 'Paramètres de la caisse' }),
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
     expect(responsibleMode.isUnlocked()).toBe(false)
@@ -170,7 +170,7 @@ describe('caisse', () => {
         }}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Clôture & sauvegarde' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clôture et sauvegarde' }))
 
     expect(screen.getByRole('dialog', { name: 'Mode responsable' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'Clôture et sauvegarde' })).not.toBeInTheDocument()
@@ -192,7 +192,7 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Reprovisionner cette tablette' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Changer la caisse utilisée' })).toBeEnabled(),
     )
   })
 
@@ -220,9 +220,7 @@ describe('caisse', () => {
     await screen.findByText('1 impression(s) à reprendre')
     fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
 
-    expect(
-      await screen.findByRole('button', { name: 'Reprovisionner cette tablette' }),
-    ).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Changer la caisse utilisée' })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent(/impressions sont à reprendre/)
   })
 
@@ -260,30 +258,26 @@ describe('caisse', () => {
     render(<App probePrinterStatus={probePrinterStatus} />)
 
     expect(screen.getByText('Imprimante : Vérification…')).toBeInTheDocument()
-    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Connectée')).not.toBeInTheDocument()
 
     finishProbe?.('ready')
-    expect(await screen.findByText('Imprimante : Prête')).toBeInTheDocument()
+    expect(await screen.findByText('Imprimante : Connectée')).toBeInTheDocument()
   })
 
   it('ouvre la configuration USB depuis le statut imprimante et revient à la caisse', async () => {
     render(<App probePrinterStatus={async () => 'disconnected'} />)
-    await screen.findByText('Imprimante : Déconnectée')
+    await screen.findByText('Imprimante : Non détectée')
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Configurer l’imprimante. Statut : Déconnectée',
+        name: 'Configurer l’imprimante. Statut : Non détectée',
       }),
     )
 
-    expect(
-      screen.getByRole('dialog', { name: 'Configuration de l’imprimante USB' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Imprimante' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retour' }))
     await waitFor(() =>
-      expect(
-        screen.queryByRole('dialog', { name: 'Configuration de l’imprimante USB' }),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByRole('dialog', { name: 'Imprimante' })).not.toBeInTheDocument(),
     )
   })
 
@@ -295,10 +289,12 @@ describe('caisse', () => {
       .mockResolvedValue('disconnected')
 
     render(<App probePrinterStatus={probePrinterStatus} />)
-    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
 
     await vi.advanceTimersByTimeAsync(3_000)
-    await vi.waitFor(() => expect(screen.getByText('Imprimante : Déconnectée')).toBeInTheDocument())
+    await vi.waitFor(() =>
+      expect(screen.getByText('Imprimante : Non détectée')).toBeInTheDocument(),
+    )
   })
 
   it('suit le retrait puis le retour du papier sans recharger l’application', async () => {
@@ -310,22 +306,22 @@ describe('caisse', () => {
       .mockResolvedValue('ready')
 
     render(<App probePrinterStatus={probePrinterStatus} />)
-    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
 
     await vi.advanceTimersByTimeAsync(3_000)
     await vi.waitFor(() =>
-      expect(screen.getByText('Imprimante : Papier épuisé')).toBeInTheDocument(),
+      expect(screen.getByText('Imprimante : Plus de papier')).toBeInTheDocument(),
     )
 
     await vi.advanceTimersByTimeAsync(3_000)
-    await vi.waitFor(() => expect(screen.getByText('Imprimante : Prête')).toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
   })
 
   it('affiche une erreur si la vérification matérielle échoue', async () => {
     render(<App probePrinterStatus={async () => 'error'} />)
 
-    expect(await screen.findByText('Imprimante : Erreur imprimante')).toBeInTheDocument()
-    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
+    expect(await screen.findByText('Imprimante : À vérifier')).toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Connectée')).not.toBeInTheDocument()
   })
 
   it('indique clairement un capot ouvert', async () => {
@@ -337,8 +333,8 @@ describe('caisse', () => {
   it('n’annonce pas prête si la sonde ne peut pas lire le statut', async () => {
     render(<App probePrinterStatus={async () => Promise.reject(new Error('USB indisponible'))} />)
 
-    expect(await screen.findByText('Imprimante : Statut illisible')).toBeInTheDocument()
-    expect(screen.queryByText('Imprimante : Prête')).not.toBeInTheDocument()
+    expect(await screen.findByText('Imprimante : État non vérifié')).toBeInTheDocument()
+    expect(screen.queryByText('Imprimante : Connectée')).not.toBeInTheDocument()
   })
 
   it('ajoute un produit simple en un appui puis modifie sa quantité', () => {

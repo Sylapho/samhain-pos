@@ -74,11 +74,11 @@ describe('configuration de la caisse', () => {
         onClose={vi.fn()}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Reprovisionner cette tablette' }))
-    expect(screen.getByText(/nouvel identifiant technique/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Changer la caisse utilisée' }))
+    expect(screen.getByText(/nouvelles commandes seront rattachées/)).toBeInTheDocument()
     expect(screen.getByText('Nom : Caisse A')).toBeInTheDocument()
     expect(screen.getByText('Code : A')).toBeInTheDocument()
-    expect(screen.getByText(/Identifiant technique : terminal-a/)).toBeInTheDocument()
+    expect(screen.queryByText(/terminal-a/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'B' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
 
@@ -90,7 +90,7 @@ describe('configuration de la caisse', () => {
     expect(onReprovision).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
-    const confirm = screen.getByRole('button', { name: 'Confirmer le reprovisionnement' })
+    const confirm = screen.getByRole('button', { name: 'Confirmer le changement' })
     fireEvent.click(confirm)
     fireEvent.click(confirm)
 
@@ -110,7 +110,7 @@ describe('configuration de la caisse', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Reprovisionner cette tablette' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Changer la caisse utilisée' })).toBeDisabled()
     expect(screen.getByRole('status')).toHaveTextContent(/impressions sont à reprendre/)
   })
 })

@@ -75,10 +75,10 @@ export function LedgerManagement({
     setMessage(null)
     try {
       await operation()
-    } catch (caught) {
+    } catch {
       if (mountedRef.current) {
         if (action === 'closure') setConfirmClosure(false)
-        setError(caught instanceof Error ? caught.message : 'L’opération a échoué.')
+        setError(ledgerActionError(action))
       }
     } finally {
       busyRef.current = false
@@ -92,7 +92,9 @@ export function LedgerManagement({
       if (!mountedRef.current) return
       setIntegrity(result)
       if (!result.valid) {
-        setError('Le journal est invalide. La sauvegarde et la clôture sûres sont bloquées.')
+        setError(
+          'Certaines ventes enregistrées ne peuvent pas être vérifiées. La sauvegarde et la clôture sont bloquées.',
+        )
       }
     })
 
@@ -103,7 +105,7 @@ export function LedgerManagement({
       if (!mountedRef.current) return
       setBackupResult(result)
       if (result.status === 'cancelled') {
-        setMessage('Enregistrement annulé. Aucun fichier n’est déclaré sauvegardé.')
+        setMessage('Enregistrement annulé. Aucune sauvegarde n’a été créée.')
       }
     })
 
@@ -125,9 +127,7 @@ export function LedgerManagement({
       const latestIntegrity = await ledgerService.verifyIntegrity()
       if (!latestIntegrity.valid) {
         setIntegrity(latestIntegrity)
-        throw new Error(
-          `Clôture refusée : ${latestIntegrity.errors.join(' ') || 'journal invalide.'}`,
-        )
+        throw new Error('Les ventes enregistrées ne peuvent pas être vérifiées.')
       }
       const result = await ledgerService.closePeriod(
         parseDateTimeLocal(periodStart),
@@ -138,9 +138,7 @@ export function LedgerManagement({
       setPreview(null)
       setConfirmClosure(false)
       setIntegrity(await ledgerService.verifyIntegrity())
-      setMessage(
-        'Clôture enregistrée dans le journal append-only. Les ventes locales sont conservées.',
-      )
+      setMessage('Clôture enregistrée. Les ventes restent disponibles dans l’historique.')
     })
 
   const actionsAllowed = integrity?.valid === true && busy === null
@@ -169,7 +167,7 @@ export function LedgerManagement({
       </header>
 
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-y-auto p-4 sm:p-6">
-        <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Gestion du journal">
+        <div className="grid grid-cols-2 gap-3" role="tablist" aria-label="Clôture et sauvegarde">
           <Button
             role="tab"
             aria-selected={section === 'backup'}
@@ -188,7 +186,7 @@ export function LedgerManagement({
             disabled={busy !== null}
             onClick={() => setSection('closure')}
           >
-            Clôture
+            Clôture de caisse
           </Button>
         </div>
 
@@ -196,10 +194,10 @@ export function LedgerManagement({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 id="integrity-title" className="text-xl font-black">
-                Intégrité du journal
+                Vérification des ventes
               </h3>
               <p className="mt-1 font-semibold text-stone-700">
-                Contrôle les ventes persistées et la chaîne d’empreintes.
+                Contrôle que les ventes enregistrées sont complètes et n’ont pas été modifiées.
               </p>
             </div>
             <Button
@@ -208,7 +206,7 @@ export function LedgerManagement({
               disabled={busy !== null}
               onClick={() => void verify()}
             >
-              {busy === 'integrity' ? 'Vérification…' : 'Vérifier l’intégrité'}
+              {busy === 'integrity' ? 'Vérification…' : 'Vérifier les ventes'}
             </Button>
           </div>
           {integrity ? <IntegrityDetails verification={integrity} /> : null}
@@ -237,8 +235,8 @@ export function LedgerManagement({
               Enregistrer une sauvegarde
             </h3>
             <p className="mt-2 max-w-3xl font-semibold text-stone-700">
-              Génère la vraie archive JSON, ouvre le sélecteur Android, écrit le fichier hors de
-              l’application, puis le relit et vérifie son empreinte. Aucune clôture n’est requise.
+              Crée une copie de sécurité des ventes et vous permet de choisir où l’enregistrer. Vous
+              pouvez sauvegarder sans clôturer la caisse.
             </p>
             <Button
               variant="primary"
@@ -246,11 +244,11 @@ export function LedgerManagement({
               disabled={!actionsAllowed}
               onClick={() => void saveBackup()}
             >
-              {busy === 'backup' ? 'Écriture et vérification…' : 'Choisir où enregistrer'}
+              {busy === 'backup' ? 'Enregistrement…' : 'Enregistrer une sauvegarde'}
             </Button>
             {!integrity ? (
               <p className="mt-3 font-bold text-stone-700">
-                Vérifiez d’abord l’intégrité du journal.
+                Vérifiez d’abord les ventes enregistrées.
               </p>
             ) : null}
             {backupResult?.status === 'verified' ? <BackupSuccess result={backupResult} /> : null}
@@ -258,10 +256,10 @@ export function LedgerManagement({
         ) : (
           <section className="py-5" aria-labelledby="closure-title">
             <h3 id="closure-title" className="text-2xl font-black">
-              Clôturer une période
+              Clôturer la caisse
             </h3>
             <p className="mt-2 font-semibold text-stone-700">
-              La clôture ajoute une entrée au journal. Elle ne supprime ni vente ni correction.
+              Enregistre les totaux de la période. Les ventes et corrections restent disponibles.
             </p>
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="font-black">
@@ -296,12 +294,12 @@ export function LedgerManagement({
               disabled={!actionsAllowed || !periodStart || !periodEnd}
               onClick={() => void loadPreview()}
             >
-              {busy === 'preview' ? 'Calcul des totaux…' : 'Prévisualiser les totaux'}
+              {busy === 'preview' ? 'Calcul des totaux…' : 'Afficher les totaux'}
             </Button>
 
             {preview ? (
               <div className="mt-5 border-t border-stone-300 pt-5">
-                <h4 className="text-xl font-black">Prévisualisation</h4>
+                <h4 className="text-xl font-black">Totaux de la période</h4>
                 <p className="mt-1 font-bold text-stone-700">
                   {preview.terminal.displayName} ·{' '}
                   {formatPeriod(preview.periodStart, preview.periodEnd)}
@@ -314,7 +312,7 @@ export function LedgerManagement({
                   disabled={busy !== null}
                   onClick={() => setConfirmClosure(true)}
                 >
-                  Confirmer la clôture
+                  Continuer
                 </Button>
               </div>
             ) : null}
@@ -326,9 +324,7 @@ export function LedgerManagement({
                   {closure.source.terminal.displayName} ·{' '}
                   {formatPeriod(closure.closure.periodStart, closure.closure.periodEnd)}
                 </p>
-                <p className="mt-1 font-bold text-emerald-950">
-                  Totaux officiels de l’entrée {closure.id}
-                </p>
+                <p className="mt-1 font-bold text-emerald-950">Totaux enregistrés</p>
                 <TotalsDetails totals={closure.closure.totals} />
                 <Button
                   variant="primary"
@@ -336,9 +332,7 @@ export function LedgerManagement({
                   disabled={busy !== null}
                   onClick={() => void saveBackup()}
                 >
-                  {busy === 'backup'
-                    ? 'Écriture et vérification…'
-                    : 'Enregistrer maintenant une sauvegarde'}
+                  {busy === 'backup' ? 'Enregistrement…' : 'Sauvegarder maintenant'}
                 </Button>
                 {backupResult?.status === 'verified' ? (
                   <BackupSuccess result={backupResult} />
@@ -371,14 +365,14 @@ export function LedgerManagement({
               Total net : {formatMoney(preview.totals.netTotalCents)}
             </p>
             <p className="mt-2 font-semibold text-stone-700">
-              Une nouvelle entrée append-only sera créée. Les ventes resteront présentes.
+              Les totaux seront enregistrés définitivement. Les ventes resteront disponibles.
             </p>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <Button disabled={busy !== null} onClick={() => setConfirmClosure(false)}>
                 Retour
               </Button>
               <Button variant="danger" disabled={busy !== null} onClick={() => void closePeriod()}>
-                {busy === 'closure' ? 'Clôture…' : 'Clôturer la période'}
+                {busy === 'closure' ? 'Clôture…' : 'Clôturer la caisse'}
               </Button>
             </div>
           </section>
@@ -391,9 +385,9 @@ export function LedgerManagement({
 function IntegrityDetails({ verification }: { verification: IntegrityVerification }) {
   const status = verification.valid
     ? verification.complete
-      ? 'Valide et complet'
-      : 'Valide mais incomplet'
-    : 'Invalide'
+      ? 'Ventes vérifiées'
+      : 'Ventes vérifiées, historique incomplet'
+    : 'Vérification impossible'
   return (
     <div
       className={`mt-4 border p-4 ${
@@ -406,32 +400,27 @@ function IntegrityDetails({ verification }: { verification: IntegrityVerificatio
       role="status"
     >
       <p className="text-lg font-black">{status}</p>
-      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
         <div>
-          <dt className="font-bold text-stone-600">Entrées</dt>
-          <dd className="font-black">{verification.entryCount}</dd>
-        </div>
-        <div>
-          <dt className="font-bold text-stone-600">Ventes scellées</dt>
+          <dt className="font-bold text-stone-600">Nombre de ventes</dt>
           <dd className="font-black">{verification.sealedOrderCount}</dd>
         </div>
         <div>
-          <dt className="font-bold text-stone-600">Empreinte de tête</dt>
-          <dd className="break-all font-mono text-xs font-bold">
-            {verification.headHash ?? 'Journal vide'}
-          </dd>
+          <dt className="font-bold text-stone-600">État</dt>
+          <dd className="font-black">{verification.complete ? 'Complet' : 'À vérifier'}</dd>
         </div>
       </dl>
-      {verification.warnings.map((warning) => (
-        <p key={warning} className="mt-3 font-bold text-amber-950">
-          {warning}
+      {verification.warnings.length ? (
+        <p className="mt-3 font-bold text-amber-950">
+          Certaines anciennes ventes ne peuvent pas être vérifiées automatiquement.
         </p>
-      ))}
-      {verification.errors.map((verificationError) => (
-        <p key={verificationError} className="mt-3 font-bold text-rose-950">
-          {verificationError}
+      ) : null}
+      {verification.errors.length ? (
+        <p className="mt-3 font-bold text-rose-950">
+          Certaines données sont incomplètes ou ont été modifiées. La sauvegarde et la clôture sont
+          bloquées.
         </p>
-      ))}
+      ) : null}
     </div>
   )
 }
@@ -439,10 +428,10 @@ function IntegrityDetails({ verification }: { verification: IntegrityVerificatio
 function TotalsDetails({ totals }: { totals: ClosureTotals }) {
   const values = [
     ['Ventes', String(totals.saleCount)],
-    ['Total brut', formatMoney(totals.grossSalesCents)],
+    ['Ventes avant corrections', formatMoney(totals.grossSalesCents)],
     ['Corrections', String(totals.correctionCount)],
-    ['Montant corrections', formatMoney(totals.correctionTotalCents)],
-    ['Total net', formatMoney(totals.netTotalCents)],
+    ['Montant des corrections', formatMoney(totals.correctionTotalCents)],
+    ['Montant attendu', formatMoney(totals.netTotalCents)],
     ['Carte bancaire', formatMoney(totals.paymentTotalsCents.card)],
     ['Espèces', formatMoney(totals.paymentTotalsCents.cash)],
   ]
@@ -491,37 +480,19 @@ function BackupSuccess({
   const saleCount = result.archive.entries.filter((entry) => entry.kind === 'sale').length
   return (
     <div className="mt-5 border border-emerald-400 bg-emerald-50 p-5" role="status">
-      <h4 className="text-xl font-black text-emerald-950">Sauvegarde vérifiée</h4>
-      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+      <h4 className="text-xl font-black text-emerald-950">Sauvegarde enregistrée</h4>
+      <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
         <div>
-          <dt className="font-bold text-stone-600">Fichier</dt>
-          <dd className="break-all font-black">{result.fileName}</dd>
-        </div>
-        <div>
-          <dt className="font-bold text-stone-600">Terminal</dt>
+          <dt className="font-bold text-stone-600">Caisse</dt>
           <dd className="font-black">{result.archive.source.terminal.displayName}</dd>
         </div>
         <div>
-          <dt className="font-bold text-stone-600">Export</dt>
-          <dd className="font-black">{formatDateTime(result.archive.exportedAt)}</dd>
+          <dt className="font-bold text-stone-600">Dernière sauvegarde</dt>
+          <dd className="font-black">{formatFriendlyDateTime(result.archive.exportedAt)}</dd>
         </div>
         <div>
-          <dt className="font-bold text-stone-600">Contenu</dt>
-          <dd className="font-black">
-            {saleCount} vente(s) · {result.verification.entryCount} entrée(s)
-          </dd>
-        </div>
-        <div className="sm:col-span-2">
-          <dt className="font-bold text-stone-600">Archive ID</dt>
-          <dd className="break-all font-mono font-bold">{result.archive.archiveId}</dd>
-        </div>
-        <div className="sm:col-span-2">
-          <dt className="font-bold text-stone-600">Destination Android</dt>
-          <dd className="break-all font-mono text-xs font-bold">{result.destination}</dd>
-        </div>
-        <div className="sm:col-span-2">
-          <dt className="font-bold text-stone-600">Archive hash</dt>
-          <dd className="break-all font-mono text-xs font-bold">{result.archive.archiveHash}</dd>
+          <dt className="font-bold text-stone-600">Ventes sauvegardées</dt>
+          <dd className="font-black">{saleCount}</dd>
         </div>
       </dl>
     </div>
@@ -554,4 +525,27 @@ function formatDateTime(value: string): string {
     dateStyle: 'short',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function formatFriendlyDateTime(value: string, reference = new Date()): string {
+  const date = new Date(value)
+  const time = new Intl.DateTimeFormat('fr-FR', { timeStyle: 'short' }).format(date)
+  const startOfReference = startOfLocalDay(reference).getTime()
+  const startOfDate = startOfLocalDay(date).getTime()
+  if (startOfDate === startOfReference) return `Aujourd’hui à ${time}`
+  if (startOfDate === startOfReference - 86_400_000) return `Hier à ${time}`
+  return formatDateTime(value)
+}
+
+function ledgerActionError(action: Exclude<BusyAction, null>): string {
+  if (action === 'integrity') {
+    return 'Impossible de vérifier les ventes enregistrées. Réessayez.'
+  }
+  if (action === 'backup') {
+    return 'La sauvegarde n’a pas pu être enregistrée. Vérifiez l’espace disponible, puis réessayez.'
+  }
+  if (action === 'preview') {
+    return 'Les totaux n’ont pas pu être calculés. Vérifiez les dates, puis réessayez.'
+  }
+  return 'La caisse n’a pas pu être clôturée. Vérifiez les dates et les ventes enregistrées, puis réessayez.'
 }

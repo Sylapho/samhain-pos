@@ -92,16 +92,16 @@ describe('LedgerManagement', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Choisir où enregistrer' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Vérifier l’intégrité' }))
+    expect(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
 
-    expect(await screen.findByText('Valide et complet')).toBeInTheDocument()
-    expect(screen.getByText('head-hash')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choisir où enregistrer' })).toBeEnabled()
+    expect(await screen.findByText('Ventes vérifiées')).toBeInTheDocument()
+    expect(screen.queryByText('head-hash')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' })).toBeEnabled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Choisir où enregistrer' }))
-    expect(await screen.findByText('Sauvegarde vérifiée')).toBeInTheDocument()
-    expect(screen.getByText('archive-hash')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' }))
+    expect(await screen.findByText('Sauvegarde enregistrée')).toBeInTheDocument()
+    expect(screen.queryByText('archive-hash')).not.toBeInTheDocument()
     expect(deps.backupService.saveVerifiedBackup).toHaveBeenCalledOnce()
     expect(deps.ledgerService.closePeriod).not.toHaveBeenCalled()
   })
@@ -116,38 +116,42 @@ describe('LedgerManagement', () => {
         }),
     )
     render(<LedgerManagement onClose={vi.fn()} {...deps} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Vérifier l’intégrité' }))
-    await screen.findByText('Valide et complet')
-    fireEvent.click(screen.getByRole('button', { name: 'Choisir où enregistrer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
+    await screen.findByText('Ventes vérifiées')
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' }))
 
-    expect(screen.getByRole('button', { name: 'Écriture et vérification…' })).toBeDisabled()
-    expect(screen.queryByText('Sauvegarde vérifiée')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrement…' })).toBeDisabled()
+    expect(screen.queryByText('Sauvegarde enregistrée')).not.toBeInTheDocument()
     rejectExport?.(new Error('Le fichier écrit n’a pas pu être relu.'))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/n’a pas pu être relu/)
-    expect(screen.queryByText('Sauvegarde vérifiée')).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /sauvegarde n’a pas pu être enregistrée/,
+    )
+    expect(screen.queryByText('Sauvegarde enregistrée')).not.toBeInTheDocument()
   })
 
   it('présente les corrections et confirme une clôture avec les totaux officiels', async () => {
     const deps = dependencies()
     render(<LedgerManagement onClose={vi.fn()} {...deps} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Vérifier l’intégrité' }))
-    await screen.findByText('Valide et complet')
-    fireEvent.click(screen.getByRole('tab', { name: 'Clôture' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Prévisualiser les totaux' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
+    await screen.findByText('Ventes vérifiées')
+    fireEvent.click(screen.getByRole('tab', { name: 'Clôture de caisse' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Afficher les totaux' }))
 
-    expect(await screen.findByText('Prévisualisation')).toBeInTheDocument()
-    expect(screen.getByText('Montant corrections').nextElementSibling).toHaveTextContent('-2,50')
+    expect(await screen.findByText('Totaux de la période')).toBeInTheDocument()
+    expect(screen.getByText('Montant des corrections').nextElementSibling).toHaveTextContent(
+      '-2,50',
+    )
     expect(screen.getByText('Carte bancaire').nextElementSibling).toHaveTextContent('7,50')
     expect(screen.getByText('Espèces').nextElementSibling).toHaveTextContent('10,00')
     expect(screen.getByText(/Ventilation TVA indisponible/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirmer la clôture' }))
-    const closeButton = screen.getByRole('button', { name: 'Clôturer la période' })
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+    const closeButton = screen.getByRole('button', { name: 'Clôturer la caisse' })
     fireEvent.click(closeButton)
     fireEvent.click(closeButton)
 
     expect(await screen.findByText('Clôture enregistrée')).toBeInTheDocument()
-    expect(screen.getByText(/Totaux officiels de l’entrée closure:operation/)).toBeInTheDocument()
+    expect(screen.getByText('Totaux enregistrés')).toBeInTheDocument()
     expect(deps.ledgerService.closePeriod).toHaveBeenCalledOnce()
   })
 
@@ -161,27 +165,27 @@ describe('LedgerManagement', () => {
     }))
     render(<LedgerManagement onClose={vi.fn()} {...deps} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Vérifier l’intégrité' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
 
-    expect(await screen.findByText('Invalide')).toBeInTheDocument()
-    expect(screen.getByText('Chaînage invalide.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Choisir où enregistrer' })).toBeDisabled()
+    expect(await screen.findByText('Vérification impossible')).toBeInTheDocument()
+    expect(screen.queryByText('Chaînage invalide.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' })).toBeDisabled()
   })
 
   it('affiche une annulation comme telle, jamais comme un succès', async () => {
     const deps = dependencies()
     deps.backupService.saveVerifiedBackup = vi.fn(async () => ({ status: 'cancelled' }))
     render(<LedgerManagement onClose={vi.fn()} {...deps} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Vérifier l’intégrité' }))
-    await screen.findByText('Valide et complet')
-    fireEvent.click(screen.getByRole('button', { name: 'Choisir où enregistrer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
+    await screen.findByText('Ventes vérifiées')
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' }))
 
     expect(
-      await screen.findByText('Enregistrement annulé. Aucun fichier n’est déclaré sauvegardé.'),
+      await screen.findByText('Enregistrement annulé. Aucune sauvegarde n’a été créée.'),
     ).toBeInTheDocument()
-    expect(screen.queryByText('Sauvegarde vérifiée')).not.toBeInTheDocument()
+    expect(screen.queryByText('Sauvegarde enregistrée')).not.toBeInTheDocument()
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Choisir où enregistrer' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Enregistrer une sauvegarde' })).toBeEnabled(),
     )
   })
 })
