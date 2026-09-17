@@ -19,8 +19,9 @@ import {
   type StoredOrderTechnicalState,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
-import { orderRequiresPreparation } from '../utils/preparation'
+import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/preparation'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
+import { normalizeOrderPrinting, unknownOrderPrinting } from '../printing/orderPrinting'
 import { refundLinesTotalCents, validateStructuredRefund } from './saleRefund'
 
 const DATABASE_VERSION = 3
@@ -193,23 +194,13 @@ function toStoredOrder(order: Order, integrity: OrderIntegrity): StoredOrder {
   return { ...toImmutableOrderSnapshot(order), integrity }
 }
 
-function unknownPrinting(createdAt: string): OrderPrinting {
-  return {
-    status: 'unknown',
-    customerReceipt: 'unknown',
-    preparationTicket: 'unknown',
-    attempts: 0,
-    updatedAt: createdAt,
-    lastError: 'État d’impression antérieur inconnu.',
-  }
-}
-
 function toOrder(stored: StoredOrder, technical?: StoredOrderTechnicalState): Order {
   return {
     ...toImmutableOrderSnapshot(stored),
     ...(stored.integrity ? { integrity: structuredClone(stored.integrity) } : {}),
-    printing: structuredClone(
-      technical?.printing ?? stored.printing ?? unknownPrinting(stored.createdAt),
+    printing: normalizeOrderPrinting(
+      technical?.printing ?? stored.printing ?? unknownOrderPrinting(stored.createdAt),
+      stored.createdAt,
     ),
   }
 }
@@ -610,6 +601,9 @@ export class IndexedDbOrderRepository
               }
               const paymentConfirmedAt = intent.paymentConfirmedAt
               const preparationRequired = orderRequiresPreparation({ items: intent.cartSnapshot })
+              const pickupTicket = orderRequiresPickupTicket({ items: intent.cartSnapshot })
+                ? 'pending'
+                : 'not_requested'
               const customerReceipt = intent.printCustomerReceipt ? 'pending' : 'not_requested'
               const preparationTicket = preparationRequired ? 'pending' : 'not_requested'
               const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
@@ -634,9 +628,12 @@ export class IndexedDbOrderRepository
                       receiptNumberPrefix: intent.receiptNumberPrefix,
                       printing: {
                         status:
-                          customerReceipt === 'pending' || preparationTicket === 'pending'
+                          pickupTicket === 'pending' ||
+                          customerReceipt === 'pending' ||
+                          preparationTicket === 'pending'
                             ? 'pending'
                             : 'printed',
+                        pickupTicket,
                         customerReceipt,
                         preparationTicket,
                         attempts: 0,
@@ -862,10 +859,12 @@ export class IndexedDbOrderRepository
             technicalRequest.onsuccess = () => {
               try {
                 const technical = technicalRequest.result as StoredOrderTechnicalState | undefined
-                const current =
+                const current = normalizeOrderPrinting(
                   technical?.printing ??
-                  storedOrder.printing ??
-                  unknownPrinting(storedOrder.createdAt)
+                    storedOrder.printing ??
+                    unknownOrderPrinting(storedOrder.createdAt),
+                  storedOrder.createdAt,
+                )
                 const printing = update(structuredClone(current))
                 technicalStates.put({ orderId: id, printing } satisfies StoredOrderTechnicalState)
                 updatedOrder = toOrder(storedOrder, { orderId: id, printing })

@@ -60,9 +60,9 @@ describe('progression des erreurs natives', () => {
       message: 'Coupe échouée',
     })
     const error = await new CapacitorReceiptPrinter().printJob([]).catch((error: unknown) => error)
-    expect(getCompletedDocumentsFromPrintError(error, { selection: 'preparation' })).toEqual([
-      'preparationTicket',
-    ])
+    expect(
+      getCompletedDocumentsFromPrintError(error, { selection: ['preparationTicket'] }),
+    ).toEqual(['preparationTicket'])
   })
 
   it('propage le refus de permission sans lancer de transfert', async () => {

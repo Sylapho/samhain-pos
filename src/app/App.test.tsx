@@ -399,7 +399,9 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Préparer l’encaissement' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     expect(screen.getByRole('button', { name: 'Préparer l’encaissement' })).toBeEnabled()
-    expect(screen.getByRole('checkbox', { name: /Imprimer le ticket client/ })).toBeChecked()
+    expect(
+      screen.getByRole('checkbox', { name: /Imprimer le reçu de caisse détaillé/ }),
+    ).toBeChecked()
   })
 
   it('protège l’annulation de la commande par une confirmation', () => {
@@ -420,8 +422,12 @@ describe('caisse', () => {
 
     fireEvent.click(screen.getByRole('dialog', { name: 'Annuler cette commande ?' }))
 
-    expect(screen.queryByRole('dialog', { name: 'Annuler cette commande ?' })).not.toBeInTheDocument()
-    expect(within(screen.getByLabelText('Commande en cours')).getByText('Omelette')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('dialog', { name: 'Annuler cette commande ?' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByLabelText('Commande en cours')).getByText('Omelette'),
+    ).toBeInTheDocument()
   })
 
   it('abandonne les personnalisations non validées au clic extérieur', () => {

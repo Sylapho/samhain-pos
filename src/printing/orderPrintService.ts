@@ -5,8 +5,10 @@ import { getResponsibleModeService } from '../services/responsibleModeService'
 import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { bytesToBase64 } from './escPos'
-import { orderRequiresPreparation } from '../utils/preparation'
+import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/preparation'
 import { renderPreparationTicket } from './preparationTicketRenderer'
+import { renderPickupTicket } from './pickupTicketRenderer'
+import { getRetryableDocuments, uniquePrintSelection } from './orderPrinting'
 import { OrderPrintError } from './types'
 import type {
   PrintDocumentType,
@@ -16,9 +18,9 @@ import type {
   ReceiptPrinter,
   RenderedTicket,
 } from './types'
+import { printDocumentTypes } from './types'
 
 export type PrintOrderOptions = {
-  printCustomerReceipt?: boolean
   selection?: PrintSelection
   deviceId?: number
   reprint?: boolean
@@ -35,22 +37,19 @@ export function getCompletedDocumentsFromPrintError(
 ): PrintDocumentType[] {
   if (!(error instanceof OrderPrintError)) return []
   if (error.completedDocuments !== undefined) return error.completedDocuments
-  const selection = options.selection ?? 'both'
-  const customerRequested =
-    (options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')
-  const preparationRequested = includesDocument(selection, 'preparationTicket')
-
-  if (error.stage === 'customerCut') return customerRequested ? ['customerReceipt'] : []
-  if (error.stage === 'preparationTicket') {
-    return customerRequested ? ['customerReceipt'] : []
-  }
-  if (error.stage === 'preparationCut') {
-    return [
-      ...(customerRequested ? (['customerReceipt'] as const) : []),
-      ...(preparationRequested ? (['preparationTicket'] as const) : []),
-    ]
-  }
-  return []
+  const selection = uniquePrintSelection(options.selection ?? printDocumentTypes)
+  const failedDocument =
+    error.stage === 'pickupTicket' || error.stage === 'pickupCut'
+      ? 'pickupTicket'
+      : error.stage === 'customerReceipt' || error.stage === 'customerCut'
+        ? 'customerReceipt'
+        : error.stage === 'preparationTicket' || error.stage === 'preparationCut'
+          ? 'preparationTicket'
+          : null
+  if (!failedDocument) return []
+  const failedIndex = selection.indexOf(failedDocument)
+  const documentWasWritten = error.stage.endsWith('Cut')
+  return failedIndex < 0 ? [] : selection.slice(0, failedIndex + (documentWasWritten ? 1 : 0))
 }
 
 export function getUnknownDocumentsFromPrintError(error: unknown): PrintDocumentType[] {
@@ -58,20 +57,17 @@ export function getUnknownDocumentsFromPrintError(error: unknown): PrintDocument
   return error.unknownDocuments ?? []
 }
 
-function includesDocument(selection: PrintSelection, type: PrintDocumentType): boolean {
-  return (
-    selection === 'both' || selection === (type === 'customerReceipt' ? 'customer' : 'preparation')
-  )
-}
-
 export function buildOrderPrintJob(
   order: Order,
   options: PrintOrderOptions = {},
 ): BuiltOrderPrintJob {
-  const selection = options.selection ?? 'both'
+  const selection = uniquePrintSelection(options.selection ?? printDocumentTypes)
   const documents: RenderedTicket[] = []
 
-  if ((options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')) {
+  if (selection.includes('pickupTicket') && orderRequiresPickupTicket(order)) {
+    documents.push(renderPickupTicket(order))
+  }
+  if (selection.includes('customerReceipt')) {
     try {
       assertReceiptBusinessInfoCanBePrinted()
     } catch (error) {
@@ -84,7 +80,7 @@ export function buildOrderPrintJob(
     documents.push(renderCustomerReceipt(order))
   }
   const preparationRequired = orderRequiresPreparation(order)
-  if (includesDocument(selection, 'preparationTicket') && preparationRequired) {
+  if (selection.includes('preparationTicket') && preparationRequired) {
     documents.push(renderPreparationTicket(order))
   }
 
@@ -102,7 +98,13 @@ export function buildOrderPrintJob(
     },
   ])
 
-  if (!steps.length && !(includesDocument(selection, 'preparationTicket') && !preparationRequired)) {
+  const onlyInapplicableOperationalDocuments =
+    selection.length > 0 &&
+    selection.every(
+      (document) =>
+        (document === 'pickupTicket' || document === 'preparationTicket') && !preparationRequired,
+    )
+  if (!steps.length && !onlyInapplicableOperationalDocuments) {
     throw new OrderPrintError(
       'Aucun ticket n’a été sélectionné pour cette impression.',
       'configuration',
@@ -124,21 +126,14 @@ export class OrderPrintService {
     if (isProtectedCustomerReprint(order, options)) this.requireResponsibleMode()
     let selectedOptions = options
     if (!options.reprint) {
-      const selection = options.selection ?? 'both'
-      const needsCustomer =
-        (options.printCustomerReceipt ?? true) &&
-        includesDocument(selection, 'customerReceipt') &&
-        ['pending', 'failed'].includes(order.printing.customerReceipt)
-      const needsPreparation =
-        includesDocument(selection, 'preparationTicket') &&
-        ['pending', 'failed'].includes(order.printing.preparationTicket)
-      if (!needsCustomer && !needsPreparation) {
+      const requested = uniquePrintSelection(options.selection ?? printDocumentTypes)
+      const retryable = getRetryableDocuments(order.printing).filter((document) =>
+        requested.includes(document),
+      )
+      if (!retryable.length) {
         return { ok: true, bytesWritten: 0, completedDocuments: [], warnings: [] }
       }
-      selectedOptions = {
-        ...options,
-        selection: needsCustomer ? (needsPreparation ? 'both' : 'customer') : 'preparation',
-      }
+      selectedOptions = { ...options, selection: retryable }
     }
     const job = buildOrderPrintJob(order, selectedOptions)
     if (!job.steps.length) {
@@ -150,8 +145,8 @@ export class OrderPrintService {
 
 export function isProtectedCustomerReprint(order: Order, options: PrintOrderOptions): boolean {
   if (!options.reprint || order.printing.customerReceipt !== 'printed') return false
-  const selection = options.selection ?? 'both'
-  return (options.printCustomerReceipt ?? true) && includesDocument(selection, 'customerReceipt')
+  const selection = options.selection ?? printDocumentTypes
+  return selection.includes('customerReceipt')
 }
 
 const orderPrintService = new OrderPrintService(new CapacitorReceiptPrinter(), () =>

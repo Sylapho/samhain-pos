@@ -70,9 +70,6 @@ export function renderCustomerReceipt(
   builder.align('center').bold(true).doubleSize(true)
   builder.line(`TOTAL TTC ${formatTicketMoney(vat.grossCents)}`)
   builder.doubleSize(false).bold(false).line(separator(profile.columns))
-  builder.blank()
-  builder.line('Conservez ce ticket pour retirer')
-  builder.line('votre commande.')
 
   return builder.build('customerReceipt')
 }

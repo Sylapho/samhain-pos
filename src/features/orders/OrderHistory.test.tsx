@@ -17,6 +17,7 @@ const printedOrder = {
   printing: {
     ...printPreviewOrder.printing,
     status: 'printed' as const,
+    pickupTicket: 'printed' as const,
     customerReceipt: 'printed' as const,
     preparationTicket: 'printed' as const,
   },
@@ -72,6 +73,7 @@ describe('historique des commandes', () => {
       items: printedOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
       printing: {
         ...printedOrder.printing,
+        pickupTicket: 'not_requested' as const,
         preparationTicket: 'not_requested' as const,
       },
     }
@@ -89,14 +91,13 @@ describe('historique des commandes', () => {
     expect(within(detail).getByText('Ticket de préparation : Non demandé')).toBeInTheDocument()
     expect(within(detail).queryByRole('button', { name: 'Préparation' })).not.toBeInTheDocument()
     expect(
-      within(detail).queryByRole('button', { name: 'Les deux tickets' }),
+      within(detail).queryByRole('button', { name: 'Tous les documents' }),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(within(detail).getByRole('button', { name: 'Ticket client' }))
+    fireEvent.click(within(detail).getByRole('button', { name: 'Reçu de caisse' }))
     await screen.findByText('Réimpression terminée pour la commande A-0001.')
     expect(printOrder).toHaveBeenCalledWith(customerOnlyOrder, {
-      selection: 'customer',
-      printCustomerReceipt: true,
+      selection: ['customerReceipt'],
       reprint: true,
     })
   })
@@ -381,9 +382,9 @@ describe('historique des commandes', () => {
   })
 
   it.each([
-    ['Ticket client', 'customer'],
-    ['Préparation', 'preparation'],
-    ['Les deux tickets', 'both'],
+    ['Reçu de caisse', ['customerReceipt']],
+    ['Préparation', ['preparationTicket']],
+    ['Tous les documents', ['pickupTicket', 'customerReceipt', 'preparationTicket']],
   ] as const)(
     'réimprime exactement la commande persistée avec l’action « %s »',
     async (buttonName, selection) => {
@@ -404,7 +405,6 @@ describe('historique des commandes', () => {
       expect(printOrder).toHaveBeenCalledOnce()
       expect(printOrder).toHaveBeenCalledWith(printedOrder, {
         selection,
-        printCustomerReceipt: true,
         reprint: true,
       })
     },
@@ -461,15 +461,16 @@ describe('historique des commandes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Préparation' }))
 
     await screen.findByText('Réimpression terminée pour la commande A-0001.')
-    expect(lifecycle.beginPrinting).toHaveBeenCalledWith(partialOrder.id, 'preparation')
+    expect(lifecycle.beginPrinting).toHaveBeenCalledWith(partialOrder.id, ['preparationTicket'])
     expect(printOrder).toHaveBeenCalledWith(startedOrder, {
-      selection: 'preparation',
-      printCustomerReceipt: true,
+      selection: ['preparationTicket'],
       reprint: true,
     })
-    expect(lifecycle.completePrinting).toHaveBeenCalledWith(partialOrder.id, 'preparation', [
-      'preparationTicket',
-    ])
+    expect(lifecycle.completePrinting).toHaveBeenCalledWith(
+      partialOrder.id,
+      ['preparationTicket'],
+      ['preparationTicket'],
+    )
     expect(onOrderUpdated).toHaveBeenLastCalledWith(completedOrder)
     await waitFor(() => {
       const detail = screen.getByRole('article', { name: 'Commande A-0001' })
@@ -496,7 +497,7 @@ describe('historique des commandes', () => {
     )
 
     await screen.findByRole('heading', { name: 'Commande A-0001' })
-    const reprintButton = screen.getByRole('button', { name: 'Les deux tickets' })
+    const reprintButton = screen.getByRole('button', { name: 'Tous les documents' })
     fireEvent.click(reprintButton)
     fireEvent.click(reprintButton)
 
@@ -548,7 +549,7 @@ describe('historique des commandes', () => {
     expect(printOrder).not.toHaveBeenCalled()
   })
 
-  it.each(['Ticket client', 'Les deux tickets'])(
+  it.each(['Reçu de caisse', 'Tous les documents'])(
     'demande le mode responsable avant « %s » quand le ticket client est déjà imprimé',
     async (buttonName) => {
       const printOrder = vi.fn()
@@ -583,7 +584,7 @@ describe('historique des commandes', () => {
     )
 
     await screen.findByRole('heading', { name: 'Commande A-0001' })
-    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reçu de caisse' }))
 
     await screen.findByText('Réimpression terminée pour la commande A-0001.')
     expect(requestResponsibleAccess).toHaveBeenCalledOnce()
@@ -629,7 +630,7 @@ describe('historique des commandes', () => {
     )
 
     await screen.findByRole('heading', { name: 'Commande A-0001' })
-    fireEvent.click(screen.getByRole('button', { name: 'Ticket client' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reçu de caisse' }))
 
     await screen.findByText('Réimpression terminée pour la commande A-0001.')
     expect(requestResponsibleAccess).not.toHaveBeenCalled()

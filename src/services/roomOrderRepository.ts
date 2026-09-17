@@ -16,6 +16,7 @@ import {
 import { hashCanonicalValue } from '../utils/integrity'
 import { orderStorage, type NativeOrderStorageBridge } from '../native/orderStorage'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
+import { normalizeOrderPrinting, unknownOrderPrinting } from '../printing/orderPrinting'
 import {
   ARCHIVE_NOTICE,
   IndexedDbOrderRepository,
@@ -55,23 +56,13 @@ type NativeStorage = {
   restoreSnapshot(snapshot: OrderPersistenceSnapshot): Promise<ArchiveRestoreResult>
 }
 
-function unknownPrinting(createdAt: string): OrderPrinting {
-  return {
-    status: 'unknown',
-    customerReceipt: 'unknown',
-    preparationTicket: 'unknown',
-    attempts: 0,
-    updatedAt: createdAt,
-    lastError: 'État d’impression antérieur inconnu.',
-  }
-}
-
 function hydrateOrder(stored: StoredOrder, technical?: StoredOrderTechnicalState): Order {
   return {
     ...toImmutableOrderSnapshot(stored),
     ...(stored.integrity ? { integrity: structuredClone(stored.integrity) } : {}),
-    printing: structuredClone(
-      technical?.printing ?? stored.printing ?? unknownPrinting(stored.createdAt),
+    printing: normalizeOrderPrinting(
+      technical?.printing ?? stored.printing ?? unknownOrderPrinting(stored.createdAt),
+      stored.createdAt,
     ),
   }
 }

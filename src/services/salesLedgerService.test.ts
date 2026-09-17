@@ -127,11 +127,15 @@ describe('journal local des encaissements', () => {
       journalSequence: 1,
     })
     expect(saleBeforePrinting?.kind).toBe('sale')
-    await orders.beginPrinting(order.id, 'both', new Date('2026-09-01T10:01:00Z'))
+    await orders.beginPrinting(
+      order.id,
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      new Date('2026-09-01T10:01:00Z'),
+    )
     await orders.completePrinting(
       order.id,
-      'both',
-      ['customerReceipt', 'preparationTicket'],
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
       new Date('2026-09-01T10:02:00Z'),
     )
 

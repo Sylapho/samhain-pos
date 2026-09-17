@@ -145,23 +145,17 @@ export function OrderHistory({
 
   const reprint = async (selection: PrintSelection) => {
     if (!selectedOrder || printingRef.current) return
-    if (
-      selection === 'preparation' &&
-      selectedOrder.printing.preparationTicket === 'not_requested'
-    ) {
-      return
-    }
-    const effectiveSelection =
-      selection === 'both' && selectedOrder.printing.preparationTicket === 'not_requested'
-        ? 'customer'
-        : selection
+    const effectiveSelection = selection.filter(
+      (document) =>
+        document === 'customerReceipt' || selectedOrder.printing[document] !== 'not_requested',
+    )
+    if (!effectiveSelection.length) return
     printingRef.current = true
     setPrinting(effectiveSelection)
     setFeedback(null)
 
     const options: PrintOrderOptions = {
       selection: effectiveSelection,
-      printCustomerReceipt: true,
       reprint: true,
     }
 
@@ -420,6 +414,12 @@ function OrderDetails({
   const { date, time } = formatTicketDateTime(order.createdAt)
   const summary = deriveSaleCorrectionSummary(order, corrections)
   const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
+  const hasPickupTicket = order.printing.pickupTicket !== 'not_requested'
+  const allDocuments = [
+    ...(hasPickupTicket ? (['pickupTicket'] as const) : []),
+    'customerReceipt' as const,
+    ...(hasPreparationTicket ? (['preparationTicket'] as const) : []),
+  ]
   return (
     <article className="min-h-0 overflow-y-auto p-4 sm:p-5" aria-labelledby="order-detail-title">
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-300 pb-4">
@@ -507,7 +507,8 @@ function OrderDetails({
           Impression : {printStatusLabels[order.printing.status]}
         </h4>
         <div className="mt-2 text-sm font-bold text-stone-700" aria-live="polite">
-          <p>Ticket client : {documentStatusLabels[order.printing.customerReceipt]}</p>
+          <p>Bon de retrait : {documentStatusLabels[order.printing.pickupTicket]}</p>
+          <p>Reçu de caisse : {documentStatusLabels[order.printing.customerReceipt]}</p>
           <p>Ticket de préparation : {documentStatusLabels[order.printing.preparationTicket]}</p>
         </div>
         {order.printing.lastError ? (
@@ -519,23 +520,28 @@ function OrderDetails({
         <p className="mt-4 text-sm font-bold text-stone-600">
           La réimpression reprend les données et numéros de cette commande.
         </p>
-        <div className={`mt-2 grid gap-2 ${hasPreparationTicket ? 'sm:grid-cols-3' : ''}`}>
-          <Button disabled={printing !== null} onClick={() => onReprint('customer')}>
-            {printing === 'customer' ? 'Impression en cours…' : 'Ticket client'}
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {hasPickupTicket ? (
+            <Button disabled={printing !== null} onClick={() => onReprint(['pickupTicket'])}>
+              {printing?.includes('pickupTicket') ? 'Impression en cours…' : 'Bon de retrait'}
+            </Button>
+          ) : null}
+          <Button disabled={printing !== null} onClick={() => onReprint(['customerReceipt'])}>
+            {printing?.includes('customerReceipt') ? 'Impression en cours…' : 'Reçu de caisse'}
           </Button>
           {hasPreparationTicket ? (
-            <>
-              <Button disabled={printing !== null} onClick={() => onReprint('preparation')}>
-                {printing === 'preparation' ? 'Impression en cours…' : 'Préparation'}
-              </Button>
-              <Button
-                variant="primary"
-                disabled={printing !== null}
-                onClick={() => onReprint('both')}
-              >
-                {printing === 'both' ? 'Impression en cours…' : 'Les deux tickets'}
-              </Button>
-            </>
+            <Button disabled={printing !== null} onClick={() => onReprint(['preparationTicket'])}>
+              {printing?.includes('preparationTicket') ? 'Impression en cours…' : 'Préparation'}
+            </Button>
+          ) : null}
+          {allDocuments.length > 1 ? (
+            <Button
+              variant="primary"
+              disabled={printing !== null}
+              onClick={() => onReprint(allDocuments)}
+            >
+              Tous les documents
+            </Button>
           ) : null}
         </div>
         {feedback ? <FeedbackBox feedback={feedback} /> : null}

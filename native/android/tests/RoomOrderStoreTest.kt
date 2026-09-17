@@ -538,6 +538,54 @@ class RoomOrderStoreTest {
         database = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
     }
 
+    @Test
+    fun migrationThreeToFourAddsConservativePickupState() {
+        database.close()
+        val name = "migration-pickup-${UUID.randomUUID()}.db"
+        val helper =
+            FrameworkSQLiteOpenHelperFactory().create(
+                SupportSQLiteOpenHelper.Configuration.builder(context)
+                    .name(name)
+                    .callback(
+                        object : SupportSQLiteOpenHelper.Callback(3) {
+                            override fun onCreate(db: SupportSQLiteDatabase) {
+                                db.execSQL(
+                                    """
+                                    CREATE TABLE order_printing (
+                                        order_id TEXT NOT NULL PRIMARY KEY,
+                                        status TEXT NOT NULL,
+                                        customer_receipt TEXT NOT NULL,
+                                        preparation_ticket TEXT NOT NULL,
+                                        attempts INTEGER NOT NULL,
+                                        updated_at TEXT NOT NULL,
+                                        last_error TEXT
+                                    )
+                                    """.trimIndent(),
+                                )
+                                db.execSQL(
+                                    "INSERT INTO order_printing VALUES ('legacy', 'printed', 'printed', 'printed', 1, '2026-09-01T10:00:00.000Z', NULL)",
+                                )
+                            }
+
+                            override fun onUpgrade(
+                                db: SupportSQLiteDatabase,
+                                oldVersion: Int,
+                                newVersion: Int,
+                            ) = Unit
+                        },
+                    ).build(),
+            )
+        val sqlite = helper.writableDatabase
+        SamhainPosDatabase.MIGRATION_3_4.migrate(sqlite)
+        sqlite.query("SELECT pickup_ticket FROM order_printing WHERE order_id = 'legacy'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("unknown", it.getString(0))
+        }
+        helper.close()
+        context.deleteDatabase(name)
+        database = Room.inMemoryDatabaseBuilder(context, SamhainPosDatabase::class.java).build()
+    }
+
     private fun request(
         id: String,
         paymentMethod: String = "cash",

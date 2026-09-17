@@ -16,6 +16,7 @@ export const printPreviewOrder: Order = {
   status: 'confirmed',
   printing: {
     status: 'pending',
+    pickupTicket: 'pending',
     customerReceipt: 'pending',
     preparationTicket: 'pending',
     attempts: 0,
