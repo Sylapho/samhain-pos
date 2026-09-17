@@ -123,7 +123,7 @@ describe('service de commandes persistantes', () => {
     const item = createCartItemDraft(menu, {
       optionIdsByGroup: {
         plat: ['steak-hache'],
-        dessert: ['glace'],
+        dessert: ['panini-chocolat'],
         boisson: ['jus-fruit'],
       },
     })
@@ -153,7 +153,7 @@ describe('service de commandes persistantes', () => {
     expect(order.items[0]?.options.map((option) => option.optionName)).toEqual([
       'Steak haché avec frites',
       'Jus de fruit',
-      'Glace',
+      'Panini chocolat',
     ])
     expect(order.totalCents).toBe(950)
     expect(order.itemCount).toBe(1)

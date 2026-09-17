@@ -37,8 +37,10 @@ export const products: Product[] = [
         type: 'single',
         required: true,
         options: [
-          { id: 'compote', name: 'Compote', default: true },
-          { id: 'glace', name: 'Glace' },
+          { id: 'crepe-chocolat', name: 'Crêpe chocolat', default: true },
+          { id: 'crepe-sucre', name: 'Crêpe au sucre' },
+          { id: 'crepe-caramel', name: 'Crêpe caramel' },
+          { id: 'panini-chocolat', name: 'Panini chocolat' },
         ],
       },
     ],
