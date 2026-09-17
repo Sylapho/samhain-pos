@@ -186,6 +186,45 @@ describe('journal local des encaissements', () => {
     await repository.close()
   })
 
+  it('annule intégralement avec un motif et conserve strictement la vente originale', async () => {
+    const { repository, orders, ledger } = services(new IDBFactory(), 'cancellation-immutable')
+    const order = await orders.createOrder([item], 'card', new Date('2026-09-01T10:00:00Z'))
+    const original = structuredClone(order)
+
+    const correction = await ledger.cancelSale(
+      order.id,
+      'Erreur de saisie',
+      'cancel-immutable',
+      new Date('2026-09-01T11:00:00Z'),
+    )
+
+    expect(correction.correction).toMatchObject({
+      originalOrderId: order.id,
+      type: 'cancellation',
+      reason: 'Erreur de saisie',
+      amountDeltaCents: -order.totalCents,
+    })
+    expect((await orders.getOrders())[0]).toEqual(original)
+    expect((await ledger.getEntries()).filter((entry) => entry.kind === 'correction')).toEqual([
+      correction,
+    ])
+    await repository.close()
+  })
+
+  it.each(['', '   '])('refuse un motif vide « %s »', async (reason) => {
+    const { repository, orders, ledger } = services(
+      new IDBFactory(),
+      `empty-reason-${reason.length}`,
+    )
+    const order = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
+
+    await expect(ledger.refundSale(order.id, 100, reason, 'empty-reason')).rejects.toThrow(
+      /motif.*requis/i,
+    )
+    expect((await ledger.getEntries()).filter((entry) => entry.kind === 'correction')).toEqual([])
+    await repository.close()
+  })
+
   it('refuse les doubles annulations et un cumul de remboursements supérieur à la vente', async () => {
     const first = services(new IDBFactory(), 'double-cancellation')
     const order = await first.orders.createOrder([item], 'card', new Date('2026-09-01T10:00:00Z'))
