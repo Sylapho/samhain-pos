@@ -48,6 +48,8 @@ function nativeStorage(initialStatus = false) {
     finalizeCheckoutIntent: vi.fn(),
     getSnapshot: vi.fn(async () => structuredClone(snapshot)),
     compareAndSetPrinting: vi.fn(),
+    openCashSession: vi.fn(),
+    updateCashFloat: vi.fn(),
     recordCorrection: vi.fn(),
     closePeriod: vi.fn(),
     restoreSnapshot: vi.fn(),

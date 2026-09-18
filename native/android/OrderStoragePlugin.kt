@@ -83,6 +83,14 @@ class OrderStoragePlugin : Plugin() {
         execute(call) { store.recordCorrection(call.requiredObject("request")) }
 
     @PluginMethod
+    fun openCashSession(call: PluginCall) =
+        execute(call) { store.openCashSession(call.requiredObject("request")) }
+
+    @PluginMethod
+    fun updateCashFloat(call: PluginCall) =
+        execute(call) { store.updateCashFloat(call.requiredObject("request")) }
+
+    @PluginMethod
     fun closePeriod(call: PluginCall) =
         execute(call) { store.closePeriod(call.requiredObject("request")) }
 

@@ -8,6 +8,7 @@ import { createCartItemDraft } from '../utils/cart'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { OrderService } from './orderService'
 import { SalesLedgerService } from './salesLedgerService'
+import { CashSessionService } from './cashSessionService'
 import { deriveSaleCorrectionSummary } from './saleCorrectionSummary'
 
 const terminal: TerminalConfiguration = {
@@ -32,6 +33,13 @@ function services(indexedDb: IDBFactory, databaseName: string) {
     ledger: new SalesLedgerService(
       repository,
       () => 'generated-operation',
+      () => terminal,
+      undefined,
+      () => {},
+    ),
+    cashSessions: new CashSessionService(
+      repository,
+      () => 'cash-session-1',
       () => terminal,
       undefined,
       () => {},
@@ -196,6 +204,7 @@ describe('journal local des encaissements', () => {
   it('persiste plusieurs remboursements par lignes, revalide le restant et épuise le reliquat exact', async () => {
     const indexedDb = new IDBFactory()
     const first = services(indexedDb, 'structured-refunds')
+    await first.cashSessions.openSession(0, new Date('2026-09-01T09:00:00Z'))
     const order = await first.orders.createOrder(
       structuredClone(printPreviewOrder.items),
       'card',
@@ -392,7 +401,8 @@ describe('journal local des encaissements', () => {
   })
 
   it('chaîne une clôture avec ses totaux et verrouille la période passée', async () => {
-    const { repository, orders, ledger } = services(new IDBFactory(), 'closure')
+    const { repository, orders, ledger, cashSessions } = services(new IDBFactory(), 'closure')
+    await cashSessions.openSession(15_000, new Date('2026-09-01T09:00:00Z'))
     const order = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
     await ledger.refundSale(
       order.id,
@@ -416,6 +426,11 @@ describe('journal local des encaissements', () => {
       netTotalCents: 0,
       cumulativeNetTotalCents: 0,
       paymentTotalsCents: { cash: 0, card: 0 },
+    })
+    expect(closure.closure).toMatchObject({
+      cashSessionId: 'cash-session-1',
+      openingFloatCents: 15_000,
+      theoreticalCashCents: 15_000,
     })
     await expect(
       orders.createOrder([item], 'card', new Date('2026-09-01T11:30:00Z')),
@@ -555,7 +570,11 @@ describe('journal local des encaissements', () => {
   })
 
   it('prévisualise depuis le ledger persisté avec corrections, CB et espèces', async () => {
-    const { repository, orders, ledger } = services(new IDBFactory(), 'closure-preview')
+    const { repository, orders, ledger, cashSessions } = services(
+      new IDBFactory(),
+      'closure-preview',
+    )
+    await cashSessions.openSession(15_000, new Date('2026-09-01T09:00:00Z'))
     const cashOrder = await orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
     const cardOrder = await orders.createOrder([item], 'card', new Date('2026-09-01T10:30:00Z'))
     await ledger.refundSale(
@@ -584,6 +603,7 @@ describe('journal local des encaissements', () => {
         card: 0,
       },
     })
+    expect(preview.theoreticalCashCents).toBe(15_000 + cashOrder.totalCents)
     expect(preview.vatBreakdown).toEqual([
       {
         rate: item.vatRate,
@@ -604,6 +624,7 @@ describe('journal local des encaissements', () => {
     expect(closure.closure.totals).toEqual(preview.totals)
     expect(await orders.getOrders()).toHaveLength(2)
     expect((await ledger.getEntries()).map((entry) => entry.kind)).toEqual([
+      'cash_session_opened',
       'sale',
       'sale',
       'correction',
@@ -614,6 +635,7 @@ describe('journal local des encaissements', () => {
 
   it('ne devine pas la TVA d’un ancien remboursement limité à un montant', async () => {
     const seeded = services(new IDBFactory(), 'legacy-refund-vat')
+    await seeded.cashSessions.openSession(0, new Date('2026-09-01T09:00:00Z'))
     const order = await seeded.orders.createOrder([item], 'cash', new Date('2026-09-01T10:00:00Z'))
     await seeded.ledger.refundSale(
       order.id,

@@ -307,6 +307,51 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun persistsCashSessionUpdatesAndTheoreticalCashInClosure() = onDatabaseThread {
+        val opening =
+            JSONObject().apply {
+                put("sessionId", "session-1")
+                put("periodStart", "2026-09-01T09:00:00.000Z")
+                put("openingFloatCents", 0)
+                put("createdAt", "2026-09-01T09:00:00.000Z")
+                put("recordedAt", "2026-09-01T09:00:00.000Z")
+                put("source", source())
+            }
+        val opened = store.openCashSession(opening)
+        assertEquals(opened.getString("id"), store.openCashSession(opening).getString("id"))
+
+        store.updateCashFloat(
+            JSONObject().apply {
+                put("operationId", "float-update-1")
+                put("sessionId", "session-1")
+                put("previousOpeningFloatCents", 0)
+                put("newOpeningFloatCents", 15_000)
+                put("updatedAt", "2026-09-01T09:05:00.000Z")
+                put("recordedAt", "2026-09-01T09:05:00.000Z")
+                put("source", source())
+            },
+        )
+        store.createOrder(request("cash-session-order", totalCents = 72_550), source())
+        val closure =
+            store.closePeriod(
+                JSONObject().apply {
+                    put("operationId", "cash-session-closure")
+                    put("periodStart", "2026-09-01T09:00:00.000Z")
+                    put("periodEnd", "2026-09-01T18:00:00.000Z")
+                    put("recordedAt", "2026-09-01T18:05:00.000Z")
+                    put("source", source())
+                    put("cashSessionId", "session-1")
+                    put("openingFloatCents", 15_000)
+                },
+            ).getJSONObject("closure")
+
+        assertEquals(15_000L, closure.getLong("openingFloatCents"))
+        assertEquals(72_550L, closure.getJSONObject("totals").getJSONObject("paymentTotalsCents").getLong("cash"))
+        assertEquals(87_550L, closure.getLong("theoreticalCashCents"))
+        assertEquals(4, store.snapshot().getJSONArray("entries").length())
+    }
+
+    @Test
     fun importsEmptyAndAdvancedLegacySnapshotsIdempotently() = onDatabaseThread {
         val snapshot = emptySnapshot(nextOrder = 8, nextReceipt = 12)
         val first = store.importLegacySnapshot(snapshot)

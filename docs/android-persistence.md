@@ -63,12 +63,14 @@ Le modèle est hybride :
 - `items_json` conserve la structure imbriquée des lignes, variantes, options et ingrédients sans multiplier les tables qui ne sont pas encore interrogées séparément ;
 - `immutable_payload_json` conserve le snapshot canonique complet scellé par le journal, tandis que ses champs critiques restent contrôlables et indexables en SQL ;
 - `order_printing` sépare les métadonnées techniques modifiables des données financières ;
-- `sales_ledger` indexe identifiant, séquence, type, date, commande, terminal source et empreinte, et conserve le payload canonique de chaque entrée ;
+- `sales_ledger` indexe identifiant, séquence, type, date, commande, terminal source et empreinte, et conserve le payload canonique de chaque entrée, y compris les ouvertures de session et corrections du fond de caisse ;
 - `pos_metadata` contient les prochaines séquences, la tête du journal, la dernière clôture et l'état de migration legacy.
 - `products` expose les champs recherchés ou triés et conserve le produit complet (variantes, options et ingrédients) dans `product_json` ;
 - `catalog_metadata` porte le marqueur transactionnel d'initialisation du catalogue.
 
 Les colonnes `sync_status`, `sync_attempts`, `sync_last_error` et `synced_at` préparent une future outbox, sans implémenter de réseau ni la synchronisation des issues #35/#36.
+
+Le fond de caisse réutilise volontairement la table générique append-only `sales_ledger`. Il n’ajoute ni colonne ni table Room : aucune migration SQLite n’est donc nécessaire pour cette évolution, et les installations en version 5 conservent toutes leurs données. Le bridge `OrderStorage` écrit l’ouverture et les corrections dans des transactions Room qui contrôlent l’unicité de la session active, l’identité du terminal, les centimes et le chaînage du journal.
 
 ## Migration IndexedDB vers Room
 

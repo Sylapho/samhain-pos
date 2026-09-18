@@ -3,11 +3,15 @@ import type { Order, OrderPrinting } from '../types/order'
 import type { CheckoutIntent } from '../types/checkout'
 import type {
   ArchiveRestoreResult,
+  CashFloatUpdatedLedgerEntry,
+  CashSessionOpenedLedgerEntry,
   ClosureLedgerEntry,
   ClosureRequest,
   CorrectionLedgerEntry,
   CorrectionRequest,
   LedgerSource,
+  OpenCashSessionRequest,
+  UpdateCashFloatRequest,
 } from '../types/salesLedger'
 import type { OrderCreationRequest, OrderPersistenceSnapshot } from '../services/orderRepository'
 
@@ -44,6 +48,12 @@ export interface NativeOrderStorageBridge {
     expected: OrderPrinting
     printing: OrderPrinting
   }): Promise<PrintingUpdateResult>
+  openCashSession(options: {
+    request: OpenCashSessionRequest
+  }): Promise<CashSessionOpenedLedgerEntry>
+  updateCashFloat(options: {
+    request: UpdateCashFloatRequest
+  }): Promise<CashFloatUpdatedLedgerEntry>
   recordCorrection(options: { request: CorrectionRequest }): Promise<CorrectionLedgerEntry>
   closePeriod(options: { request: ClosureRequest }): Promise<ClosureLedgerEntry>
   restoreSnapshot(options: { snapshot: OrderPersistenceSnapshot }): Promise<ArchiveRestoreResult>
@@ -73,6 +83,8 @@ export const orderStorage = {
   getSnapshot: () => nativePlugin.getSnapshot(),
   compareAndSetPrinting: (orderId: string, expected: OrderPrinting, printing: OrderPrinting) =>
     nativePlugin.compareAndSetPrinting({ orderId, expected, printing }),
+  openCashSession: (request: OpenCashSessionRequest) => nativePlugin.openCashSession({ request }),
+  updateCashFloat: (request: UpdateCashFloatRequest) => nativePlugin.updateCashFloat({ request }),
   recordCorrection: (request: CorrectionRequest) => nativePlugin.recordCorrection({ request }),
   closePeriod: (request: ClosureRequest) => nativePlugin.closePeriod({ request }),
   restoreSnapshot: (snapshot: OrderPersistenceSnapshot) =>

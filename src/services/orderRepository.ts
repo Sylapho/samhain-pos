@@ -5,6 +5,9 @@ import {
   SALES_ARCHIVE_SCHEMA_VERSION,
   SALES_LEDGER_SCHEMA_VERSION,
   type ArchiveRestoreResult,
+  type CashFloatUpdatedLedgerEntry,
+  type CashSession,
+  type CashSessionOpenedLedgerEntry,
   type ClosureLedgerEntry,
   type ClosureRequest,
   type CorrectionLedgerEntry,
@@ -13,10 +16,12 @@ import {
   type IntegrityVerification,
   type LedgerMetadataSnapshot,
   type LedgerSource,
+  type OpenCashSessionRequest,
   type SaleLedgerEntry,
   type SalesArchive,
   type SalesLedgerEntry,
   type StoredOrderTechnicalState,
+  type UpdateCashFloatRequest,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
 import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/preparation'
@@ -95,6 +100,8 @@ export interface CheckoutRepository {
 }
 
 export interface SalesLedgerRepository {
+  openCashSession(request: OpenCashSessionRequest): Promise<CashSessionOpenedLedgerEntry>
+  updateCashFloat(request: UpdateCashFloatRequest): Promise<CashFloatUpdatedLedgerEntry>
   recordCorrection(request: CorrectionRequest): Promise<CorrectionLedgerEntry>
   closePeriod(request: ClosureRequest): Promise<ClosureLedgerEntry>
   getLedgerEntries(): Promise<SalesLedgerEntry[]>
@@ -248,8 +255,89 @@ function compareClosureRequest(entry: ClosureLedgerEntry, request: ClosureReques
   return (
     entry.closure.operationId === request.operationId &&
     entry.closure.periodStart === request.periodStart &&
-    entry.closure.periodEnd === request.periodEnd
+    entry.closure.periodEnd === request.periodEnd &&
+    entry.closure.cashSessionId === request.cashSessionId &&
+    entry.closure.openingFloatCents === request.openingFloatCents
   )
+}
+
+function compareCashSessionRequest(
+  entry: CashSessionOpenedLedgerEntry,
+  request: OpenCashSessionRequest,
+): boolean {
+  return (
+    entry.session.sessionId === request.sessionId &&
+    entry.session.periodStart === request.periodStart &&
+    entry.session.openingFloatCents === request.openingFloatCents &&
+    entry.session.createdAt === request.createdAt
+  )
+}
+
+function compareCashFloatUpdateRequest(
+  entry: CashFloatUpdatedLedgerEntry,
+  request: UpdateCashFloatRequest,
+): boolean {
+  return (
+    entry.cashFloatUpdate.operationId === request.operationId &&
+    entry.cashFloatUpdate.sessionId === request.sessionId &&
+    entry.cashFloatUpdate.previousOpeningFloatCents === request.previousOpeningFloatCents &&
+    entry.cashFloatUpdate.newOpeningFloatCents === request.newOpeningFloatCents &&
+    entry.cashFloatUpdate.updatedAt === request.updatedAt
+  )
+}
+
+function validateCashAmount(amountCents: number): void {
+  if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+    throw new Error('Le fond de caisse doit être un montant positif ou nul en centimes.')
+  }
+}
+
+export function calculateTheoreticalCashCents(
+  openingFloatCents: number,
+  cashPaymentsCents: number,
+): number {
+  validateCashAmount(openingFloatCents)
+  if (!Number.isSafeInteger(cashPaymentsCents)) {
+    throw new Error('Le total des encaissements espèces est invalide.')
+  }
+  const result = openingFloatCents + cashPaymentsCents
+  if (!Number.isSafeInteger(result)) {
+    throw new Error('Le total théorique en caisse dépasse la plage monétaire prise en charge.')
+  }
+  return result
+}
+
+export function getCashSessions(entries: SalesLedgerEntry[]): CashSession[] {
+  const sessions: CashSession[] = []
+  for (const entry of [...entries].sort((left, right) => left.sequence - right.sequence)) {
+    if (entry.kind === 'cash_session_opened') {
+      sessions.push({
+        id: entry.session.sessionId,
+        terminal: structuredClone(entry.source.terminal),
+        periodStart: entry.session.periodStart,
+        createdAt: entry.session.createdAt,
+        openingFloatCents: entry.session.openingFloatCents,
+      })
+      continue
+    }
+    if (entry.kind === 'cash_float_updated') {
+      const session = sessions.find((candidate) => candidate.id === entry.cashFloatUpdate.sessionId)
+      if (session) {
+        session.openingFloatCents = entry.cashFloatUpdate.newOpeningFloatCents
+        session.updatedAt = entry.cashFloatUpdate.updatedAt
+      }
+      continue
+    }
+    if (entry.kind === 'closure' && entry.closure.cashSessionId) {
+      const session = sessions.find((candidate) => candidate.id === entry.closure.cashSessionId)
+      if (session) session.closedAt = entry.closure.periodEnd
+    }
+  }
+  return sessions
+}
+
+export function getActiveCashSession(entries: SalesLedgerEntry[]): CashSession | null {
+  return [...getCashSessions(entries)].reverse().find((session) => !session.closedAt) ?? null
 }
 
 export function calculateClosureTotals(
@@ -325,6 +413,8 @@ export function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerificat
   })
 
   const sealedOrders = new Map<string, SaleLedgerEntry>()
+  const openedCashSessions = new Set<string>()
+  let activeCashSession: CashSession | null = null
   for (const entry of entries) {
     if (entry.kind === 'sale') {
       if (sealedOrders.has(entry.orderId))
@@ -340,6 +430,51 @@ export function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerificat
         errors.push(`Référence d’intégrité invalide pour la correction ${entry.id}.`)
       }
     }
+    if (entry.kind === 'cash_session_opened') {
+      const { session } = entry
+      if (openedCashSessions.has(session.sessionId)) {
+        errors.push(`Session de caisse ${session.sessionId} ouverte plusieurs fois.`)
+      }
+      if (activeCashSession) {
+        errors.push(`Une nouvelle session a été ouverte avant la clôture de la précédente.`)
+      }
+      try {
+        validateCashAmount(session.openingFloatCents)
+      } catch {
+        errors.push(`Fond de caisse invalide pour la session ${session.sessionId}.`)
+      }
+      if (session.createdAt !== entry.recordedAt || session.periodStart > session.createdAt) {
+        errors.push(`Dates invalides pour la session ${session.sessionId}.`)
+      }
+      openedCashSessions.add(session.sessionId)
+      activeCashSession = {
+        id: session.sessionId,
+        terminal: structuredClone(entry.source.terminal),
+        periodStart: session.periodStart,
+        createdAt: session.createdAt,
+        openingFloatCents: session.openingFloatCents,
+      }
+    }
+    if (entry.kind === 'cash_float_updated') {
+      const update = entry.cashFloatUpdate
+      if (!activeCashSession || activeCashSession.id !== update.sessionId) {
+        errors.push(`Modification de fond sans session active à l’entrée ${entry.id}.`)
+      } else {
+        if (activeCashSession.openingFloatCents !== update.previousOpeningFloatCents) {
+          errors.push(`Ancien fond incohérent à l’entrée ${entry.id}.`)
+        }
+        try {
+          validateCashAmount(update.newOpeningFloatCents)
+        } catch {
+          errors.push(`Nouveau fond invalide à l’entrée ${entry.id}.`)
+        }
+        activeCashSession = {
+          ...activeCashSession,
+          openingFloatCents: update.newOpeningFloatCents,
+          updatedAt: update.updatedAt,
+        }
+      }
+    }
     if (entry.kind === 'closure') {
       const precedingEntries = entries.filter((candidate) => candidate.sequence < entry.sequence)
       const expectedTotals = calculateClosureTotals(
@@ -349,6 +484,27 @@ export function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerificat
       )
       if (canonicalJson(expectedTotals) !== canonicalJson(entry.closure.totals)) {
         errors.push(`Totaux de clôture invalides à l’entrée ${entry.id}.`)
+      }
+      if (entry.closure.cashSessionId) {
+        let theoreticalCashCents = Number.NaN
+        try {
+          theoreticalCashCents = calculateTheoreticalCashCents(
+            entry.closure.openingFloatCents ?? Number.NaN,
+            expectedTotals.paymentTotalsCents.cash,
+          )
+        } catch {
+          errors.push(`Total espèces hors limites à l’entrée ${entry.id}.`)
+        }
+        if (
+          !activeCashSession ||
+          activeCashSession.id !== entry.closure.cashSessionId ||
+          activeCashSession.periodStart !== entry.closure.periodStart ||
+          activeCashSession.openingFloatCents !== entry.closure.openingFloatCents ||
+          theoreticalCashCents !== entry.closure.theoreticalCashCents
+        ) {
+          errors.push(`Session ou total espèces invalide à l’entrée ${entry.id}.`)
+        }
+        activeCashSession = null
       }
     }
   }
@@ -896,6 +1052,204 @@ export class IndexedDbOrderRepository
     )
   }
 
+  openCashSession(request: OpenCashSessionRequest): Promise<CashSessionOpenedLedgerEntry> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<CashSessionOpenedLedgerEntry>((resolve, reject) => {
+          const transaction = database.transaction(
+            [SALES_LEDGER_STORE, METADATA_STORE],
+            'readwrite',
+          )
+          const ledger = transaction.objectStore(SALES_LEDGER_STORE)
+          const metadataStore = transaction.objectStore(METADATA_STORE)
+          const entriesRequest = ledger.getAll()
+          let result: CashSessionOpenedLedgerEntry | null = null
+          let operationError: unknown
+
+          entriesRequest.onsuccess = () => {
+            const entries = entriesRequest.result as SalesLedgerEntry[]
+            const existing = entries.find(
+              (entry) => entry.id === `cash-session:${request.sessionId}`,
+            )
+            if (existing) {
+              if (
+                existing.kind !== 'cash_session_opened' ||
+                !compareCashSessionRequest(existing, request)
+              ) {
+                operationError = new Error(
+                  'Cet identifiant appartient déjà à une autre session de caisse.',
+                )
+                transaction.abort()
+              } else result = existing
+              return
+            }
+            const metadataRequest = metadataStore.get(SEQUENCES_KEY)
+            metadataRequest.onsuccess = () => {
+              try {
+                let metadata = normalizeSequences(
+                  metadataRequest.result as StoredSequences | undefined,
+                )
+                validateCashAmount(request.openingFloatCents)
+                if (
+                  request.periodStart > request.createdAt ||
+                  request.createdAt !== request.recordedAt
+                ) {
+                  throw new Error('Les dates de la session de caisse sont invalides.')
+                }
+                if (metadata.lastClosureEnd && request.periodStart !== metadata.lastClosureEnd) {
+                  throw new Error('La session doit commencer à la fin de la dernière clôture.')
+                }
+                if (getActiveCashSession(entries)) {
+                  throw new Error('Une session de caisse est déjà ouverte.')
+                }
+                if (!request.source.terminal.terminalId.trim()) {
+                  throw new Error('L’identité de la caisse est invalide.')
+                }
+                const entryWithoutDigest: Omit<CashSessionOpenedLedgerEntry, 'hash'> = {
+                  schemaVersion: SALES_LEDGER_SCHEMA_VERSION,
+                  id: `cash-session:${request.sessionId}`,
+                  sequence: metadata.nextJournalSequence,
+                  kind: 'cash_session_opened',
+                  recordedAt: request.recordedAt,
+                  previousHash: metadata.lastJournalHash,
+                  source: structuredClone(request.source),
+                  session: {
+                    sessionId: request.sessionId,
+                    periodStart: request.periodStart,
+                    openingFloatCents: request.openingFloatCents,
+                    createdAt: request.createdAt,
+                  },
+                }
+                const entry: CashSessionOpenedLedgerEntry = {
+                  ...entryWithoutDigest,
+                  hash: hashLedgerEntry(entryWithoutDigest),
+                }
+                ledger.add(entry)
+                metadata = appendEntryMetadata(metadata, entry)
+                metadataStore.put(metadata)
+                result = entry
+              } catch (error) {
+                operationError = error
+                transaction.abort()
+              }
+            }
+            metadataRequest.onerror = () => {
+              operationError = requestFailure(metadataRequest, 'Lecture du journal impossible.')
+            }
+          }
+          entriesRequest.onerror = () => {
+            operationError = requestFailure(entriesRequest, 'Lecture du journal impossible.')
+          }
+          transaction.oncomplete = () => {
+            if (result) resolve(result)
+            else reject(new Error('La session de caisse n’a pas été enregistrée.'))
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
+        }),
+    )
+  }
+
+  updateCashFloat(request: UpdateCashFloatRequest): Promise<CashFloatUpdatedLedgerEntry> {
+    return this.openDatabase().then(
+      (database) =>
+        new Promise<CashFloatUpdatedLedgerEntry>((resolve, reject) => {
+          const transaction = database.transaction(
+            [SALES_LEDGER_STORE, METADATA_STORE],
+            'readwrite',
+          )
+          const ledger = transaction.objectStore(SALES_LEDGER_STORE)
+          const metadataStore = transaction.objectStore(METADATA_STORE)
+          const entriesRequest = ledger.getAll()
+          let result: CashFloatUpdatedLedgerEntry | null = null
+          let operationError: unknown
+
+          entriesRequest.onsuccess = () => {
+            const entries = entriesRequest.result as SalesLedgerEntry[]
+            const existing = entries.find(
+              (entry) => entry.id === `cash-float-update:${request.operationId}`,
+            )
+            if (existing) {
+              if (
+                existing.kind !== 'cash_float_updated' ||
+                !compareCashFloatUpdateRequest(existing, request)
+              ) {
+                operationError = new Error(
+                  'Cette clé d’opération appartient déjà à une autre modification du fond.',
+                )
+                transaction.abort()
+              } else result = existing
+              return
+            }
+            const metadataRequest = metadataStore.get(SEQUENCES_KEY)
+            metadataRequest.onsuccess = () => {
+              try {
+                let metadata = normalizeSequences(
+                  metadataRequest.result as StoredSequences | undefined,
+                )
+                validateCashAmount(request.newOpeningFloatCents)
+                const session = getActiveCashSession(entries)
+                if (!session || session.id !== request.sessionId) {
+                  throw new Error('La session de caisse à modifier n’est plus active.')
+                }
+                if (session.terminal.terminalId !== request.source.terminal.terminalId) {
+                  throw new Error('La session appartient à une autre identité de caisse.')
+                }
+                if (session.openingFloatCents !== request.previousOpeningFloatCents) {
+                  throw new Error('Le fond de caisse a déjà été modifié. Rechargez sa valeur.')
+                }
+                const entryWithoutDigest: Omit<CashFloatUpdatedLedgerEntry, 'hash'> = {
+                  schemaVersion: SALES_LEDGER_SCHEMA_VERSION,
+                  id: `cash-float-update:${request.operationId}`,
+                  sequence: metadata.nextJournalSequence,
+                  kind: 'cash_float_updated',
+                  recordedAt: request.recordedAt,
+                  previousHash: metadata.lastJournalHash,
+                  source: structuredClone(request.source),
+                  cashFloatUpdate: {
+                    operationId: request.operationId,
+                    sessionId: request.sessionId,
+                    previousOpeningFloatCents: request.previousOpeningFloatCents,
+                    newOpeningFloatCents: request.newOpeningFloatCents,
+                    updatedAt: request.updatedAt,
+                  },
+                }
+                const entry: CashFloatUpdatedLedgerEntry = {
+                  ...entryWithoutDigest,
+                  hash: hashLedgerEntry(entryWithoutDigest),
+                }
+                ledger.add(entry)
+                metadata = appendEntryMetadata(metadata, entry)
+                metadataStore.put(metadata)
+                result = entry
+              } catch (error) {
+                operationError = error
+                transaction.abort()
+              }
+            }
+            metadataRequest.onerror = () => {
+              operationError = requestFailure(metadataRequest, 'Lecture du journal impossible.')
+            }
+          }
+          entriesRequest.onerror = () => {
+            operationError = requestFailure(entriesRequest, 'Lecture du journal impossible.')
+          }
+          transaction.oncomplete = () => {
+            if (result) resolve(result)
+            else reject(new Error('Le fond de caisse n’a pas été modifié.'))
+          }
+          transaction.onerror = () => {
+            operationError ??= transaction.error ?? new Error('Échec de la transaction locale.')
+          }
+          transaction.onabort = () =>
+            reject(operationError ?? transaction.error ?? new Error('Transaction locale annulée.'))
+        }),
+    )
+  }
+
   recordCorrection(request: CorrectionRequest): Promise<CorrectionLedgerEntry> {
     return this.openDatabase().then(
       (database) =>
@@ -1047,6 +1401,23 @@ export class IndexedDbOrderRepository
                 if (metadata.lastClosureEnd && request.periodStart !== metadata.lastClosureEnd) {
                   throw new Error('La nouvelle clôture doit commencer à la fin de la précédente.')
                 }
+                const cashSession = getActiveCashSession(entries)
+                if (request.cashSessionId) {
+                  if (
+                    !cashSession ||
+                    cashSession.id !== request.cashSessionId ||
+                    cashSession.periodStart !== request.periodStart ||
+                    cashSession.openingFloatCents !== request.openingFloatCents ||
+                    cashSession.terminal.terminalId !== request.source.terminal.terminalId
+                  ) {
+                    throw new Error('La clôture ne correspond pas à la session de caisse active.')
+                  }
+                }
+                const totals = calculateClosureTotals(
+                  entries,
+                  request.periodStart,
+                  request.periodEnd,
+                )
                 const entryWithoutDigest: Omit<ClosureLedgerEntry, 'hash'> = {
                   schemaVersion: SALES_LEDGER_SCHEMA_VERSION,
                   id: `closure:${request.operationId}`,
@@ -1059,7 +1430,17 @@ export class IndexedDbOrderRepository
                     operationId: request.operationId,
                     periodStart: request.periodStart,
                     periodEnd: request.periodEnd,
-                    totals: calculateClosureTotals(entries, request.periodStart, request.periodEnd),
+                    totals,
+                    ...(request.cashSessionId && request.openingFloatCents !== undefined
+                      ? {
+                          cashSessionId: request.cashSessionId,
+                          openingFloatCents: request.openingFloatCents,
+                          theoreticalCashCents: calculateTheoreticalCashCents(
+                            request.openingFloatCents,
+                            totals.paymentTotalsCents.cash,
+                          ),
+                        }
+                      : {}),
                   },
                 }
                 const entry: ClosureLedgerEntry = {

@@ -10,6 +10,7 @@ import { DevPanel } from '../features/dev/DevPanel'
 import { OrderHistory } from '../features/orders/OrderHistory'
 import { PrinterConfigurationDialog } from '../features/printer/PrinterConfigurationDialog'
 import { LedgerManagement, type LedgerManagementProps } from '../features/ledger/LedgerManagement'
+import { CashFloatDialog } from '../features/ledger/CashFloatDialog'
 import { ResponsibleModeDialog } from '../features/responsible/ResponsibleModeDialog'
 import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
@@ -18,6 +19,7 @@ import { shouldEnableDevPanel } from '../config/buildMode'
 import { getCatalogService, type CatalogService } from '../services/catalogService'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { checkoutService } from '../services/checkoutService'
+import { getCashSessionService, type CashSessionService } from '../services/cashSessionService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
 import { hasPendingTabletReplacement } from '../services/tabletReplacementService'
 import {
@@ -30,6 +32,7 @@ import { useCartStore } from '../store/cartStore'
 import type { CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { CheckoutIntent } from '../types/checkout'
 import type { Order } from '../types/order'
+import type { CashSession } from '../types/salesLedger'
 import type { PrinterStatus } from '../types/system'
 import type { TerminalConfiguration, TerminalProvisioningInput } from '../types/terminal'
 import { createCartItemDraft, requiresProductConfiguration } from '../utils/cart'
@@ -53,6 +56,11 @@ type Props = {
     'createOrder' | 'checkout' | 'lifecycle' | 'printOrder'
   >
   ledgerManagementDependencies?: Pick<LedgerManagementProps, 'ledgerService' | 'now'>
+  cashSessionService?: Pick<
+    CashSessionService,
+    'getActiveSession' | 'openSession' | 'updateOpeningFloat'
+  >
+  initialCashSession?: CashSession
   catalogService?: CatalogService
   initialCatalog?: Product[]
 }
@@ -74,6 +82,8 @@ export function App({
   loadPendingTabletReplacement = hasPendingTabletReplacement,
   checkoutDependencies,
   ledgerManagementDependencies,
+  cashSessionService = getCashSessionService(),
+  initialCashSession,
   catalogService,
   initialCatalog,
 }: Props = {}) {
@@ -103,6 +113,12 @@ export function App({
     }
   })
   const [terminalConfigurationOpen, setTerminalConfigurationOpen] = useState(false)
+  const [cashSessionState, setCashSessionState] = useState<
+    | { status: 'loading' }
+    | { status: 'missing' }
+    | { status: 'ready'; session: CashSession }
+    | { status: 'error' }
+  >(initialCashSession ? { status: 'ready', session: initialCashSession } : { status: 'loading' })
   const [responsibleRequest, setResponsibleRequest] = useState<{
     requireSetup: boolean
     resolve?: (authorized: boolean) => void
@@ -160,6 +176,35 @@ export function App({
       active = false
     }
   }, [catalogManagement, initialCatalog])
+
+  const loadCashSession = useCallback(async () => {
+    if (!terminalConfiguration) return
+    try {
+      const session = await cashSessionService.getActiveSession()
+      setCashSessionState(session ? { status: 'ready', session } : { status: 'missing' })
+    } catch {
+      setCashSessionState({ status: 'error' })
+    }
+  }, [cashSessionService, terminalConfiguration])
+
+  useEffect(() => {
+    if (initialCashSession) return
+    if (!terminalConfiguration) return
+    let active = true
+    void cashSessionService.getActiveSession().then(
+      (session) => {
+        if (active) {
+          setCashSessionState(session ? { status: 'ready', session } : { status: 'missing' })
+        }
+      },
+      () => {
+        if (active) setCashSessionState({ status: 'error' })
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [cashSessionService, initialCashSession, terminalConfiguration])
 
   const requestResponsibleAccess = useCallback((): Promise<boolean> => {
     try {
@@ -299,7 +344,9 @@ export function App({
       ? 'Impossible de changer la caisse car les impressions à reprendre n’ont pas pu être vérifiées.'
       : recoveryOrders.length > 0 || recoveryIntents.length > 0
         ? 'Impossible de changer la caisse tant que des encaissements ou impressions sont à reprendre.'
-        : null
+        : cashSessionState.status === 'ready'
+          ? 'Clôturez la session de caisse avant de changer cette tablette de caisse.'
+          : null
 
   if (tabletReplacementPending) {
     return (
@@ -343,6 +390,83 @@ export function App({
           }
         }}
       />
+    )
+  }
+
+  if (cashSessionState.status === 'loading') {
+    return (
+      <main className="flex h-dvh items-center justify-center bg-[#f2eee5] p-6">
+        <p className="font-black text-stone-800" role="status">
+          Ouverture de la caisse…
+        </p>
+      </main>
+    )
+  }
+
+  if (cashSessionState.status === 'error') {
+    return (
+      <main className="flex h-dvh items-center justify-center bg-[#f2eee5] p-6">
+        <p
+          className="max-w-xl border border-rose-300 bg-rose-50 p-5 font-bold text-rose-950"
+          role="alert"
+        >
+          Impossible de vérifier le fond de caisse enregistré. Aucun encaissement n’est possible.
+          Redémarrez l’application, puis réessayez.
+        </p>
+      </main>
+    )
+  }
+
+  if (cashSessionState.status === 'missing') {
+    return (
+      <>
+        {terminalConfigurationOpen ? (
+          <TerminalConfigurationDialog
+            configuration={terminalConfiguration}
+            onProvision={terminalManagement.provision}
+            onRename={terminalManagement.rename}
+            onReprovision={terminalManagement.reprovision}
+            onConfigured={(configuration) => {
+              setTerminalConfiguration(configuration)
+              setTerminalConfigurationOpen(false)
+              responsibleMode.lock()
+            }}
+            reprovisioningBlockReason={reprovisioningBlockReason}
+            onClose={() => {
+              setTerminalConfigurationOpen(false)
+              responsibleMode.lock()
+            }}
+          />
+        ) : (
+          <CashFloatDialog
+            mode="opening"
+            onManageTerminal={() => {
+              void requestResponsibleAccess().then((authorized) => {
+                if (authorized) setTerminalConfigurationOpen(true)
+              })
+            }}
+            onSubmit={async (amountCents) => {
+              const session = await cashSessionService.openSession(amountCents)
+              setCashSessionState({ status: 'ready', session })
+              return session
+            }}
+          />
+        )}
+        {responsibleRequest ? (
+          <ResponsibleModeDialog
+            responsibleMode={responsibleMode}
+            requireSetup={responsibleRequest.requireSetup}
+            onUnlocked={() => {
+              responsibleRequest.resolve?.(true)
+              setResponsibleRequest(null)
+            }}
+            onCancel={() => {
+              responsibleRequest.resolve?.(false)
+              setResponsibleRequest(null)
+            }}
+          />
+        ) : null}
+      </>
     )
   }
 
@@ -558,7 +682,10 @@ export function App({
           onClose={() => {
             setLedgerManagementOpen(false)
             responsibleMode.lock()
+            setCashSessionState({ status: 'loading' })
+            void loadCashSession()
           }}
+          cashSessionService={cashSessionService}
           {...ledgerManagementDependencies}
         />
       ) : null}
