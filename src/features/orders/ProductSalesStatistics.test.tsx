@@ -36,7 +36,7 @@ const order: Order = {
   receiptNumber: 'R-0001',
   paymentMethod: 'card',
   paymentStatus: 'paid',
-  paidAt: '2026-09-01T12:00:00.000Z',
+  paidAt: new Date(2026, 8, 1, 12).toISOString(),
   items: [
     createValidCartItem({
       lineId: 'burger-line',
@@ -55,7 +55,7 @@ const order: Order = {
   ],
   itemCount: 3,
   totalCents: 2_300,
-  createdAt: '2026-09-01T12:00:00.000Z',
+  createdAt: new Date(2026, 8, 1, 12).toISOString(),
   status: 'confirmed',
   printing: {
     status: 'printed',
@@ -63,15 +63,22 @@ const order: Order = {
     customerReceipt: 'printed',
     preparationTicket: 'printed',
     attempts: 1,
-    updatedAt: '2026-09-01T12:00:00.000Z',
+    updatedAt: new Date(2026, 8, 1, 12).toISOString(),
   },
 }
 
 describe('vue des statistiques produits', () => {
-  it('met immédiatement à jour la période et conserve les produits sans vente à zéro', () => {
+  it('affiche uniquement les ventes du jour sans sélecteur de période', () => {
     render(
       <ProductSalesStatistics
-        orders={[order]}
+        orders={[
+          order,
+          {
+            ...order,
+            id: 'order-yesterday',
+            paidAt: new Date(2026, 7, 31, 12).toISOString(),
+          },
+        ]}
         corrections={[]}
         products={products}
         now={new Date(2026, 8, 1, 12)}
@@ -81,12 +88,10 @@ describe('vue des statistiques produits', () => {
     const burgerRow = screen.getByRole('row', { name: /Burger/ })
     expect(within(burgerRow).getByText('2')).toBeInTheDocument()
     expect(within(burgerRow).getByText(/20,00/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Une date' }))
-    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-02' } })
-
-    expect(screen.getByText('Aucune vente sur cette période.')).toBeInTheDocument()
-    expect(within(screen.getByRole('row', { name: /Burger/ })).getByText('0')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ventes d’aujourd’hui' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Une date' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Date')).not.toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Prix moyen' })).not.toBeInTheDocument()
   })
 
   it('permet de tout désélectionner puis de choisir un seul produit', () => {

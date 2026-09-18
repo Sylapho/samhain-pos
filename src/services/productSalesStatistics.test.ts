@@ -3,40 +3,32 @@ import { createValidCartItem } from '../test/orderFixtures'
 import type { Product } from '../types/catalog'
 import type { Order } from '../types/order'
 import type { CorrectionLedgerEntry, RefundLine } from '../types/salesLedger'
-import {
-  calculateProductSalesStatistics,
-  localDateRangePeriod,
-  localDayPeriod,
-} from './productSalesStatistics'
+import { calculateProductSalesStatistics, getLocalDayBounds } from './productSalesStatistics'
 
 const products = [
   product('burger', 'Burger'),
   product('fries', 'Frites'),
   product('hot-dog', 'Hot-dog'),
 ]
-const septemberFirst = {
-  start: new Date('2026-09-01T00:00:00.000Z'),
-  end: new Date('2026-09-02T00:00:00.000Z'),
-}
+const now = new Date(2026, 8, 1, 12)
 
 describe('statistiques de ventes par produit', () => {
   it('additionne les quantités de plusieurs lignes et commandes', () => {
     const result = calculate([
-      order('one', '2026-09-01T10:00:00.000Z', [line('burger', 'Burger', 2, 1_000)]),
-      order('two', '2026-09-01T11:00:00.000Z', [line('burger', 'Burger', 3, 900)]),
+      order('one', localDate(2026, 8, 1, 10), [line('burger', 'Burger', 2, 1_000)]),
+      order('two', localDate(2026, 8, 1, 11), [line('burger', 'Burger', 3, 900)]),
     ])
 
     expect(result.rows.find(({ productId }) => productId === 'burger')).toMatchObject({
       quantity: 5,
       revenueCents: 4_700,
-      averagePriceCents: 940,
       quantitySharePercent: 100,
     })
   })
 
   it('agrège plusieurs produits par identifiant et garde le prix historique', () => {
     const result = calculate([
-      order('one', '2026-09-01T10:00:00.000Z', [
+      order('one', localDate(2026, 8, 1, 10), [
         line('burger', 'Ancien nom', 2, 1_000),
         line('fries', 'Frites', 1, 300),
       ]),
@@ -55,7 +47,7 @@ describe('statistiques de ventes par produit', () => {
   })
 
   it('exclut entièrement une commande annulée', () => {
-    const cancelledOrder = order('cancelled', '2026-09-01T10:00:00.000Z', [
+    const cancelledOrder = order('cancelled', localDate(2026, 8, 1, 10), [
       line('burger', 'Burger', 4, 1_000),
     ])
     const result = calculate([cancelledOrder], [correction(cancelledOrder, 'cancellation')])
@@ -66,7 +58,7 @@ describe('statistiques de ventes par produit', () => {
 
   it('conserve à zéro un produit sélectionné sans vente', () => {
     const result = calculate(
-      [order('one', '2026-09-01T10:00:00.000Z', [line('burger', 'Burger', 2, 1_000)])],
+      [order('one', localDate(2026, 8, 1, 10), [line('burger', 'Burger', 2, 1_000)])],
       [],
       new Set(['hot-dog']),
     )
@@ -76,18 +68,20 @@ describe('statistiques de ventes par produit', () => {
     ])
   })
 
-  it('ignore les ventes situées hors de la période', () => {
+  it('compte une vente d’aujourd’hui et ignore hier et demain', () => {
     const result = calculate([
-      order('before', '2026-08-31T23:59:59.999Z', [line('burger', 'Burger', 7, 1_000)]),
-      order('inside', '2026-09-01T12:00:00.000Z', [line('burger', 'Burger', 2, 1_000)]),
-      order('after', '2026-09-02T00:00:00.000Z', [line('burger', 'Burger', 5, 1_000)]),
+      order('yesterday', localDate(2026, 7, 31, 23, 59, 59, 999), [
+        line('burger', 'Burger', 7, 1_000),
+      ]),
+      order('today', localDate(2026, 8, 1, 12), [line('burger', 'Burger', 2, 1_000)]),
+      order('tomorrow', localDate(2026, 8, 2, 0), [line('burger', 'Burger', 5, 1_000)]),
     ])
 
     expect(result.rows.find(({ productId }) => productId === 'burger')?.quantity).toBe(2)
   })
 
   it('déduit les quantités et montants des remboursements structurés', () => {
-    const soldOrder = order('refunded', '2026-09-01T10:00:00.000Z', [
+    const soldOrder = order('refunded', localDate(2026, 8, 1, 10), [
       line('burger', 'Burger', 10, 1_000),
     ])
     const refundLine: RefundLine = {
@@ -105,12 +99,11 @@ describe('statistiques de ventes par produit', () => {
     expect(result.rows.find(({ productId }) => productId === 'burger')).toMatchObject({
       quantity: 8,
       revenueCents: 8_000,
-      averagePriceCents: 1_000,
     })
   })
 
   it('signale une ancienne correction sans détail au lieu d’inventer une ventilation', () => {
-    const soldOrder = order('legacy-refund', '2026-09-01T10:00:00.000Z', [
+    const soldOrder = order('legacy-refund', localDate(2026, 8, 1, 10), [
       line('burger', 'Burger', 2, 1_000),
       line('fries', 'Frites', 1, 300),
     ])
@@ -122,7 +115,7 @@ describe('statistiques de ventes par produit', () => {
     expect(result.rows.find(({ productId }) => productId === 'hot-dog')?.complete).toBe(true)
   })
 
-  it('retourne des lignes à zéro sans erreur quand la période ne contient aucune vente', () => {
+  it('retourne des lignes à zéro sans erreur quand aujourd’hui ne contient aucune vente', () => {
     const result = calculate([])
 
     expect(result.hasSales).toBe(false)
@@ -131,15 +124,13 @@ describe('statistiques de ventes par produit', () => {
     expect(result.rows.every(({ quantity }) => quantity === 0)).toBe(true)
   })
 
-  it('crée des bornes de journée locales inclusives pour les filtres', () => {
-    const day = localDayPeriod('2026-09-01')
-    const range = localDateRangePeriod('2026-09-01', '2026-09-03')
+  it('calcule les bornes de la journée locale courante', () => {
+    const bounds = getLocalDayBounds(now)
 
-    expect(day?.start.getHours()).toBe(0)
-    expect(day?.end.getDate()).toBe(2)
-    expect(range?.start.getDate()).toBe(1)
-    expect(range?.end.getDate()).toBe(4)
-    expect(localDateRangePeriod('2026-09-03', '2026-09-01')).toBeNull()
+    expect(new Date(bounds.start).getHours()).toBe(0)
+    expect(new Date(bounds.start).getDate()).toBe(1)
+    expect(new Date(bounds.end).getHours()).toBe(0)
+    expect(new Date(bounds.end).getDate()).toBe(2)
   })
 })
 
@@ -153,8 +144,20 @@ function calculate(
     corrections,
     products,
     selectedProductIds,
-    period: septemberFirst,
+    now,
   })
+}
+
+function localDate(
+  year: number,
+  month: number,
+  day: number,
+  hours: number,
+  minutes = 0,
+  seconds = 0,
+  milliseconds = 0,
+): string {
+  return new Date(year, month, day, hours, minutes, seconds, milliseconds).toISOString()
 }
 
 function product(id: string, name: string): Product {

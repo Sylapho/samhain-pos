@@ -91,10 +91,8 @@ describe('historique des commandes', () => {
 
     await screen.findByRole('heading', { name: 'Commande A-0001' })
     fireEvent.click(screen.getByRole('button', { name: 'Statistiques produits' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Une date' }))
-    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-01' } })
 
-    expect(screen.getByRole('heading', { name: 'Ventes par produit' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ventes d’aujourd’hui' })).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Quantité vendue' })).toBeInTheDocument()
     expect(screen.getByRole('row', { name: /Burger spécial Samhain/ })).toBeInTheDocument()
   })
