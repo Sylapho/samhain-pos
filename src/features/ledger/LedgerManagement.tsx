@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { getSalesLedgerService, type SalesLedgerService } from '../../services/salesLedgerService'
+import { getCashSessionService, type CashSessionService } from '../../services/cashSessionService'
 import type {
+  CashSession,
   ClosureLedgerEntry,
   ClosurePreview,
   ClosureTotals,
   IntegrityVerification,
 } from '../../types/salesLedger'
 import { formatMoney } from '../../utils/money'
+import { CashFloatDialog } from './CashFloatDialog'
 
 export type LedgerManagementProps = {
   onClose: () => void
@@ -15,6 +18,7 @@ export type LedgerManagementProps = {
     SalesLedgerService,
     'verifyIntegrity' | 'previewClosure' | 'closePeriod' | 'getLastClosureEnd'
   >
+  cashSessionService?: Pick<CashSessionService, 'getActiveSession' | 'updateOpeningFloat'>
   now?: () => Date
 }
 
@@ -23,6 +27,7 @@ type BusyAction = 'integrity' | 'preview' | 'closure' | null
 export function LedgerManagement({
   onClose,
   ledgerService = getSalesLedgerService(),
+  cashSessionService = getCashSessionService(),
   now = () => new Date(),
 }: LedgerManagementProps) {
   const [initialNow] = useState(now)
@@ -37,14 +42,17 @@ export function LedgerManagement({
   const [preview, setPreview] = useState<ClosurePreview | null>(null)
   const [closure, setClosure] = useState<ClosureLedgerEntry | null>(null)
   const [confirmClosure, setConfirmClosure] = useState(false)
+  const [cashSession, setCashSession] = useState<CashSession | null>(null)
+  const [editingCashFloat, setEditingCashFloat] = useState(false)
 
   useEffect(() => {
     mountedRef.current = true
-    void ledgerService
-      .getLastClosureEnd()
-      .then((lastClosureEnd) => {
-        if (mountedRef.current && lastClosureEnd) {
-          setPeriodStart(toDateTimeLocal(new Date(lastClosureEnd)))
+    void Promise.all([ledgerService.getLastClosureEnd(), cashSessionService.getActiveSession()])
+      .then(([lastClosureEnd, activeSession]) => {
+        if (mountedRef.current) {
+          setCashSession(activeSession)
+          const effectiveStart = activeSession?.periodStart ?? lastClosureEnd
+          if (effectiveStart) setPeriodStart(toDateTimeLocal(new Date(effectiveStart)))
         }
       })
       .catch(() => {
@@ -53,7 +61,7 @@ export function LedgerManagement({
     return () => {
       mountedRef.current = false
     }
-  }, [ledgerService])
+  }, [cashSessionService, ledgerService])
 
   const runExclusive = async (
     action: Exclude<BusyAction, null>,
@@ -115,13 +123,14 @@ export function LedgerManagement({
       )
       if (!mountedRef.current) return
       setClosure(result)
+      setCashSession(null)
       setPreview(null)
       setConfirmClosure(false)
       setIntegrity(await ledgerService.verifyIntegrity())
       setMessage('Clôture enregistrée. Les ventes restent disponibles dans l’historique.')
     })
 
-  const actionsAllowed = integrity?.valid === true && busy === null
+  const actionsAllowed = integrity?.valid === true && cashSession !== null && busy === null
 
   return (
     <div
@@ -182,6 +191,34 @@ export function LedgerManagement({
           </p>
         ) : null}
 
+        <section className="border-b border-stone-300 py-5" aria-labelledby="cash-session-title">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 id="cash-session-title" className="text-xl font-black">
+                Fond de caisse initial
+              </h3>
+              <p className="mt-1 text-2xl font-black tabular-nums">
+                {cashSession ? formatMoney(cashSession.openingFloatCents) : 'Session clôturée'}
+              </p>
+              {cashSession?.updatedAt ? (
+                <p className="mt-1 text-sm font-bold text-stone-600">
+                  Corrigé le {formatDateTime(cashSession.updatedAt)}
+                </p>
+              ) : null}
+            </div>
+            {cashSession ? (
+              <Button
+                variant="secondary"
+                className="min-h-14"
+                disabled={busy !== null}
+                onClick={() => setEditingCashFloat(true)}
+              >
+                Modifier le fond de caisse
+              </Button>
+            ) : null}
+          </div>
+        </section>
+
         <section className="py-5" aria-labelledby="closure-title">
           <h3 id="closure-title" className="text-2xl font-black">
             Clôturer la caisse
@@ -196,11 +233,7 @@ export function LedgerManagement({
                 className="mt-2 min-h-14 w-full rounded-[8px] border border-stone-400 bg-white px-3 font-bold"
                 type="datetime-local"
                 value={periodStart}
-                disabled={busy !== null}
-                onChange={(event) => {
-                  setPeriodStart(event.target.value)
-                  setPreview(null)
-                }}
+                disabled
               />
             </label>
             <label className="font-black">
@@ -232,7 +265,11 @@ export function LedgerManagement({
                 {preview.terminal.displayName} ·{' '}
                 {formatPeriod(preview.periodStart, preview.periodEnd)}
               </p>
-              <TotalsDetails totals={preview.totals} />
+              <TotalsDetails
+                totals={preview.totals}
+                openingFloatCents={preview.cashSession.openingFloatCents}
+                theoreticalCashCents={preview.theoreticalCashCents}
+              />
               <VatDetails preview={preview} />
               <Button
                 variant="danger"
@@ -253,7 +290,11 @@ export function LedgerManagement({
                 {formatPeriod(closure.closure.periodStart, closure.closure.periodEnd)}
               </p>
               <p className="mt-1 font-bold text-emerald-950">Totaux enregistrés</p>
-              <TotalsDetails totals={closure.closure.totals} />
+              <TotalsDetails
+                totals={closure.closure.totals}
+                openingFloatCents={closure.closure.openingFloatCents}
+                theoreticalCashCents={closure.closure.theoreticalCashCents}
+              />
             </div>
           ) : null}
         </section>
@@ -293,6 +334,21 @@ export function LedgerManagement({
             </div>
           </section>
         </div>
+      ) : null}
+
+      {editingCashFloat && cashSession ? (
+        <CashFloatDialog
+          mode="editing"
+          currentAmountCents={cashSession.openingFloatCents}
+          onCancel={() => setEditingCashFloat(false)}
+          onSubmit={async (amountCents) => {
+            const updated = await cashSessionService.updateOpeningFloat(amountCents)
+            setCashSession(updated)
+            setPreview(null)
+            setEditingCashFloat(false)
+            return updated
+          }}
+        />
       ) : null}
     </div>
   )
@@ -340,7 +396,15 @@ function IntegrityDetails({ verification }: { verification: IntegrityVerificatio
   )
 }
 
-function TotalsDetails({ totals }: { totals: ClosureTotals }) {
+function TotalsDetails({
+  totals,
+  openingFloatCents,
+  theoreticalCashCents,
+}: {
+  totals: ClosureTotals
+  openingFloatCents?: number
+  theoreticalCashCents?: number
+}) {
   const values = [
     ['Ventes', String(totals.saleCount)],
     ['Ventes avant corrections', formatMoney(totals.grossSalesCents)],
@@ -348,7 +412,13 @@ function TotalsDetails({ totals }: { totals: ClosureTotals }) {
     ['Montant des corrections', formatMoney(totals.correctionTotalCents)],
     ['Montant attendu', formatMoney(totals.netTotalCents)],
     ['Carte bancaire', formatMoney(totals.paymentTotalsCents.card)],
-    ['Espèces', formatMoney(totals.paymentTotalsCents.cash)],
+    ...(openingFloatCents === undefined
+      ? [['Espèces', formatMoney(totals.paymentTotalsCents.cash)]]
+      : [
+          ['Fond de caisse initial', formatMoney(openingFloatCents)],
+          ['Encaissements espèces', formatMoney(totals.paymentTotalsCents.cash)],
+          ['Total théorique en caisse', formatMoney(theoreticalCashCents ?? 0)],
+        ]),
   ]
   return (
     <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-stone-300 py-4 sm:grid-cols-4">

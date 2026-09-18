@@ -15,6 +15,8 @@ import { terminalCodes } from '../types/terminal'
 import { createLedgerSource } from './ledgerSource'
 import {
   calculateClosureTotals,
+  calculateTheoreticalCashCents,
+  getActiveCashSession,
   type OrderRepository,
   type SalesLedgerRepository,
   verifySalesArchive,
@@ -139,13 +141,31 @@ export class SalesLedgerService {
   ): Promise<ClosureLedgerEntry> {
     this.requireResponsibleMode()
     validateClosurePeriod(periodStart, periodEnd, recordedAt)
+    return this.closeActiveSession(periodStart, periodEnd, operationId, recordedAt)
+  }
+
+  private async closeActiveSession(
+    periodStart: Date,
+    periodEnd: Date,
+    operationId: string | undefined,
+    recordedAt: Date,
+  ): Promise<ClosureLedgerEntry> {
     const terminal = this.getTerminal()
+    const cashSession = getActiveCashSession(await this.repository.getLedgerEntries())
+    if (!cashSession || cashSession.terminal.terminalId !== terminal.terminalId) {
+      throw new Error('Aucune session de caisse active ne peut être clôturée.')
+    }
+    if (periodStart.toISOString() !== cashSession.periodStart) {
+      throw new Error('La clôture doit commencer au début de la session de caisse active.')
+    }
     return this.repository.closePeriod({
       operationId: operationId ?? this.createOperationId(),
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
       recordedAt: recordedAt.toISOString(),
       source: this.buildLedgerSource(terminal),
+      cashSessionId: cashSession.id,
+      openingFloatCents: cashSession.openingFloatCents,
     })
   }
 
@@ -173,6 +193,14 @@ export class SalesLedgerService {
       throw new Error('La nouvelle clôture doit commencer à la fin de la précédente.')
     }
 
+    const cashSession = getActiveCashSession(entries)
+    if (!cashSession || cashSession.terminal.terminalId !== this.getTerminal().terminalId) {
+      throw new Error('Aucune session de caisse active ne peut être clôturée.')
+    }
+    if (cashSession.periodStart !== periodStartIso) {
+      throw new Error('La clôture doit commencer au début de la session de caisse active.')
+    }
+
     const totals = calculateClosureTotals(entries, periodStartIso, periodEndIso)
     const vat = calculateClosureVat(entries, periodStartIso, periodEndIso)
     return {
@@ -180,6 +208,11 @@ export class SalesLedgerService {
       periodEnd: periodEndIso,
       terminal: this.getTerminal(),
       totals,
+      cashSession,
+      theoreticalCashCents: calculateTheoreticalCashCents(
+        cashSession.openingFloatCents,
+        totals.paymentTotalsCents.cash,
+      ),
       integrity,
       vatBreakdown: vat.breakdown,
       ...(vat.unavailableReason ? { vatUnavailableReason: vat.unavailableReason } : {}),

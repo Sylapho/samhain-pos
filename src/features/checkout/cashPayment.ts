@@ -1,8 +1,12 @@
 export const MAX_CASH_RECEIVED_CENTS = 999_999
 
-export function appendCashDigits(currentCents: number | null, digits: number): number | null {
+export function appendCashDigits(
+  currentCents: number | null,
+  digits: number,
+  maximumCents = MAX_CASH_RECEIVED_CENTS,
+): number | null {
   const nextCents = (currentCents ?? 0) * 10 + digits
-  return nextCents <= MAX_CASH_RECEIVED_CENTS ? nextCents : currentCents
+  return Number.isSafeInteger(nextCents) && nextCents <= maximumCents ? nextCents : currentCents
 }
 
 export function deleteLastCashDigit(currentCents: number | null): number | null {

@@ -67,6 +67,41 @@ export type CorrectionLedgerEntry = LedgerEntryBase & {
   correction: SaleCorrection
 }
 
+export type CashSession = {
+  id: string
+  terminal: TerminalIdentity
+  periodStart: string
+  createdAt: string
+  openingFloatCents: number
+  updatedAt?: string
+  closedAt?: string
+}
+
+export type CashSessionOpening = {
+  sessionId: string
+  periodStart: string
+  openingFloatCents: number
+  createdAt: string
+}
+
+export type CashSessionOpenedLedgerEntry = LedgerEntryBase & {
+  kind: 'cash_session_opened'
+  session: CashSessionOpening
+}
+
+export type CashFloatUpdate = {
+  operationId: string
+  sessionId: string
+  previousOpeningFloatCents: number
+  newOpeningFloatCents: number
+  updatedAt: string
+}
+
+export type CashFloatUpdatedLedgerEntry = LedgerEntryBase & {
+  kind: 'cash_float_updated'
+  cashFloatUpdate: CashFloatUpdate
+}
+
 export type ClosureTotals = {
   saleCount: number
   grossSalesCents: number
@@ -82,6 +117,10 @@ export type SalesClosure = {
   periodStart: string
   periodEnd: string
   totals: ClosureTotals
+  /** Absent on closures recorded before cash sessions were introduced. */
+  cashSessionId?: string
+  openingFloatCents?: number
+  theoreticalCashCents?: number
 }
 
 export type ClosureLedgerEntry = LedgerEntryBase & {
@@ -101,12 +140,38 @@ export type ClosurePreview = {
   periodEnd: string
   terminal: TerminalIdentity
   totals: ClosureTotals
+  cashSession: CashSession
+  theoreticalCashCents: number
   integrity: IntegrityVerification
   vatBreakdown: ClosureVatBreakdown[] | null
   vatUnavailableReason?: string
 }
 
-export type SalesLedgerEntry = SaleLedgerEntry | CorrectionLedgerEntry | ClosureLedgerEntry
+export type SalesLedgerEntry =
+  | SaleLedgerEntry
+  | CorrectionLedgerEntry
+  | CashSessionOpenedLedgerEntry
+  | CashFloatUpdatedLedgerEntry
+  | ClosureLedgerEntry
+
+export type OpenCashSessionRequest = {
+  sessionId: string
+  periodStart: string
+  openingFloatCents: number
+  createdAt: string
+  recordedAt: string
+  source: LedgerSource
+}
+
+export type UpdateCashFloatRequest = {
+  operationId: string
+  sessionId: string
+  previousOpeningFloatCents: number
+  newOpeningFloatCents: number
+  updatedAt: string
+  recordedAt: string
+  source: LedgerSource
+}
 
 export type CorrectionRequest = {
   operationId: string
@@ -125,6 +190,8 @@ export type ClosureRequest = {
   periodEnd: string
   recordedAt: string
   source: LedgerSource
+  cashSessionId?: string
+  openingFloatCents?: number
 }
 
 export type LedgerMetadataSnapshot = {

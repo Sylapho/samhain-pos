@@ -20,7 +20,31 @@ import { CatalogService } from '../services/catalogService'
 import type { Product } from '../types/catalog'
 
 function App(props: ComponentProps<typeof ProductionApp>) {
-  return <ProductionApp initialCatalog={initialCatalogProducts} {...props} />
+  const cashSession = {
+    id: 'session-a',
+    terminal: { terminalId: 'terminal-a', terminalCode: 'A' as const, displayName: 'Caisse A' },
+    periodStart: '2026-09-01T08:00:00.000Z',
+    createdAt: '2026-09-01T08:00:00.000Z',
+    openingFloatCents: 15_000,
+  }
+  return (
+    <ProductionApp
+      initialCatalog={initialCatalogProducts}
+      cashSessionService={{
+        getActiveSession: vi.fn(async () => cashSession),
+        openSession: vi.fn(async (amountCents: number) => ({
+          ...cashSession,
+          openingFloatCents: amountCents,
+        })),
+        updateOpeningFloat: vi.fn(async (amountCents: number) => ({
+          ...cashSession,
+          openingFloatCents: amountCents,
+        })),
+      }}
+      initialCashSession={cashSession}
+      {...props}
+    />
+  )
 }
 
 const printSuccess: PrintJobResult = {
@@ -85,6 +109,41 @@ describe('caisse', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('bloque les ventes jusqu’à la validation obligatoire du fond de caisse', async () => {
+    const openedSession = {
+      id: 'session-new',
+      terminal: { terminalId: 'terminal-a', terminalCode: 'A' as const, displayName: 'Caisse A' },
+      periodStart: '2026-09-18T08:00:00.000Z',
+      createdAt: '2026-09-18T08:00:00.000Z',
+      openingFloatCents: 15_000,
+    }
+    const openSession = vi.fn(async () => openedSession)
+
+    render(
+      <ProductionApp
+        initialCatalog={initialCatalogProducts}
+        loadRecoverableOrders={vi.fn(async () => [])}
+        loadRecoverableIntents={vi.fn(async () => [])}
+        cashSessionService={{
+          getActiveSession: vi.fn(async () => null),
+          openSession,
+          updateOpeningFloat: vi.fn(),
+        }}
+      />,
+    )
+
+    expect(await screen.findByRole('dialog', { name: 'Fond de caisse' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Menu enfant/ })).not.toBeInTheDocument()
+    for (const digit of ['1', '5', '0', '0', '0']) {
+      fireEvent.click(screen.getByRole('button', { name: digit }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Valider le fond de caisse' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer' }))
+
+    expect(await screen.findByRole('button', { name: /Menu enfant/ })).toBeInTheDocument()
+    expect(openSession).toHaveBeenCalledWith(15_000)
   })
 
   it('désactive la validation et l’annulation lorsque la commande est vide', () => {
@@ -228,7 +287,7 @@ describe('caisse', () => {
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
 
-  it('autorise le reprovisionnement après vérification sans impression à reprendre', async () => {
+  it('bloque le reprovisionnement tant que la session de caisse est ouverte', async () => {
     const responsibleMode = new ResponsibleModeService(
       new LocalStorageResponsibleCredentialRepository(localStorage),
     )
@@ -238,8 +297,9 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configurer Caisse A' }))
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Changer la caisse utilisée' })).toBeEnabled(),
+      expect(screen.getByRole('button', { name: 'Changer la caisse utilisée' })).toBeDisabled(),
     )
+    expect(screen.getByText(/Clôturez la session de caisse/)).toBeInTheDocument()
   })
 
   it('bloque le reprovisionnement lorsqu’une impression est à reprendre', async () => {
