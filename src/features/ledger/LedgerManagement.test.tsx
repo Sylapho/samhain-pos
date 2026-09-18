@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ClosureLedgerEntry,
@@ -132,6 +132,45 @@ describe('LedgerManagement', () => {
     expect(await screen.findByText('Clôture enregistrée')).toBeInTheDocument()
     expect(screen.getByText('Totaux enregistrés')).toBeInTheDocument()
     expect(deps.ledgerService.closePeriod).toHaveBeenCalledOnce()
+  })
+
+  it('conserve l’heure exacte de début de session pour calculer et confirmer la clôture', async () => {
+    const deps = dependencies()
+    const exactPeriodStart = '2026-09-16T08:17:43.527Z'
+    deps.cashSessionService.getActiveSession = vi.fn(async () => ({
+      ...cashSession,
+      periodStart: exactPeriodStart,
+      createdAt: exactPeriodStart,
+    }))
+    render(
+      <LedgerManagement
+        onClose={vi.fn()}
+        {...deps}
+        now={() => new Date('2026-09-16T19:45:30.000Z')}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vérifier les ventes' }))
+    await screen.findByText('Ventes vérifiées')
+    const previewButton = screen.getByRole('button', { name: 'Afficher les totaux' })
+    await waitFor(() => expect(previewButton).toBeEnabled())
+    fireEvent.click(previewButton)
+
+    expect(await screen.findByText('Totaux de la période')).toBeInTheDocument()
+    expect(deps.ledgerService.previewClosure).toHaveBeenCalledWith(
+      new Date(exactPeriodStart),
+      expect.any(Date),
+      expect.any(Date),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clôturer la caisse' }))
+
+    await screen.findByText('Clôture enregistrée')
+    expect(deps.ledgerService.closePeriod).toHaveBeenCalledWith(
+      new Date(exactPeriodStart),
+      expect.any(Date),
+    )
   })
 
   it('bloque les actions sûres lorsque le journal est invalide', async () => {

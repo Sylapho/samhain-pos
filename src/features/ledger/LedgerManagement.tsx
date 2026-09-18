@@ -100,8 +100,11 @@ export function LedgerManagement({
   const loadPreview = () =>
     runExclusive('preview', async () => {
       setClosure(null)
+      if (!cashSession) {
+        throw new Error('Aucune session de caisse active ne peut être clôturée.')
+      }
       const result = await ledgerService.previewClosure(
-        parseDateTimeLocal(periodStart),
+        new Date(cashSession.periodStart),
         parseDateTimeLocal(periodEnd),
         now(),
       )
@@ -112,13 +115,16 @@ export function LedgerManagement({
 
   const closePeriod = () =>
     runExclusive('closure', async () => {
+      if (!cashSession) {
+        throw new Error('Aucune session de caisse active ne peut être clôturée.')
+      }
       const latestIntegrity = await ledgerService.verifyIntegrity()
       if (!latestIntegrity.valid) {
         setIntegrity(latestIntegrity)
         throw new Error('Les ventes enregistrées ne peuvent pas être vérifiées.')
       }
       const result = await ledgerService.closePeriod(
-        parseDateTimeLocal(periodStart),
+        new Date(cashSession.periodStart),
         parseDateTimeLocal(periodEnd),
       )
       if (!mountedRef.current) return
