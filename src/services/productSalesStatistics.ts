@@ -2,17 +2,11 @@ import type { Product } from '../types/catalog'
 import type { Order } from '../types/order'
 import type { CorrectionLedgerEntry } from '../types/salesLedger'
 
-export type ProductSalesPeriod = {
-  start: Date
-  end: Date
-}
-
 export type ProductSalesRow = {
   productId: string
   productName: string
   quantity: number
   revenueCents: number
-  averagePriceCents: number | null
   quantitySharePercent: number | null
   complete: boolean
 }
@@ -61,19 +55,15 @@ export function calculateProductSalesStatistics({
   corrections,
   products,
   selectedProductIds,
-  period,
+  now,
 }: {
   orders: readonly Order[]
   corrections: readonly CorrectionLedgerEntry[]
   products: readonly Product[]
   selectedProductIds: ReadonlySet<string>
-  period: ProductSalesPeriod
+  now: Date
 }): ProductSalesStatistics {
-  const start = period.start.getTime()
-  const end = period.end.getTime()
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
-    throw new Error('La période de statistiques est invalide.')
-  }
+  const { start, end } = getLocalDayBounds(now)
 
   const productNames = new Map(
     listProductsForSalesStatistics(products, orders).map(({ id, name }) => [id, name]),
@@ -149,8 +139,6 @@ export function calculateProductSalesStatistics({
         productName: total.productName,
         quantity,
         revenueCents,
-        averagePriceCents:
-          total.complete && quantity > 0 ? Math.round(revenueCents / quantity) : null,
         quantitySharePercent:
           total.complete && !hasUnallocatedCorrections && totalQuantity > 0
             ? (quantity / totalQuantity) * 100
@@ -170,41 +158,10 @@ export function calculateProductSalesStatistics({
   return { rows, totalQuantity, hasSales, hasUnallocatedCorrections }
 }
 
-export function localDateInputValue(date: Date): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-export function localDayPeriod(value: string): ProductSalesPeriod | null {
-  const start = parseLocalDate(value)
-  if (!start) return null
+export function getLocalDayBounds(now: Date): { start: number; end: number } {
+  if (Number.isNaN(now.getTime())) throw new Error('La date des statistiques est invalide.')
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const end = new Date(start)
   end.setDate(end.getDate() + 1)
-  return { start, end }
-}
-
-export function localDateRangePeriod(
-  startValue: string,
-  endValue: string,
-): ProductSalesPeriod | null {
-  const start = parseLocalDate(startValue)
-  const inclusiveEnd = parseLocalDate(endValue)
-  if (!start || !inclusiveEnd || inclusiveEnd < start) return null
-  const end = new Date(inclusiveEnd)
-  end.setDate(end.getDate() + 1)
-  return { start, end }
-}
-
-function parseLocalDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!match) return null
-  const year = Number(match[1])
-  const month = Number(match[2]) - 1
-  const day = Number(match[3])
-  const date = new Date(year, month, day)
-  if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day)
-    return null
-  return date
+  return { start: start.getTime(), end: end.getTime() }
 }

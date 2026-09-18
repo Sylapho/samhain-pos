@@ -3,17 +3,11 @@ import { Button } from '../../components/ui/Button'
 import {
   calculateProductSalesStatistics,
   listProductsForSalesStatistics,
-  localDateInputValue,
-  localDateRangePeriod,
-  localDayPeriod,
-  type ProductSalesPeriod,
 } from '../../services/productSalesStatistics'
 import type { Product } from '../../types/catalog'
 import type { Order } from '../../types/order'
 import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { formatMoney } from '../../utils/money'
-
-type PeriodMode = 'today' | 'date' | 'range'
 
 type Props = {
   orders: Order[]
@@ -24,14 +18,10 @@ type Props = {
 
 const percentFormatter = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 })
 
-export function ProductSalesStatistics({ orders, corrections, products, now = new Date() }: Props) {
-  const today = localDateInputValue(now)
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('today')
-  const [date, setDate] = useState(today)
-  const [rangeStart, setRangeStart] = useState(today)
-  const [rangeEnd, setRangeEnd] = useState(today)
+export function ProductSalesStatistics({ orders, corrections, products, now }: Props) {
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string> | null>(null)
   const [search, setSearch] = useState('')
+  const statisticsDate = useMemo(() => now ?? new Date(), [now])
 
   const productOptions = useMemo(
     () => listProductsForSalesStatistics(products, orders),
@@ -41,22 +31,16 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
     () => selectedProductIds ?? new Set(productOptions.map(({ id }) => id)),
     [productOptions, selectedProductIds],
   )
-  const period = useMemo(
-    () => resolvePeriod(periodMode, today, date, rangeStart, rangeEnd),
-    [date, periodMode, rangeEnd, rangeStart, today],
-  )
   const statistics = useMemo(
     () =>
-      period
-        ? calculateProductSalesStatistics({
-            orders,
-            corrections,
-            products,
-            selectedProductIds: effectiveSelection,
-            period,
-          })
-        : null,
-    [corrections, effectiveSelection, orders, period, products],
+      calculateProductSalesStatistics({
+        orders,
+        corrections,
+        products,
+        selectedProductIds: effectiveSelection,
+        now: statisticsDate,
+      }),
+    [corrections, effectiveSelection, orders, products, statisticsDate],
   )
   const normalizedSearch = search.trim().toLocaleLowerCase('fr-FR')
   const visibleProducts = productOptions.filter(({ name }) =>
@@ -80,44 +64,7 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
       aria-label="Statistiques des produits"
     >
       <div className="grid gap-5 xl:grid-cols-[minmax(17rem,0.75fr)_minmax(0,2fr)]">
-        <aside className="space-y-5">
-          <fieldset>
-            <legend className="text-lg font-black">Période</legend>
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {(
-                [
-                  ['today', 'Aujourd’hui'],
-                  ['date', 'Une date'],
-                  ['range', 'Une plage'],
-                ] as const
-              ).map(([mode, label]) => (
-                <Button
-                  key={mode}
-                  className="min-h-14 px-2"
-                  variant={periodMode === mode ? 'primary' : 'secondary'}
-                  aria-pressed={periodMode === mode}
-                  onClick={() => setPeriodMode(mode)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-            {periodMode === 'date' ? (
-              <DateField label="Date" value={date} onChange={setDate} />
-            ) : null}
-            {periodMode === 'range' ? (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <DateField label="Du" value={rangeStart} onChange={setRangeStart} />
-                <DateField label="Au" value={rangeEnd} onChange={setRangeEnd} />
-              </div>
-            ) : null}
-            {!period ? (
-              <p className="mt-2 font-bold text-rose-900" role="alert">
-                Choisissez une période valide. La date de fin doit suivre la date de début.
-              </p>
-            ) : null}
-          </fieldset>
-
+        <aside>
           <fieldset>
             <legend className="text-lg font-black">Produits</legend>
             <div className="mt-2 flex gap-2">
@@ -175,21 +122,21 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
 
         <section aria-labelledby="product-statistics-title">
           <h3 id="product-statistics-title" className="text-2xl font-black">
-            Ventes par produit
+            Ventes d’aujourd’hui
           </h3>
           <p className="mt-1 text-sm font-bold text-stone-600">
             Les annulations sont exclues et les remboursements par article sont déduits.
           </p>
 
-          {!period ? null : effectiveSelection.size === 0 ? (
+          {effectiveSelection.size === 0 ? (
             <p className="mt-5 border border-stone-300 bg-stone-50 p-4 font-bold text-stone-700">
               Sélectionnez au moins un produit.
             </p>
-          ) : statistics ? (
+          ) : (
             <>
               {!statistics.hasSales ? (
                 <p className="mt-5 border border-stone-300 bg-stone-50 p-4 font-bold text-stone-700">
-                  Aucune vente sur cette période.
+                  Aucune vente aujourd’hui.
                 </p>
               ) : null}
               {statistics.hasUnallocatedCorrections ? (
@@ -202,13 +149,12 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
                 </p>
               ) : null}
               <div className="mt-4 overflow-x-auto border-y border-stone-300">
-                <table className="w-full min-w-[700px] border-collapse text-left">
+                <table className="w-full min-w-[600px] border-collapse text-left">
                   <thead className="bg-stone-100">
                     <tr>
                       <ColumnHeader>Produit</ColumnHeader>
                       <ColumnHeader numeric>Quantité vendue</ColumnHeader>
                       <ColumnHeader numeric>Chiffre d’affaires</ColumnHeader>
-                      <ColumnHeader numeric>Prix moyen</ColumnHeader>
                       <ColumnHeader numeric>Part des ventes</ColumnHeader>
                     </tr>
                   </thead>
@@ -223,18 +169,13 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
                             <Cell>{row.quantity}</Cell>
                             <Cell>{formatMoney(row.revenueCents)}</Cell>
                             <Cell>
-                              {row.averagePriceCents === null
-                                ? '—'
-                                : formatMoney(row.averagePriceCents)}
-                            </Cell>
-                            <Cell>
                               {row.quantitySharePercent === null
                                 ? '—'
                                 : formatPercent(row.quantitySharePercent)}
                             </Cell>
                           </>
                         ) : (
-                          <td className="px-3 py-3 text-right font-bold text-amber-900" colSpan={4}>
+                          <td className="px-3 py-3 text-right font-bold text-amber-900" colSpan={3}>
                             Indisponible — correction sans détail article
                           </td>
                         )}
@@ -244,44 +185,10 @@ export function ProductSalesStatistics({ orders, corrections, products, now = ne
                 </table>
               </div>
             </>
-          ) : null}
+          )}
         </section>
       </div>
     </div>
-  )
-}
-
-function resolvePeriod(
-  mode: PeriodMode,
-  today: string,
-  date: string,
-  rangeStart: string,
-  rangeEnd: string,
-): ProductSalesPeriod | null {
-  if (mode === 'today') return localDayPeriod(today)
-  if (mode === 'date') return localDayPeriod(date)
-  return localDateRangePeriod(rangeStart, rangeEnd)
-}
-
-function DateField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <label className="mt-3 block font-bold">
-      {label}
-      <input
-        type="date"
-        className="mt-1 min-h-12 w-full rounded-[8px] border border-stone-400 bg-white px-3"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
   )
 }
 
