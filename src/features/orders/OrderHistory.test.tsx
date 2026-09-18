@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../../mocks/printOrder'
 import type { PrintJobResult } from '../../printing/types'
 import type { CorrectionLedgerEntry, RefundLine } from '../../types/salesLedger'
+import type { Product } from '../../types/catalog'
 import { OrderHistory } from './OrderHistory'
 
 const success: PrintJobResult = {
@@ -67,6 +68,37 @@ function ledgerService(entries: CorrectionLedgerEntry[] = []) {
 }
 
 describe('historique des commandes', () => {
+  it('rend les statistiques produits accessibles depuis l’historique', async () => {
+    const products = printedOrder.items.map<Product>((item, index) => ({
+      id: item.productId,
+      name: item.name,
+      categoryId: 'assiettes',
+      active: true,
+      displayOrder: index,
+      requiresPreparation: item.requiresPreparation,
+      availability: 'available',
+      priceCents: item.unitPriceCents,
+      vatRate: item.vatRate,
+    }))
+    render(
+      <OrderHistory
+        onClose={vi.fn()}
+        loadOrders={async () => [printedOrder]}
+        ledgerService={ledgerService()}
+        products={products}
+      />,
+    )
+
+    await screen.findByRole('heading', { name: 'Commande A-0001' })
+    fireEvent.click(screen.getByRole('button', { name: 'Statistiques produits' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Une date' }))
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-01' } })
+
+    expect(screen.getByRole('heading', { name: 'Ventes par produit' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Quantité vendue' })).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Burger spécial Samhain/ })).toBeInTheDocument()
+  })
+
   it('ne propose aucune réimpression de préparation quand elle était non demandée', async () => {
     const customerOnlyOrder = {
       ...printedOrder,
