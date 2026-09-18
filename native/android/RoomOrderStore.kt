@@ -360,6 +360,108 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             entry
         }
 
+    fun openCashSession(request: JSONObject): JSONObject =
+        transaction {
+            val sessionId = request.requireNonBlank("sessionId")
+            val entryId = "cash-session:$sessionId"
+            ledger.findById(entryId)?.let { existing ->
+                val existingJson = JSONObject(existing.payloadJson)
+                if (!sameCashSessionRequest(existingJson, request)) {
+                    throw IllegalStateException(
+                        "Cet identifiant appartient déjà à une autre session de caisse.",
+                    )
+                }
+                return@transaction existingJson
+            }
+            val entries = ledger.getAll().map { JSONObject(it.payloadJson) }
+            require(activeCashSession(entries) == null) { "Une session de caisse est déjà ouverte." }
+            val openingFloatCents = request.requiredSafeLong("openingFloatCents")
+            require(openingFloatCents >= 0) {
+                "Le fond de caisse doit être un montant positif ou nul en centimes."
+            }
+            val periodStart = request.getString("periodStart")
+            val createdAt = request.getString("createdAt")
+            requireIsoTimestamp(periodStart, "periodStart")
+            requireIsoTimestamp(createdAt, "createdAt")
+            requireIsoTimestamp(request.getString("recordedAt"), "recordedAt")
+            require(periodStart <= createdAt && createdAt == request.getString("recordedAt")) {
+                "Les dates de la session de caisse sont invalides."
+            }
+            var state = currentMetadata()
+            if (state.lastClosureEnd != null && periodStart != state.lastClosureEnd) {
+                throw IllegalStateException(
+                    "La session doit commencer à la fin de la dernière clôture.",
+                )
+            }
+            val session =
+                JSONObject().apply {
+                    put("sessionId", sessionId)
+                    put("periodStart", periodStart)
+                    put("openingFloatCents", openingFloatCents)
+                    put("createdAt", createdAt)
+                }
+            val withoutHash = baseLedgerEntry(entryId, "cash_session_opened", request, state).apply {
+                put("session", session)
+            }
+            val entry = sealLedgerEntry(withoutHash)
+            ledger.insert(toLedgerEntity(entry))
+            state = appendMetadata(state, entry)
+            require(metadata.update(state) == 1)
+            entry
+        }
+
+    fun updateCashFloat(request: JSONObject): JSONObject =
+        transaction {
+            val operationId = request.requireNonBlank("operationId")
+            val entryId = "cash-float-update:$operationId"
+            ledger.findById(entryId)?.let { existing ->
+                val existingJson = JSONObject(existing.payloadJson)
+                if (!sameCashFloatUpdateRequest(existingJson, request)) {
+                    throw IllegalStateException(
+                        "Cette clé d’opération appartient déjà à une autre modification du fond.",
+                    )
+                }
+                return@transaction existingJson
+            }
+            val entries = ledger.getAll().map { JSONObject(it.payloadJson) }
+            val session = activeCashSession(entries)
+                ?: throw IllegalStateException("Aucune session de caisse active à modifier.")
+            require(session.getString("id") == request.getString("sessionId")) {
+                "La session de caisse à modifier n’est plus active."
+            }
+            require(
+                session.getString("terminalId") ==
+                    request.getJSONObject("source").getJSONObject("terminal").getString("terminalId"),
+            ) { "La session appartient à une autre identité de caisse." }
+            require(
+                session.getLong("openingFloatCents") ==
+                    request.requiredSafeLong("previousOpeningFloatCents"),
+            ) { "Le fond de caisse a déjà été modifié. Rechargez sa valeur." }
+            val newOpeningFloatCents = request.requiredSafeLong("newOpeningFloatCents")
+            require(newOpeningFloatCents >= 0) {
+                "Le fond de caisse doit être un montant positif ou nul en centimes."
+            }
+            requireIsoTimestamp(request.getString("updatedAt"), "updatedAt")
+            requireIsoTimestamp(request.getString("recordedAt"), "recordedAt")
+            var state = currentMetadata()
+            val update =
+                JSONObject().apply {
+                    put("operationId", operationId)
+                    put("sessionId", request.getString("sessionId"))
+                    put("previousOpeningFloatCents", request.getLong("previousOpeningFloatCents"))
+                    put("newOpeningFloatCents", newOpeningFloatCents)
+                    put("updatedAt", request.getString("updatedAt"))
+                }
+            val withoutHash = baseLedgerEntry(entryId, "cash_float_updated", request, state).apply {
+                put("cashFloatUpdate", update)
+            }
+            val entry = sealLedgerEntry(withoutHash)
+            ledger.insert(toLedgerEntity(entry))
+            state = appendMetadata(state, entry)
+            require(metadata.update(state) == 1)
+            entry
+        }
+
     fun closePeriod(request: JSONObject): JSONObject =
         transaction {
             val operationId = request.requireNonBlank("operationId")
@@ -385,12 +487,40 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 )
             }
             val entries = ledger.getAll().map { JSONObject(it.payloadJson) }
+            val cashSession = activeCashSession(entries)
+            val cashSessionId = request.optNullableString("cashSessionId")
+            val openingFloatCents =
+                if (request.has("openingFloatCents")) request.requiredSafeLong("openingFloatCents") else null
+            if (cashSessionId != null) {
+                require(
+                    cashSession != null &&
+                        cashSession.getString("id") == cashSessionId &&
+                        cashSession.getString("periodStart") == periodStart &&
+                        cashSession.getLong("openingFloatCents") == openingFloatCents &&
+                        cashSession.getString("terminalId") ==
+                            request.getJSONObject("source").getJSONObject("terminal")
+                                .getString("terminalId"),
+                ) { "La clôture ne correspond pas à la session de caisse active." }
+            }
+            val totals = closureTotals(entries, periodStart, periodEnd)
             val closure =
                 JSONObject().apply {
                     put("operationId", operationId)
                     put("periodStart", periodStart)
                     put("periodEnd", periodEnd)
-                    put("totals", closureTotals(entries, periodStart, periodEnd))
+                    put("totals", totals)
+                    if (cashSessionId != null && openingFloatCents != null) {
+                        put("cashSessionId", cashSessionId)
+                        put("openingFloatCents", openingFloatCents)
+                        put(
+                            "theoreticalCashCents",
+                            safeAdd(
+                                openingFloatCents,
+                                totals.getJSONObject("paymentTotalsCents").getLong("cash"),
+                                "Le total théorique en caisse",
+                            ),
+                        )
+                    }
                 }
             val withoutHash = baseLedgerEntry(entryId, "closure", request, state).apply {
                 put("closure", closure)
@@ -891,7 +1021,64 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         val closure = entry.getJSONObject("closure")
         return closure.optString("operationId") == request.optString("operationId") &&
             closure.optString("periodStart") == request.optString("periodStart") &&
-            closure.optString("periodEnd") == request.optString("periodEnd")
+            closure.optString("periodEnd") == request.optString("periodEnd") &&
+            closure.optNullableString("cashSessionId") == request.optNullableString("cashSessionId") &&
+            closure.has("openingFloatCents") == request.has("openingFloatCents") &&
+            (!closure.has("openingFloatCents") ||
+                closure.optLong("openingFloatCents") == request.optLong("openingFloatCents"))
+    }
+
+    private fun sameCashSessionRequest(entry: JSONObject, request: JSONObject): Boolean {
+        if (entry.optString("kind") != "cash_session_opened") return false
+        val session = entry.getJSONObject("session")
+        return session.optString("sessionId") == request.optString("sessionId") &&
+            session.optString("periodStart") == request.optString("periodStart") &&
+            session.optLong("openingFloatCents") == request.optLong("openingFloatCents") &&
+            session.optString("createdAt") == request.optString("createdAt")
+    }
+
+    private fun sameCashFloatUpdateRequest(entry: JSONObject, request: JSONObject): Boolean {
+        if (entry.optString("kind") != "cash_float_updated") return false
+        val update = entry.getJSONObject("cashFloatUpdate")
+        return update.optString("operationId") == request.optString("operationId") &&
+            update.optString("sessionId") == request.optString("sessionId") &&
+            update.optLong("previousOpeningFloatCents") ==
+                request.optLong("previousOpeningFloatCents") &&
+            update.optLong("newOpeningFloatCents") == request.optLong("newOpeningFloatCents") &&
+            update.optString("updatedAt") == request.optString("updatedAt")
+    }
+
+    private fun activeCashSession(entries: List<JSONObject>): JSONObject? {
+        var active: JSONObject? = null
+        entries.forEach { entry ->
+            when (entry.getString("kind")) {
+                "cash_session_opened" -> {
+                    val session = entry.getJSONObject("session")
+                    active =
+                        JSONObject().apply {
+                            put("id", session.getString("sessionId"))
+                            put("periodStart", session.getString("periodStart"))
+                            put("openingFloatCents", session.getLong("openingFloatCents"))
+                            put(
+                                "terminalId",
+                                entry.getJSONObject("source").getJSONObject("terminal")
+                                    .getString("terminalId"),
+                            )
+                        }
+                }
+                "cash_float_updated" -> {
+                    val update = entry.getJSONObject("cashFloatUpdate")
+                    if (active?.optString("id") == update.optString("sessionId")) {
+                        active.put("openingFloatCents", update.getLong("newOpeningFloatCents"))
+                    }
+                }
+                "closure" -> {
+                    val closure = entry.getJSONObject("closure")
+                    if (active?.optString("id") == closure.optString("cashSessionId")) active = null
+                }
+            }
+        }
+        return active
     }
 
     private fun validateCheckoutIntent(intent: JSONObject) {
@@ -1066,7 +1253,9 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             } catch (error: ArithmeticException) {
                 throw IllegalArgumentException("$label dépasse la plage entière sûre.", error)
             }
-        require(result <= MAX_SAFE_INTEGER) { "$label dépasse la plage entière sûre." }
+        require(result in -MAX_SAFE_INTEGER..MAX_SAFE_INTEGER) {
+            "$label dépasse la plage entière sûre."
+        }
         return result
     }
 

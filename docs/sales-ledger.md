@@ -12,7 +12,7 @@ La base IndexedDB `samhain-pos`, version 2, sépare quatre responsabilités :
 
 - `orders` conserve l’instantané financier d’origine : lignes, options, prix, TVA, règlement, date, terminal, numéros de commande et de reçu ;
 - `orderTechnicalState` conserve uniquement l’état d’impression, qui doit pouvoir évoluer après la vente sans modifier les données financières ;
-- `salesLedger` est le journal append-only des ventes, corrections et clôtures ;
+- `salesLedger` est le journal append-only des ouvertures de session, corrections de fond, ventes, corrections et clôtures ;
 - `metadata` alloue dans la même transaction les séquences de commande, de reçu et de journal, ainsi que l’empreinte de tête et la fin de la dernière période clôturée.
 
 La création d’une vente, l’allocation de ses numéros, son instantané financier, son premier état technique et son entrée de journal sont écrits dans une seule transaction IndexedDB. Un échec annule l’ensemble. Le repository n’expose plus de méthode générique `updateOrder()` : seule `updateOrderPrinting()` peut faire évoluer les métadonnées techniques.
@@ -51,9 +51,19 @@ Les remboursements créés depuis l’issue #72 contiennent aussi `refundLines`.
 
 Les API existent dans `SalesLedgerService`. L’historique expose les annulations et remboursements uniquement après déverrouillage du mode responsable. Le remboursement reçoit des identifiants de lignes et des quantités, jamais un montant libre.
 
+## Sessions et fond de caisse
+
+Une session de caisse n’est pas déduite de la date civile. Elle commence par une entrée `cash_session_opened`, liée à l’identité technique du terminal et contenant un identifiant stable, le début de période, la date de création et le fond initial en centimes. Après redémarrage, cette entrée est relue depuis le même journal local ; l’application ne redemande donc pas le fond tant que la session n’a pas été clôturée.
+
+Une correction volontaire ajoute une entrée `cash_float_updated` avec l’ancienne valeur, la nouvelle valeur et la date de modification. Elle ne réécrit pas l’ouverture d’origine. Une seule session peut être active et une ouverture concurrente est refusée. La valeur `0` est valide ; les valeurs négatives, non entières ou hors de la plage entière sûre sont rejetées avant écriture.
+
+L’écran de vente reste bloqué tant qu’aucune session active n’a de fond enregistré. La saisie utilise un pavé tactile, une valeur visible et une confirmation. La correction est réservée à l’écran responsable de clôture. Une session peut traverser minuit ; après une clôture, la session suivante commence exactement à la fin de la période précédente et exige un nouveau fond.
+
 ## Clôtures
 
-`closePeriod()` ajoute une entrée de clôture contenant les bornes ISO, le nombre et le total brut des ventes, les corrections, le total net, le total net cumulatif et les totaux par moyen de paiement. Les intervalles sont demi-ouverts (`début <= date < fin`). Après une clôture, une vente ou une correction antidatée avant sa fin est refusée. La clôture suivante doit commencer exactement à la fin de la précédente.
+`closePeriod()` ajoute une entrée de clôture contenant les bornes ISO, l’identifiant de session, le fond initial utilisé, le nombre et le total brut des ventes, les corrections, le total net, le total net cumulatif, les totaux par moyen de paiement et le total théorique en caisse. Les intervalles sont demi-ouverts (`début <= date < fin`). Après une clôture, une vente ou une correction antidatée avant sa fin est refusée. La clôture suivante doit commencer exactement à la fin de la précédente.
+
+Le total théorique d’espèces est calculé en centimes : `fond initial + encaissements espèces nets`. Les corrections et remboursements en espèces diminuent donc le total espèces, tandis que les paiements par carte n’y participent jamais. Le journal vérifie à nouveau cette formule lors du contrôle d’intégrité.
 
 L’horloge de la tablette reste une source de confiance. Avant exploitation, Android doit empêcher une modification non autorisée de la date et la procédure de caisse doit prévoir le traitement d’une horloge incorrecte.
 

@@ -28,11 +28,21 @@ const totals = {
   paymentTotalsCents: { card: 750, cash: 1_000 },
 }
 
+const cashSession = {
+  id: 'session-1',
+  terminal: { terminalId: 'terminal-a', terminalCode: 'A' as const, displayName: 'Caisse A' },
+  periodStart: '2026-09-16T00:00:00.000Z',
+  createdAt: '2026-09-16T00:00:00.000Z',
+  openingFloatCents: 15_000,
+}
+
 const preview: ClosurePreview = {
   periodStart: '2026-09-16T00:00:00.000Z',
   periodEnd: '2026-09-16T19:00:00.000Z',
   terminal: { terminalId: 'terminal-a', terminalCode: 'A', displayName: 'Caisse A' },
   totals,
+  cashSession,
+  theoreticalCashCents: 16_000,
   integrity,
   vatBreakdown: null,
   vatUnavailableReason:
@@ -48,6 +58,9 @@ const closure = {
     periodStart: preview.periodStart,
     periodEnd: preview.periodEnd,
     totals,
+    cashSessionId: cashSession.id,
+    openingFloatCents: cashSession.openingFloatCents,
+    theoreticalCashCents: 16_000,
   },
 } as ClosureLedgerEntry
 
@@ -58,6 +71,13 @@ function dependencies() {
       previewClosure: vi.fn(async () => preview),
       closePeriod: vi.fn(async () => closure),
       getLastClosureEnd: vi.fn(async () => null),
+    },
+    cashSessionService: {
+      getActiveSession: vi.fn(async () => cashSession),
+      updateOpeningFloat: vi.fn(async (amountCents: number) => ({
+        ...cashSession,
+        openingFloatCents: amountCents,
+      })),
     },
   }
 }
@@ -95,7 +115,13 @@ describe('LedgerManagement', () => {
       '-2,50',
     )
     expect(screen.getByText('Carte bancaire').nextElementSibling).toHaveTextContent('7,50')
-    expect(screen.getByText('Espèces').nextElementSibling).toHaveTextContent('10,00')
+    expect(
+      screen.getAllByText('Fond de caisse initial').at(-1)?.nextElementSibling,
+    ).toHaveTextContent('150,00')
+    expect(screen.getByText('Encaissements espèces').nextElementSibling).toHaveTextContent('10,00')
+    expect(screen.getByText('Total théorique en caisse').nextElementSibling).toHaveTextContent(
+      '160,00',
+    )
     expect(screen.getByText(/Ventilation TVA indisponible/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))

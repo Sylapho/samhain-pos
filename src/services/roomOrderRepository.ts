@@ -3,15 +3,19 @@ import type { CheckoutIntent } from '../types/checkout'
 import {
   SALES_ARCHIVE_SCHEMA_VERSION,
   type ArchiveRestoreResult,
+  type CashFloatUpdatedLedgerEntry,
+  type CashSessionOpenedLedgerEntry,
   type ClosureLedgerEntry,
   type ClosureRequest,
   type CorrectionLedgerEntry,
   type CorrectionRequest,
   type IntegrityVerification,
   type LedgerSource,
+  type OpenCashSessionRequest,
   type SalesArchive,
   type SalesLedgerEntry,
   type StoredOrderTechnicalState,
+  type UpdateCashFloatRequest,
 } from '../types/salesLedger'
 import { hashCanonicalValue } from '../utils/integrity'
 import { orderStorage, type NativeOrderStorageBridge } from '../native/orderStorage'
@@ -51,6 +55,8 @@ type NativeStorage = {
     expected: OrderPrinting,
     printing: OrderPrinting,
   ): ReturnType<NativeOrderStorageBridge['compareAndSetPrinting']>
+  openCashSession(request: OpenCashSessionRequest): Promise<CashSessionOpenedLedgerEntry>
+  updateCashFloat(request: UpdateCashFloatRequest): Promise<CashFloatUpdatedLedgerEntry>
   recordCorrection(request: CorrectionRequest): Promise<CorrectionLedgerEntry>
   closePeriod(request: ClosureRequest): Promise<ClosureLedgerEntry>
   restoreSnapshot(snapshot: OrderPersistenceSnapshot): Promise<ArchiveRestoreResult>
@@ -143,6 +149,16 @@ export class RoomOrderRepository
   async recordCorrection(request: CorrectionRequest): Promise<CorrectionLedgerEntry> {
     await this.ensureInitialized()
     return this.nativeStorage.recordCorrection(request)
+  }
+
+  async openCashSession(request: OpenCashSessionRequest): Promise<CashSessionOpenedLedgerEntry> {
+    await this.ensureInitialized()
+    return this.nativeStorage.openCashSession(request)
+  }
+
+  async updateCashFloat(request: UpdateCashFloatRequest): Promise<CashFloatUpdatedLedgerEntry> {
+    await this.ensureInitialized()
+    return this.nativeStorage.updateCashFloat(request)
   }
 
   async closePeriod(request: ClosureRequest): Promise<ClosureLedgerEntry> {
