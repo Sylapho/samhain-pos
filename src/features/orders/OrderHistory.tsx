@@ -19,12 +19,14 @@ import {
 } from '../../services/saleCorrectionSummary'
 import { getSalesLedgerService, type SalesLedgerService } from '../../services/salesLedgerService'
 import type { CartItem } from '../../types/cart'
+import type { Product } from '../../types/catalog'
 import type { Order, OrderPrintStatus, PrintDocumentStatus } from '../../types/order'
 import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { getRemovedIngredients } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
 import { getOrderTerminalDisplayName } from '../../utils/order'
 import { SaleCorrectionDialog } from './SaleCorrectionDialog'
+import { ProductSalesStatistics } from './ProductSalesStatistics'
 
 type Props = {
   onClose: () => void
@@ -35,6 +37,7 @@ type Props = {
   requestResponsibleAccess?: () => Promise<boolean>
   ledgerService?: Pick<SalesLedgerService, 'getEntries' | 'cancelSale' | 'refundSale'>
   createOperationId?: () => string
+  products?: Product[]
 }
 
 type Feedback = { kind: 'success' | 'error' | 'warning'; text: string }
@@ -70,6 +73,7 @@ export function OrderHistory({
   requestResponsibleAccess = async () => true,
   ledgerService = defaultLedgerService,
   createOperationId = () => globalThis.crypto.randomUUID(),
+  products = [],
 }: Props) {
   const [orders, setOrders] = useState<Order[]>([])
   const [corrections, setCorrections] = useState<CorrectionLedgerEntry[]>([])
@@ -81,6 +85,7 @@ export function OrderHistory({
   const [correctionsError, setCorrectionsError] = useState(false)
   const [correctionsLoading, setCorrectionsLoading] = useState(true)
   const [correctionOrder, setCorrectionOrder] = useState<Order | null>(null)
+  const [activeView, setActiveView] = useState<'orders' | 'statistics'>('orders')
   const printingRef = useRef(false)
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null
 
@@ -252,7 +257,7 @@ export function OrderHistory({
       className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 p-3 sm:p-5"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="order-history-title"
+      aria-label="Historique des commandes"
       onClick={onClose}
     >
       <section
@@ -262,16 +267,38 @@ export function OrderHistory({
         <header className="flex items-center justify-between gap-4 border-b border-stone-300 px-4 py-3 sm:px-5">
           <div>
             <h2 id="order-history-title" className="text-2xl font-black">
-              Historique des commandes
+              Historique
             </h2>
             <p className="text-sm font-bold text-stone-600">
-              Commandes enregistrées sur cette caisse
+              Commandes et ventes enregistrées sur cette caisse
             </p>
           </div>
           <Button variant="secondary" disabled={printing !== null} onClick={onClose}>
             Fermer
           </Button>
         </header>
+
+        <nav
+          className="grid grid-cols-2 border-b border-stone-300"
+          aria-label="Vues de l’historique"
+        >
+          <button
+            type="button"
+            className={`min-h-14 border-r border-stone-300 px-4 py-2 font-black focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#216a9a] ${activeView === 'orders' ? 'bg-[#1f6a4b] text-white' : 'bg-stone-100 text-stone-900'}`}
+            aria-pressed={activeView === 'orders'}
+            onClick={() => setActiveView('orders')}
+          >
+            Commandes
+          </button>
+          <button
+            type="button"
+            className={`min-h-14 px-4 py-2 font-black focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-[#216a9a] ${activeView === 'statistics' ? 'bg-[#1f6a4b] text-white' : 'bg-stone-100 text-stone-900'}`}
+            aria-pressed={activeView === 'statistics'}
+            onClick={() => setActiveView('statistics')}
+          >
+            Statistiques produits
+          </button>
+        </nav>
 
         {loading ? (
           <p className="p-6 font-bold" role="status">
@@ -284,6 +311,22 @@ export function OrderHistory({
           >
             L’historique local est indisponible. Fermez cette vue puis réessayez.
           </p>
+        ) : activeView === 'statistics' ? (
+          correctionsLoading ? (
+            <p className="p-6 font-bold" role="status">
+              Chargement des statistiques…
+            </p>
+          ) : correctionsError ? (
+            <p
+              className="m-5 border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
+              role="alert"
+            >
+              Les corrections de vente sont indisponibles. Les statistiques ne peuvent pas être
+              calculées de manière fiable.
+            </p>
+          ) : (
+            <ProductSalesStatistics orders={orders} corrections={corrections} products={products} />
+          )
         ) : orders.length === 0 ? (
           <p className="p-6 font-bold text-stone-700">Aucune commande enregistrée.</p>
         ) : (

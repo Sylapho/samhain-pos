@@ -637,6 +637,7 @@ export function App({
             responsibleMode.lock()
           }}
           loadOrders={loadOrders}
+          products={products}
           onOrderUpdated={updateRecoveryOrder}
           requestResponsibleAccess={requestResponsibleAccess}
         />
