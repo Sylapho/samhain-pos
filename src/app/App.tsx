@@ -16,7 +16,6 @@ import { SystemStatus } from '../features/status/SystemStatus'
 import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfigurationDialog'
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
-import { loadCatalogProfile, saveCatalogProfile } from '../services/catalogProfileService'
 import { getCatalogService, type CatalogService } from '../services/catalogService'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { checkoutService } from '../services/checkoutService'
@@ -30,13 +29,7 @@ import {
   reprovisionTerminal,
 } from '../services/terminalConfigurationService'
 import { useCartStore } from '../store/cartStore'
-import {
-  productCategories,
-  type CatalogProfile,
-  type CategoryId,
-  type Product,
-  type ProductSelection,
-} from '../types/catalog'
+import type { CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { CheckoutIntent } from '../types/checkout'
 import type { Order } from '../types/order'
 import type { CashSession } from '../types/salesLedger'
@@ -102,16 +95,7 @@ export function App({
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>(
     initialCatalog ? 'ready' : 'loading',
   )
-  const [catalogProfile, setCatalogProfile] = useState<CatalogProfile>(() => {
-    if (!initialCatalog) return loadCatalogProfile()
-    return initialCatalog.some(({ catalogProfile: profile }) => profile === 'potion-bar')
-      ? 'potion-bar'
-      : 'base'
-  })
-  const [category, setCategory] = useState<CategoryId>(() =>
-    catalogProfile === 'potion-bar' ? 'potions' : 'menus',
-  )
-  const [catalogSwitchError, setCatalogSwitchError] = useState<string | null>(null)
+  const [category, setCategory] = useState<CategoryId>('menus')
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
@@ -274,55 +258,14 @@ export function App({
     }
   }, [loadRecoverableOrders, recoverableIntentLoader, terminalConfiguration])
 
-  const visibleProfileProducts = useMemo(
+  const filteredProducts = useMemo(
     () =>
       products.filter(
         (product) =>
-          (product.catalogProfile ?? 'base') === catalogProfile &&
-          product.active &&
-          product.availability === 'available',
+          product.active && product.availability === 'available' && product.categoryId === category,
       ),
-    [catalogProfile, products],
+    [category, products],
   )
-  const visibleCategories = useMemo(
-    () =>
-      productCategories.filter((candidate) =>
-        visibleProfileProducts.some((product) => product.categoryId === candidate.id),
-      ),
-    [visibleProfileProducts],
-  )
-  const activeCategory = visibleCategories.some(({ id }) => id === category)
-    ? category
-    : (visibleCategories[0]?.id ?? category)
-  const filteredProducts = useMemo(
-    () => visibleProfileProducts.filter((product) => product.categoryId === activeCategory),
-    [activeCategory, visibleProfileProducts],
-  )
-
-  const switchCatalogProfile = () => {
-    if (items.length) {
-      setCatalogSwitchError(
-        'Terminez ou annulez la commande en cours avant de changer de catalogue.',
-      )
-      return
-    }
-
-    const nextProfile: CatalogProfile = catalogProfile === 'potion-bar' ? 'base' : 'potion-bar'
-    const nextCategory = productCategories.find((candidate) =>
-      products.some(
-        (product) =>
-          (product.catalogProfile ?? 'base') === nextProfile &&
-          product.active &&
-          product.availability === 'available' &&
-          product.categoryId === candidate.id,
-      ),
-    )
-    setCatalogProfile(nextProfile)
-    saveCatalogProfile(nextProfile)
-    setCategory(nextCategory?.id ?? (nextProfile === 'potion-bar' ? 'potions' : 'menus'))
-    setOptionsProduct(null)
-    setCatalogSwitchError(null)
-  }
 
   const showAddedFeedback = (productId: string) => {
     if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current)
@@ -361,7 +304,7 @@ export function App({
     setCheckoutOpen(false)
     setResumingOrder(null)
     setResumingIntent(null)
-    setCategory(catalogProfile === 'potion-bar' ? 'potions' : 'menus')
+    setCategory('menus')
   }
 
   const updateRecoveryOrder = (updatedOrder: Order) => {
@@ -585,15 +528,6 @@ export function App({
         </div>
       </header>
 
-      {catalogSwitchError ? (
-        <div
-          className="border-b border-amber-300 bg-amber-50 px-5 py-3 font-bold text-amber-950"
-          role="alert"
-        >
-          {catalogSwitchError}
-        </div>
-      ) : null}
-
       {recoveryError ? (
         <div
           className="border-b border-rose-300 bg-rose-50 px-5 py-3 font-bold text-rose-950"
@@ -650,32 +584,14 @@ export function App({
 
       <main className="pos-layout min-h-0 flex-1">
         <aside className="category-zone border-b border-stone-300 bg-[#e9e2d5] lg:border-r lg:border-b-0">
-          <div className="border-b border-stone-300 p-3 lg:p-4">
-            <Button
-              fullWidth
-              className="px-3 py-2"
-              aria-label={
-                catalogProfile === 'potion-bar'
-                  ? 'Afficher les produits de base'
-                  : 'Afficher les produits Potion Bar'
-              }
-              onClick={switchCatalogProfile}
-            >
-              Produits : {catalogProfile === 'potion-bar' ? 'Potion Bar' : 'Base'}
-            </Button>
-          </div>
-          <CategoryTabs
-            activeCategory={activeCategory}
-            onChange={setCategory}
-            categories={visibleCategories}
-          />
+          <CategoryTabs activeCategory={category} onChange={setCategory} />
         </aside>
         <section
           className="catalog-zone min-h-0 overflow-y-auto p-4"
           aria-label="Catalogue produits"
         >
           <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-stone-300 pb-3">
-            <h1 className="text-2xl font-black">{productCategoriesLabel(activeCategory)}</h1>
+            <h1 className="text-2xl font-black">{productCategoriesLabel(category)}</h1>
             <span className="text-sm font-bold text-stone-600">Touchez pour ajouter</span>
           </div>
           <ProductGrid
@@ -804,5 +720,13 @@ export function App({
 }
 
 function productCategoriesLabel(categoryId: CategoryId): string {
-  return productCategories.find(({ id }) => id === categoryId)?.label ?? categoryId
+  const labels: Record<CategoryId, string> = {
+    menus: 'Menus',
+    assiettes: 'Assiettes',
+    desserts: 'Desserts',
+    'boissons-chaudes': 'Boissons chaudes',
+    bieres: 'Bières et cidre',
+    'sans-alcool': 'Sans alcool',
+  }
+  return labels[categoryId]
 }

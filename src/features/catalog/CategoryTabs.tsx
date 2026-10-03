@@ -1,22 +1,17 @@
-import { productCategories, type Category, type CategoryId } from '../../types/catalog'
+import { productCategories, type CategoryId } from '../../types/catalog'
 
 type CategoryTabsProps = {
   activeCategory: CategoryId
   onChange: (category: CategoryId) => void
-  categories?: readonly Category[]
 }
 
-export function CategoryTabs({
-  activeCategory,
-  onChange,
-  categories = productCategories,
-}: CategoryTabsProps) {
+export function CategoryTabs({ activeCategory, onChange }: CategoryTabsProps) {
   return (
     <nav
       className="flex gap-2 overflow-x-auto p-3 lg:flex-col lg:overflow-visible lg:p-4"
       aria-label="Catégories de produits"
     >
-      {categories.map((category) => {
+      {productCategories.map((category) => {
         const active = activeCategory === category.id
         return (
           <button
