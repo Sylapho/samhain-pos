@@ -12,6 +12,7 @@ import {
   RoomCatalogRepository,
   type CatalogRepository,
 } from './catalogRepository'
+import { migrateConfirmedCatalogPrices } from './catalogPriceMigration'
 
 function requireText(value: string, label: string): string {
   const normalized = value.trim()
@@ -117,13 +118,19 @@ export class CatalogService {
   async loadCatalog(): Promise<Product[]> {
     const result = await this.repository.initialize(this.seed.map(validateProduct))
     const products = result.products.map(validateProduct)
-    const burger = products.find(({ id }) => id === 'burger-samhain')
-    if (!burger?.ingredients?.length) return products
+    const migratedProducts = products.map((product) => {
+      const withoutLegacyBurgerIngredients =
+        product.id === 'burger-samhain' && product.ingredients?.length
+          ? { ...product, ingredients: undefined }
+          : product
+      return migrateConfirmedCatalogPrices(withoutLegacyBurgerIngredients)
+    })
 
-    // Le seed n'est pas rejoué sur les installations existantes : retirer uniquement ce champ.
-    const migratedBurger = { ...burger, ingredients: undefined }
-    await this.repository.updateProduct(migratedBurger)
-    return products.map((product) => (product.id === migratedBurger.id ? migratedBurger : product))
+    for (const [index, product] of migratedProducts.entries()) {
+      if (product !== products[index]) await this.repository.updateProduct(product)
+    }
+
+    return migratedProducts
   }
 
   async getProducts(): Promise<Product[]> {
