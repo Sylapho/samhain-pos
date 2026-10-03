@@ -116,7 +116,14 @@ export class CatalogService {
 
   async loadCatalog(): Promise<Product[]> {
     const result = await this.repository.initialize(this.seed.map(validateProduct))
-    return result.products.map(validateProduct)
+    const products = result.products.map(validateProduct)
+    const burger = products.find(({ id }) => id === 'burger-samhain')
+    if (!burger?.ingredients?.length) return products
+
+    // Le seed n'est pas rejoué sur les installations existantes : retirer uniquement ce champ.
+    const migratedBurger = { ...burger, ingredients: undefined }
+    await this.repository.updateProduct(migratedBurger)
+    return products.map((product) => (product.id === migratedBurger.id ? migratedBurger : product))
   }
 
   async getProducts(): Promise<Product[]> {

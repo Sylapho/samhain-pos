@@ -66,6 +66,34 @@ describe('catalogue persistant IndexedDB', () => {
     expect(products.find(({ id }) => id === beer.id)?.variants).toEqual(beer.variants)
   })
 
+  it('retire les anciens ingrédients du burger sans réinitialiser le catalogue', async () => {
+    const indexedDb = new IDBFactory()
+    const databaseName = 'catalog-burger-composition-migration'
+    const repository = new IndexedDbCatalogRepository(indexedDb, databaseName)
+    const legacyCatalog = initialCatalogProducts.map((product) =>
+      product.id === 'burger-samhain'
+        ? {
+            ...product,
+            ingredients: [
+              { id: 'cheddar', name: 'Cheddar' },
+              { id: 'bacon', name: 'Bacon' },
+            ],
+          }
+        : product,
+    )
+    await repository.initialize(legacyCatalog)
+    const menu = (await repository.getProducts()).find(({ id }) => id === 'menu-enfant')!
+    await repository.updateProduct({ ...menu, name: 'Menu enfant personnalisé' })
+
+    const products = await createService(indexedDb, databaseName).loadCatalog()
+
+    expect(products.find(({ id }) => id === 'burger-samhain')?.ingredients).toBeUndefined()
+    expect(products.find(({ id }) => id === menu.id)?.name).toBe('Menu enfant personnalisé')
+    expect(
+      (await repository.getProducts()).find(({ id }) => id === 'burger-samhain')?.ingredients,
+    ).toBeUndefined()
+  })
+
   it('exclut les produits désactivés du jeu vendable sans supprimer leurs données', async () => {
     const service = createService(new IDBFactory(), 'catalog-disabled')
     const products = await service.loadCatalog()

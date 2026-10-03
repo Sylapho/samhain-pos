@@ -464,38 +464,22 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: /Burger spécial Samhain/ })).toBeInTheDocument()
   })
 
-  it('configure les ingrédients avant ajout puis retrouve la composition en édition', () => {
+  it('ajoute directement le Burger spécial Samhain sans proposer de personnalisation', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
-    const burger = screen.getByRole('button', {
-      name: /Burger spécial Samhain, 16,00.*choix requis/,
-    })
-    expect(within(burger).getByText('Choisir')).toBeInTheDocument()
+    expect(screen.getByText('Steak haché, cheddar, bacon, salade, sauce · frites')).toBeVisible()
+    const burger = screen.getByRole('button', { name: /Burger spécial Samhain, 16,00/ })
     fireEvent.click(burger)
 
-    const cheddar = screen.getByRole('checkbox', { name: 'Cheddar' })
-    expect(cheddar).toBeChecked()
-    expect(screen.getByText('Commande vide')).toBeInTheDocument()
-    fireEvent.click(cheddar)
-    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
-    expect(screen.getByText('Commande vide')).toBeInTheDocument()
-    expect(screen.queryByText('Sans cheddar')).not.toBeInTheDocument()
-
-    fireEvent.click(burger)
-    expect(screen.getByRole('checkbox', { name: 'Cheddar' })).toBeChecked()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Cheddar' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Ajouter Burger spécial Samhain' }))
-    expect(screen.getByText('Sans cheddar')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Burger spécial Samhain' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Cheddar' })).not.toBeInTheDocument()
     expect(useCartStore.getState().items).toHaveLength(1)
-    expect(useCartStore.getState().items[0]?.removedIngredientIds).toEqual(['cheddar'])
-
-    fireEvent.click(screen.getByRole('button', { name: 'Personnaliser Burger spécial Samhain' }))
-    expect(screen.getByRole('checkbox', { name: 'Cheddar' })).not.toBeChecked()
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Cheddar' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Valider' }))
-    expect(useCartStore.getState().items).toHaveLength(1)
+    expect(screen.getAllByText('Burger spécial Samhain')).toHaveLength(2)
     expect(useCartStore.getState().items[0]?.removedIngredientIds).toEqual([])
-    expect(screen.queryByText('Sans cheddar')).not.toBeInTheDocument()
+    expect(screen.queryByText('Modifier la composition')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Personnaliser Burger spécial Samhain' }),
+    ).not.toBeInTheDocument()
   })
 
   it('propose et ajoute directement les softs servis au verre en 33 cl', () => {
@@ -567,15 +551,13 @@ describe('caisse', () => {
 
   it('abandonne les personnalisations non validées au clic extérieur', () => {
     render(<App />)
-    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Burger spécial Samhain, 16,00/ }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Cheddar' }))
+    fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Steak haché avec frites/ }))
 
-    fireEvent.click(screen.getByRole('dialog', { name: 'Burger spécial Samhain' }))
+    fireEvent.click(screen.getByRole('dialog', { name: 'Menu enfant' }))
 
-    expect(screen.queryByRole('dialog', { name: 'Burger spécial Samhain' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Menu enfant' })).not.toBeInTheDocument()
     expect(screen.getByText('Commande vide')).toBeInTheDocument()
-    expect(screen.queryByText('Sans cheddar')).not.toBeInTheDocument()
   })
 
   it('propose de reprendre une impression persistée après redémarrage', async () => {
