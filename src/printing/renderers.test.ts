@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
 import { initialCatalogProducts as products } from '../data/initialCatalog'
+import type { Product } from '../types/catalog'
 import { createCartItemDraft } from '../utils/cart'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { encodeCp858 } from './escPos'
@@ -68,8 +69,22 @@ describe('rendus thermiques', () => {
   })
 
   it('met très visiblement en avant les ingrédients retirés uniquement en préparation', () => {
-    const burger = products.find((product) => product.id === 'burger-samhain')!
-    const draft = createCartItemDraft(burger, undefined, ['cheddar', 'salade'])
+    const customizableProduct: Product = {
+      id: 'sandwich-customizable-test',
+      name: 'Sandwich personnalisable',
+      categoryId: 'assiettes',
+      active: true,
+      displayOrder: 0,
+      requiresPreparation: true,
+      availability: 'available',
+      priceCents: 800,
+      vatRate: 10,
+      ingredients: [
+        { id: 'cheddar', name: 'Cheddar' },
+        { id: 'salade', name: 'Salade' },
+      ],
+    }
+    const draft = createCartItemDraft(customizableProduct, undefined, ['cheddar', 'salade'])
     const personalizedOrder = {
       ...printPreviewOrder,
       itemCount: 1,
@@ -77,7 +92,7 @@ describe('rendus thermiques', () => {
       items: [
         {
           ...draft,
-          lineId: 'burger-sans-cheddar-salade',
+          lineId: 'sandwich-sans-cheddar-salade',
           quantity: 1,
         },
       ],

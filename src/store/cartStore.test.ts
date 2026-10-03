@@ -41,6 +41,21 @@ const configurableSnack: Product = {
     },
   ],
 }
+const customizableSandwich: Product = {
+  id: 'sandwich-customizable-test',
+  name: 'Sandwich personnalisable',
+  categoryId: 'assiettes',
+  active: true,
+  displayOrder: 0,
+  requiresPreparation: true,
+  availability: 'available',
+  priceCents: 800,
+  vatRate: 10,
+  ingredients: [
+    { id: 'pain', name: 'Pain' },
+    { id: 'cheddar', name: 'Cheddar' },
+  ],
+}
 
 describe('cart store', () => {
   beforeEach(() => useCartStore.getState().clearCart())
@@ -82,7 +97,7 @@ describe('cart store', () => {
   })
 
   it('fusionne uniquement les produits ayant la même personnalisation', () => {
-    const normal = createCartItemDraft(burger)
+    const normal = createCartItemDraft(customizableSandwich)
     const withoutCheddar = { ...normal, removedIngredientIds: ['cheddar'] }
 
     useCartStore.getState().addItem(normal)
@@ -97,23 +112,28 @@ describe('cart store', () => {
   })
 
   it('sépare une seule unité personnalisée puis la fusionne si elle redevient identique', () => {
-    const normal = createCartItemDraft(burger)
+    const normal = createCartItemDraft(customizableSandwich)
     useCartStore.getState().addItem(normal)
     useCartStore.getState().addItem(normal)
     const normalLineId = useCartStore.getState().items[0]!.lineId
 
-    const selection = getDefaultProductSelection(burger)
+    const selection = getDefaultProductSelection(customizableSandwich)
     useCartStore
       .getState()
-      .configureItem(normalLineId, createCartItemDraft(burger, selection, ['cheddar']))
+      .configureItem(
+        normalLineId,
+        createCartItemDraft(customizableSandwich, selection, ['cheddar']),
+      )
     expect(useCartStore.getState().items).toHaveLength(2)
     expect(useCartStore.getState().items.map((item) => item.quantity)).toEqual([1, 1])
-    expect(getCartTotalCents(useCartStore.getState().items)).toBe(3200)
+    expect(getCartTotalCents(useCartStore.getState().items)).toBe(1600)
 
     const customizedLineId = useCartStore
       .getState()
       .items.find((item) => item.removedIngredientIds.includes('cheddar'))!.lineId
-    useCartStore.getState().configureItem(customizedLineId, createCartItemDraft(burger, selection))
+    useCartStore
+      .getState()
+      .configureItem(customizedLineId, createCartItemDraft(customizableSandwich, selection))
     expect(useCartStore.getState().items).toHaveLength(1)
     expect(useCartStore.getState().items[0]?.quantity).toBe(2)
     expect(useCartStore.getState().items[0]?.removedIngredientIds).toEqual([])
