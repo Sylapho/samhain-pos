@@ -485,8 +485,8 @@ describe('caisse', () => {
   it('propose et ajoute directement les softs servis au verre en 33 cl', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: /Sans alcool/ }))
-    expect(screen.getByRole('button', { name: /Oasis, 2,50/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Coca-Cola, 2,50/ }))
+    expect(screen.getByRole('button', { name: /Oasis, 3,00/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Coca-Cola, 3,00/ }))
     expect(screen.getAllByText('Coca-Cola')).toHaveLength(2)
     expect(screen.queryByRole('dialog', { name: 'Coca-Cola' })).not.toBeInTheDocument()
   })
@@ -518,9 +518,7 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeEnabled()
-    expect(
-      screen.getByRole('checkbox', { name: 'Imprimer le ticket' }),
-    ).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket' })).not.toBeChecked()
   })
 
   it('protège l’annulation de la commande par une confirmation', () => {

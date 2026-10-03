@@ -94,6 +94,41 @@ describe('catalogue persistant IndexedDB', () => {
     ).toBeUndefined()
   })
 
+  it('migre les anciens tarifs confirmés sans écraser un prix personnalisé', async () => {
+    const indexedDb = new IDBFactory()
+    const databaseName = 'catalog-confirmed-price-migration'
+    const repository = new IndexedDbCatalogRepository(indexedDb, databaseName)
+    const legacyCatalog = initialCatalogProducts.map((product) => {
+      if (product.id === 'panini-bacon-cheddar') return { ...product, priceCents: 1_400 }
+      if (product.id === 'steak-hache') return { ...product, priceCents: 1_350 }
+      if (product.id !== 'biere-classique') return product
+      return {
+        ...product,
+        variants: product.variants?.map((variant) => ({
+          ...variant,
+          priceCents: variant.id === '25cl' ? 350 : 600,
+          dataConfidence: undefined,
+        })),
+      }
+    })
+    await repository.initialize(legacyCatalog)
+
+    const migrated = await new CatalogService(repository, initialCatalogProducts).loadCatalog()
+
+    expect(migrated.find(({ id }) => id === 'panini-bacon-cheddar')).toMatchObject({
+      priceCents: 1_200,
+      dataConfidence: 'confirmed',
+    })
+    expect(migrated.find(({ id }) => id === 'steak-hache')?.priceCents).toBe(1_350)
+    expect(migrated.find(({ id }) => id === 'biere-classique')?.variants).toMatchObject([
+      { id: '25cl', priceCents: 400, dataConfidence: 'confirmed' },
+      { id: '50cl', priceCents: 750, dataConfidence: 'confirmed' },
+    ])
+
+    const afterRestart = await new CatalogService(repository, initialCatalogProducts).loadCatalog()
+    expect(afterRestart).toEqual(migrated)
+  })
+
   it('exclut les produits désactivés du jeu vendable sans supprimer leurs données', async () => {
     const service = createService(new IDBFactory(), 'catalog-disabled')
     const products = await service.loadCatalog()
@@ -125,7 +160,7 @@ describe('catalogue persistant IndexedDB', () => {
 
     expect(lineSnapshot).toMatchObject({
       name: 'Bière classique',
-      unitPriceCents: 350,
+      unitPriceCents: 400,
       vatRate: 20,
       variant: { id: '25cl', name: 'Demi', volume: '25 cl' },
     })
