@@ -5,6 +5,9 @@ export const categoryIds = [
   'boissons-chaudes',
   'bieres',
   'sans-alcool',
+  'potions',
+  'gourmandises',
+  'marche-sorciere',
 ] as const
 
 export type CategoryId = (typeof categoryIds)[number]
@@ -21,7 +24,13 @@ export const productCategories: Category[] = [
   { id: 'boissons-chaudes', label: 'Boissons chaudes' },
   { id: 'bieres', label: 'Bières' },
   { id: 'sans-alcool', label: 'Sans alcool' },
+  { id: 'potions', label: 'Potions' },
+  { id: 'gourmandises', label: 'Gourmandises' },
+  { id: 'marche-sorciere', label: 'Petit marché' },
 ]
+
+export const catalogProfiles = ['base', 'potion-bar'] as const
+export type CatalogProfile = (typeof catalogProfiles)[number]
 
 export type ProductAvailability = 'available' | 'sold-out'
 export type DataConfidence = 'confirmed' | 'temporary'
@@ -60,6 +69,7 @@ export type Product = {
   id: string
   name: string
   categoryId: CategoryId
+  catalogProfile?: CatalogProfile
   active: boolean
   displayOrder: number
   requiresPreparation: boolean

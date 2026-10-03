@@ -1,4 +1,5 @@
 import type { Product } from '../types/catalog.ts'
+import { potionBarCatalogProducts } from './potionBarCatalog.ts'
 
 const seedProducts: Omit<Product, 'active' | 'displayOrder'>[] = [
   {
@@ -252,12 +253,15 @@ const seedProducts: Omit<Product, 'active' | 'displayOrder'>[] = [
   },
 ]
 
-/**
- * Catalogue utilisé exclusivement pour initialiser une installation vierge.
- * Les lectures runtime passent toujours par CatalogService.
- */
-export const initialCatalogProducts: Product[] = seedProducts.map((product, displayOrder) => ({
+/** Catalogue initial. Les lectures runtime passent toujours par CatalogService. */
+export const baseCatalogProducts: Product[] = seedProducts.map((product, displayOrder) => ({
   ...product,
+  catalogProfile: 'base',
   active: true,
   displayOrder,
 }))
+
+export const initialCatalogProducts: Product[] = [
+  ...baseCatalogProducts,
+  ...potionBarCatalogProducts,
+]

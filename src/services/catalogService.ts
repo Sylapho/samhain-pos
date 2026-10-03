@@ -3,6 +3,7 @@ import { initialCatalogProducts } from '../data/initialCatalog'
 import { catalogStorage } from '../native/catalogStorage'
 import {
   categoryIds,
+  catalogProfiles,
   type Product,
   type ProductOptionGroup,
   type ProductVariant,
@@ -81,6 +82,8 @@ function validateOptionGroups(
 
 export function validateProduct(product: Product): Product {
   if (!categoryIds.includes(product.categoryId)) throw new Error('La catégorie est invalide.')
+  const catalogProfile = product.catalogProfile ?? 'base'
+  if (!catalogProfiles.includes(catalogProfile)) throw new Error('Le catalogue est invalide.')
   if (![10, 20].includes(product.vatRate)) throw new Error('Le taux de TVA est invalide.')
   if (!Number.isSafeInteger(product.displayOrder) || product.displayOrder < 0) {
     throw new Error('L’ordre d’affichage doit être un entier positif.')
@@ -98,6 +101,7 @@ export function validateProduct(product: Product): Product {
   }
   return {
     ...structuredClone(product),
+    catalogProfile,
     id: requireId(product.id, 'L’identifiant du produit'),
     name: requireText(product.name, 'Le nom'),
     description: product.description?.trim() || undefined,
@@ -118,6 +122,16 @@ export class CatalogService {
   async loadCatalog(): Promise<Product[]> {
     const result = await this.repository.initialize(this.seed.map(validateProduct))
     const products = result.products.map(validateProduct)
+    const storedIds = new Set(products.map(({ id }) => id))
+
+    // Les installations créées avant le catalogue de démonstration doivent recevoir ses
+    // produits sans réinitialiser ni écraser leurs produits historiques personnalisés.
+    for (const seedProduct of this.seed) {
+      if (seedProduct.catalogProfile !== 'potion-bar' || storedIds.has(seedProduct.id)) continue
+      const provisioned = await this.repository.createProduct(validateProduct(seedProduct))
+      products.push(validateProduct(provisioned))
+      storedIds.add(seedProduct.id)
+    }
     const migratedProducts = products.map((product) => {
       const withoutLegacyBurgerIngredients =
         product.id === 'burger-samhain' && product.ingredients?.length

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialCatalogProducts } from './initialCatalog'
+import { potionBarCatalogProducts } from './potionBarCatalog'
 
 function productPrice(productId: string): number | undefined {
   return initialCatalogProducts.find(({ id }) => id === productId)?.priceCents
@@ -68,5 +69,66 @@ describe('tarifs confirmés du catalogue initial', () => {
       cidreFermier25cl: 250,
       cidreFermier50cl: 450,
     })
+  })
+})
+
+describe('catalogue Witches Potion Bar', () => {
+  it('reprend les prix et les taux de TVA fournis', () => {
+    expect(
+      Object.fromEntries(
+        potionBarCatalogProducts.map(({ id, priceCents, variants, vatRate }) => [
+          id,
+          { priceCents, variantPrices: variants?.map((variant) => variant.priceCents), vatRate },
+        ]),
+      ),
+    ).toEqual({
+      'potion-bar-cafe-lune-noire': { priceCents: 200, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-chocolat-chaud-magique': {
+        priceCents: 300,
+        variantPrices: undefined,
+        vatRate: 10,
+      },
+      'potion-bar-eau-minerale-songes': {
+        priceCents: 200,
+        variantPrices: undefined,
+        vatRate: 10,
+      },
+      'potion-bar-jus-fruits': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-the-samhain': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-the-fees-wolwa': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-the-habondia': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-matcha-lait-vegetal': {
+        priceCents: 450,
+        variantPrices: undefined,
+        vatRate: 10,
+      },
+      'potion-bar-soupe-chaudron': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-pain-epices': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-carre-chocolat': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-roule-cannelle': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-cookie-ensorcele': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-sachet-bonbons': { priceCents: 300, variantPrices: undefined, vatRate: 10 },
+      'potion-bar-tee-shirt': { priceCents: 2200, variantPrices: undefined, vatRate: 20 },
+      'potion-bar-sweat-pull': { priceCents: 4500, variantPrices: undefined, vatRate: 20 },
+      'potion-bar-batons-lumineux': {
+        priceCents: undefined,
+        variantPrices: [300, 700],
+        vatRate: 20,
+      },
+      'potion-bar-ecocup': { priceCents: 200, variantPrices: undefined, vatRate: 20 },
+      'potion-bar-top-bag': { priceCents: 500, variantPrices: undefined, vatRate: 20 },
+      'potion-bar-livre-enigme': { priceCents: 1490, variantPrices: undefined, vatRate: 20 },
+      'potion-bar-ecusson-charme': { priceCents: 500, variantPrices: undefined, vatRate: 20 },
+    })
+  })
+
+  it('envoie les consommables en préparation mais pas les produits du petit marché', () => {
+    expect(
+      potionBarCatalogProducts.every((product) =>
+        product.categoryId === 'marche-sorciere'
+          ? !product.requiresPreparation
+          : product.requiresPreparation,
+      ),
+    ).toBe(true)
   })
 })

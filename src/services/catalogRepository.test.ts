@@ -1,6 +1,7 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
-import { initialCatalogProducts } from '../data/initialCatalog'
+import { baseCatalogProducts, initialCatalogProducts } from '../data/initialCatalog'
+import { potionBarCatalogProducts } from '../data/potionBarCatalog'
 import { createCartItemDraft } from '../utils/cart'
 import { CatalogService } from './catalogService'
 import { IndexedDbCatalogRepository } from './catalogRepository'
@@ -26,6 +27,22 @@ describe('catalogue persistant IndexedDB', () => {
     const afterRestart = await createService(indexedDb, databaseName).loadCatalog()
     expect(afterRestart.find(({ id }) => id === menu.id)?.name).toBe('Menu enfant modifié')
     expect(afterRestart).toHaveLength(initialCatalogProducts.length)
+  })
+
+  it('ajoute Potion Bar à une ancienne installation sans écraser son catalogue', async () => {
+    const indexedDb = new IDBFactory()
+    const databaseName = 'catalog-potion-bar-provisioning'
+    const repository = new IndexedDbCatalogRepository(indexedDb, databaseName)
+    await repository.initialize(baseCatalogProducts)
+    const menu = (await repository.getProducts()).find(({ id }) => id === 'menu-enfant')!
+    await repository.updateProduct({ ...menu, name: 'Menu enfant personnalisé' })
+
+    const products = await createService(indexedDb, databaseName).loadCatalog()
+
+    expect(products.find(({ id }) => id === menu.id)?.name).toBe('Menu enfant personnalisé')
+    expect(products.filter(({ catalogProfile }) => catalogProfile === 'potion-bar')).toHaveLength(
+      potionBarCatalogProducts.length,
+    )
   })
 
   it('lit, crée, modifie, désactive et réactive un produit hors connexion', async () => {
