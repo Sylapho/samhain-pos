@@ -98,6 +98,105 @@ function createLifecycle(initialOrder = printPreviewOrder) {
 }
 
 describe('encaissement et impression', () => {
+  it('enregistre la vente sans déclencher d’impression lorsque la case est décochée', async () => {
+    const orderWithoutPrinting = {
+      ...structuredClone(printPreviewOrder),
+      printing: {
+        ...printPreviewOrder.printing,
+        status: 'printed' as const,
+        pickupTicket: 'not_requested' as const,
+        customerReceipt: 'not_requested' as const,
+        preparationTicket: 'not_requested' as const,
+      },
+    }
+    const createOrder = vi.fn().mockResolvedValue(orderWithoutPrinting)
+    const printOrder = vi.fn()
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={createOrder}
+        printOrder={printOrder}
+      />,
+    )
+
+    const printCheckbox = screen.getByRole('checkbox', { name: 'Imprimer le ticket' })
+    expect(printCheckbox).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser sans impression' }))
+
+    expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
+    expect(createOrder).toHaveBeenCalledWith(
+      printPreviewOrder.items,
+      'card',
+      expect.any(Date),
+      false,
+    )
+    expect(printOrder).not.toHaveBeenCalled()
+  })
+
+  it('déclenche exactement une impression lorsque la case est cochée', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const printOrder = vi.fn().mockResolvedValue(success)
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={createOrder}
+        printOrder={printOrder}
+        lifecycle={createLifecycle()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+
+    expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
+    expect(createOrder).toHaveBeenCalledWith(
+      printPreviewOrder.items,
+      'card',
+      expect.any(Date),
+      true,
+    )
+    expect(printOrder).toHaveBeenCalledOnce()
+  })
+
+  it('repart avec la case décochée pour une nouvelle commande', async () => {
+    const createOrder = vi.fn().mockResolvedValue(printPreviewOrder)
+    const first = render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={createOrder}
+        printOrder={vi.fn().mockResolvedValue(success)}
+        lifecycle={createLifecycle()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    await screen.findByRole('heading', { name: 'Commande validée' })
+    first.unmount()
+
+    render(
+      <CheckoutFlow
+        items={printPreviewOrder.items}
+        onCancel={vi.fn()}
+        onNewOrder={vi.fn()}
+        createOrder={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket' })).not.toBeChecked()
+  })
+
   it('exige un choix explicite du moyen de paiement avant validation', () => {
     const createOrder = vi.fn()
 
@@ -112,7 +211,7 @@ describe('encaissement et impression', () => {
 
     const card = screen.getByRole('button', { name: 'Carte bancaire' })
     const cash = screen.getByRole('button', { name: 'Espèces' })
-    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+    const checkout = screen.getByRole('button', { name: 'Encaisser sans impression' })
 
     expect(card).toHaveAttribute('aria-pressed', 'false')
     expect(cash).toHaveAttribute('aria-pressed', 'false')
@@ -258,6 +357,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     const checkout = screen.getByRole('button', { name: 'Valider le paiement' })
@@ -382,8 +482,8 @@ describe('encaissement et impression', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: /^Imprimer le reçu de caisse détaillé/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser sans impression' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
     expect(
       await screen.findByText('Aucun ticket n’était nécessaire pour cette commande.'),
@@ -409,6 +509,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
     fireEvent.click(checkout)
@@ -450,6 +551,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
@@ -483,6 +585,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
@@ -524,6 +627,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
@@ -622,6 +726,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(
@@ -663,6 +768,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     expect(await screen.findByText(/impression partielle à reprendre/)).toBeInTheDocument()
@@ -704,6 +810,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
     await screen.findByText('Reçu de caisse : imprimé')
@@ -768,6 +875,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
@@ -1075,6 +1183,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
     await screen.findByRole('button', { name: 'Paiement TPE accepté' })
@@ -1137,6 +1246,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
     await screen.findByRole('button', { name: 'Paiement TPE accepté' })

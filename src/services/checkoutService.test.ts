@@ -149,7 +149,12 @@ describe('frontière durable entre paiement et vente', () => {
     expect(repeated.id).toBe(first.id)
     expect(first.paymentStatus).toBe('paid')
     expect(first.status).toBe('confirmed')
-    expect(first.printing.customerReceipt).toBe('not_requested')
+    expect(first.printing).toMatchObject({
+      status: 'printed',
+      pickupTicket: 'not_requested',
+      customerReceipt: 'not_requested',
+      preparationTicket: 'not_requested',
+    })
     expect(snapshot.orders).toHaveLength(1)
     expect(snapshot.entries.filter((entry) => entry.kind === 'sale')).toHaveLength(1)
     expect(snapshot.metadata).toMatchObject({

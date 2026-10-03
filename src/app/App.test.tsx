@@ -519,8 +519,8 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeEnabled()
     expect(
-      screen.getByRole('checkbox', { name: /Imprimer le reçu de caisse détaillé/ }),
-    ).toBeChecked()
+      screen.getByRole('checkbox', { name: 'Imprimer le ticket' }),
+    ).not.toBeChecked()
   })
 
   it('protège l’annulation de la commande par une confirmation', () => {
@@ -612,6 +612,7 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
     fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
 
@@ -659,6 +660,7 @@ describe('caisse', () => {
       fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
       fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
       fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
       fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
       fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
       await screen.findByText(/enregistrée. Imprimante déconnectée/)
