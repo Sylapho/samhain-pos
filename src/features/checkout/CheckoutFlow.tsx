@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
-import { posConfig } from '../../config/pos'
 import {
   getCompletedDocumentsFromPrintError,
   getUnknownDocumentsFromPrintError,
@@ -19,7 +18,6 @@ import type { CartItem } from '../../types/cart'
 import type { CheckoutIntent } from '../../types/checkout'
 import type { Order, PaymentMethod } from '../../types/order'
 import { formatMoney } from '../../utils/money'
-import { itemRequiresPreparation } from '../../utils/preparation'
 import {
   appendCashDigits,
   deleteLastCashDigit,
@@ -68,10 +66,10 @@ export function CheckoutFlow({
     initialOrder?.paymentMethod ?? initialIntent?.paymentMethod ?? null,
   )
   const [cashReceivedCents, setCashReceivedCents] = useState<number | null>(null)
-  const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
+  const [printTickets, setPrintTickets] = useState(
     initialOrder
       ? initialOrder.printing.customerReceipt !== 'not_requested'
-      : (initialIntent?.printCustomerReceipt ?? posConfig.defaultPrintCustomerReceipt),
+      : (initialIntent?.printCustomerReceipt ?? false),
   )
   const [order, setOrder] = useState<Order | null>(initialOrder ?? null)
   const [intent, setIntent] = useState<CheckoutIntent | null>(initialIntent ?? null)
@@ -91,8 +89,6 @@ export function CheckoutFlow({
     0,
   )
   const hasSufficientCash = cashReceivedCents !== null && cashReceivedCents >= totalCents
-  const hasRequestedPrintDocument =
-    printCustomerReceipt || displayedItems.some(itemRequiresPreparation)
 
   const storeUpdatedOrder = (updatedOrder: Order) => {
     setOrder(updatedOrder)
@@ -269,7 +265,7 @@ export function CheckoutFlow({
             let activeIntent = intent
             if (!activeIntent) {
               activeIntent = storeUpdatedIntent(
-                await checkout.createIntent(items, paymentMethod, printCustomerReceipt),
+                await checkout.createIntent(items, paymentMethod, printTickets),
               )
             }
             if (activeIntent.status === 'pending_payment') {
@@ -305,19 +301,24 @@ export function CheckoutFlow({
               updatedAt: new Date().toISOString(),
             })
             storeUpdatedOrder(persistedOrder)
-            try {
-              await performPrint(persistedOrder, {}, true)
-            } catch (error) {
-              if (error instanceof PrintStatePersistenceError) {
-                setFeedback({
-                  kind: 'error',
-                  text: error.printMayHaveStarted
-                    ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
-                    : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
-                })
-              } else {
-                reportPrintFailure(persistedOrder, error)
+            if (activeIntent.printCustomerReceipt) {
+              try {
+                await performPrint(persistedOrder, {}, true)
+              } catch (error) {
+                if (error instanceof PrintStatePersistenceError) {
+                  setFeedback({
+                    kind: 'error',
+                    text: error.printMayHaveStarted
+                      ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                      : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+                  })
+                } else {
+                  reportPrintFailure(persistedOrder, error)
+                }
               }
+            } else {
+              setPrintingComplete(true)
+              setFeedback({ kind: 'success', text: 'Commande enregistrée sans impression.' })
             }
             return
           } catch {
@@ -338,7 +339,7 @@ export function CheckoutFlow({
 
         let persistedOrder: Order
         try {
-          persistedOrder = await createOrder(items, paymentMethod, new Date(), printCustomerReceipt)
+          persistedOrder = await createOrder(items, paymentMethod, new Date(), printTickets)
         } catch {
           setFeedback({
             kind: 'error',
@@ -348,19 +349,24 @@ export function CheckoutFlow({
         }
 
         storeUpdatedOrder(persistedOrder)
-        try {
-          await performPrint(persistedOrder, {}, true)
-        } catch (error) {
-          if (error instanceof PrintStatePersistenceError) {
-            setFeedback({
-              kind: 'error',
-              text: error.printMayHaveStarted
-                ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
-                : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
-            })
-          } else {
-            reportPrintFailure(persistedOrder, error)
+        if (printTickets) {
+          try {
+            await performPrint(persistedOrder, {}, true)
+          } catch (error) {
+            if (error instanceof PrintStatePersistenceError) {
+              setFeedback({
+                kind: 'error',
+                text: error.printMayHaveStarted
+                  ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                  : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+              })
+            } else {
+              reportPrintFailure(persistedOrder, error)
+            }
           }
+        } else {
+          setPrintingComplete(true)
+          setFeedback({ kind: 'success', text: 'Commande enregistrée sans impression.' })
         }
       } finally {
         printingRef.current = false
@@ -506,15 +512,12 @@ export function CheckoutFlow({
               <input
                 type="checkbox"
                 className="size-6 accent-[#1f6a4b]"
-                aria-label="Imprimer le reçu de caisse détaillé"
-                checked={printCustomerReceipt}
+                aria-label="Imprimer le ticket"
+                checked={printTickets}
                 disabled={busy || order !== null || intent !== null}
-                onChange={(event) => setPrintCustomerReceipt(event.target.checked)}
+                onChange={(event) => setPrintTickets(event.target.checked)}
               />
-              Imprimer le reçu de caisse détaillé
-              <span className="ml-auto text-xs text-stone-500">
-                Bon de retrait et préparation gérés automatiquement si nécessaires
-              </span>
+              Imprimer le ticket
             </label>
 
             {order ? (
@@ -597,12 +600,12 @@ export function CheckoutFlow({
                             ? 'Valider le paiement'
                             : paymentMethod === 'card'
                               ? createOrder
-                                ? hasRequestedPrintDocument
+                                ? printTickets
                                   ? 'Encaisser et imprimer'
                                   : 'Encaisser sans impression'
                                 : 'Préparer le paiement TPE'
                               : createOrder
-                                ? hasRequestedPrintDocument
+                                ? printTickets
                                   ? 'Encaisser et imprimer'
                                   : 'Encaisser sans impression'
                                 : 'Préparer l’encaissement'}

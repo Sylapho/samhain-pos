@@ -757,11 +757,14 @@ export class IndexedDbOrderRepository
               }
               const paymentConfirmedAt = intent.paymentConfirmedAt
               const preparationRequired = orderRequiresPreparation({ items: intent.cartSnapshot })
-              const pickupTicket = orderRequiresPickupTicket({ items: intent.cartSnapshot })
-                ? 'pending'
-                : 'not_requested'
+              const pickupTicket =
+                intent.printCustomerReceipt &&
+                orderRequiresPickupTicket({ items: intent.cartSnapshot })
+                  ? 'pending'
+                  : 'not_requested'
               const customerReceipt = intent.printCustomerReceipt ? 'pending' : 'not_requested'
-              const preparationTicket = preparationRequired ? 'pending' : 'not_requested'
+              const preparationTicket =
+                intent.printCustomerReceipt && preparationRequired ? 'pending' : 'not_requested'
               const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
               sequenceRequest.onsuccess = () => {
                 try {

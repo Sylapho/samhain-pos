@@ -527,12 +527,18 @@ describe('service de commandes persistantes', () => {
     await repository.close()
   })
 
-  it('mémorise qu’un ticket client a été refusé avant toute impression', async () => {
+  it('ne demande aucun document lorsque l’impression est refusée', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-customer-ticket', 'order-1')
     const order = await service.createOrder(createValidOrderItems(), 'card', createdAt, false)
 
-    expect(order.printing.customerReceipt).toBe('not_requested')
+    expect(order.printing).toMatchObject({
+      status: 'printed',
+      pickupTicket: 'not_requested',
+      customerReceipt: 'not_requested',
+      preparationTicket: 'not_requested',
+    })
+    expect(await service.getRecoverableOrders()).toEqual([])
     await service.beginPrinting(
       order.id,
       ['pickupTicket', 'customerReceipt', 'preparationTicket'],
@@ -544,7 +550,12 @@ describe('service de commandes persistantes', () => {
       ['pickupTicket', 'preparationTicket'],
       createdAt,
     )
-    expect(printed.printing.status).toBe('printed')
+    expect(printed.printing).toMatchObject({
+      status: 'printed',
+      pickupTicket: 'not_requested',
+      customerReceipt: 'not_requested',
+      preparationTicket: 'not_requested',
+    })
     await repository.close()
   })
 
