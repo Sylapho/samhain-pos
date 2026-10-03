@@ -5,7 +5,10 @@ import { printPreviewOrder } from '../mocks/printOrder'
 import type { PrintJobResult } from '../printing/types'
 import { useCartStore } from '../store/cartStore'
 import type { Order } from '../types/order'
-import { initialCatalogProducts } from '../data/initialCatalog'
+import {
+  baseCatalogProducts as initialCatalogProducts,
+  initialCatalogProducts as allCatalogProducts,
+} from '../data/initialCatalog'
 import { App as ProductionApp } from './App'
 import {
   LocalStorageTerminalConfigurationRepository,
@@ -151,6 +154,33 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Configurer Caisse A' })).toHaveTextContent('Code A')
     expect(screen.getByRole('button', { name: 'Valider la commande' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Annuler la commande' })).toBeDisabled()
+  })
+
+  it('affiche Potion Bar par défaut et permet de revenir aux produits de base', () => {
+    render(<App initialCatalog={allCatalogProducts} />)
+
+    expect(screen.getByRole('button', { name: /Chocolat chaud magique, 3,00/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Menu enfant/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Afficher les produits de base' }))
+
+    expect(screen.getByRole('button', { name: /Menu enfant, 9,50/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Chocolat chaud magique/ })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Afficher les produits Potion Bar' }),
+    ).toBeInTheDocument()
+  })
+
+  it('refuse de changer de catalogue tant que la commande contient un article', () => {
+    render(<App initialCatalog={allCatalogProducts} />)
+    fireEvent.click(screen.getByRole('button', { name: /Chocolat chaud magique, 3,00/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Afficher les produits de base' }))
+
+    expect(
+      screen.getByText('Terminez ou annulez la commande en cours avant de changer de catalogue.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Chocolat chaud magique, 3,00/ })).toBeInTheDocument()
   })
 
   it('enchaîne le provisioning initial avec la création obligatoire du PIN responsable', async () => {
