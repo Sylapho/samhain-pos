@@ -33,6 +33,8 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 La configuration Supabase optionnelle par environnement et sa transmission au futur worker Android sont décrites dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). Sans configuration, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md) ; le moteur réseau et l'enrôlement ne sont pas encore implémentés.
 
+Les migrations PostgreSQL privées, les règles RLS et leurs tests sont décrits dans [`docs/supabase-database.md`](docs/supabase-database.md). Leur développement local utilise Docker et Supabase CLI ; ces outils ne sont pas nécessaires pour démarrer la caisse. Le chemin d'ingestion financière reste fermé en attendant #36.
+
 - Node.js 22 recommandé ;
 - pnpm (via Corepack) ;
 - JDK 21 (le JDK 25 n'est pas compatible avec le wrapper Gradle actuel) ;

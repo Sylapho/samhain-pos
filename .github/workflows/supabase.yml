@@ -1,0 +1,34 @@
+name: Supabase database
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['supabase/**', 'scripts/test-supabase-migrations.mjs', '.github/workflows/supabase.yml']
+  push:
+    branches: [main]
+    paths: ['supabase/**', 'scripts/test-supabase-migrations.mjs', '.github/workflows/supabase.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.121.0
+      - name: Start local Supabase
+        run: supabase start
+      - name: Reconstruct and evolve migrations without data loss
+        run: node scripts/test-supabase-migrations.mjs
+      - name: Run SQL permissions and integrity tests
+        run: supabase test db
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
