@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import java.util.UUID
+import java.io.File
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -40,6 +41,52 @@ class RoomOrderStoreTest {
     fun tearDown() {
         database.close()
         executor.shutdownNow()
+    }
+
+    @Test
+    fun migrationFiveToSixPreservesACompleteFinancialSnapshot() = onDatabaseThread {
+        val name = "sync-migration-${UUID.randomUUID()}.db"
+        val schemaPath = "schemas/fr.samhain.pos.SamhainPosDatabase/5.json"
+        val schema = listOf(File(schemaPath),File("app/$schemaPath"),File("android/app/$schemaPath")).first { it.exists() }
+        val hash = JSONObject(schema.readText()).getJSONObject("database").getString("identityHash")
+        val original = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).build()
+        val before: String
+        try {
+            val originalStore = RoomOrderStore(original)
+            originalStore.createOrder(request("v5-sale"),source())
+            before = originalStore.snapshot().toString()
+            val sqlite = original.openHelper.writableDatabase
+            sqlite.execSQL("DROP TABLE sync_identity")
+            sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42",arrayOf(hash))
+            sqlite.version = 5
+        } finally { original.close() }
+        val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
+            .addMigrations(SamhainPosDatabase.MIGRATION_5_6).build()
+        try {
+            val reopenedStore = RoomOrderStore(migrated)
+            assertEquals(before,reopenedStore.snapshot().toString())
+            val identity = reopenedStore.syncIdentity()
+            assertEquals(identity,reopenedStore.syncIdentity())
+            assertFalse(identity.restored)
+        } finally { migrated.close(); context.deleteDatabase(name) }
+    }
+
+    @Test
+    fun durableSyncIdentityDoesNotModifyFinancialSnapshotsAndRestorationRequiresRecovery() = onDatabaseThread {
+        store.createOrder(request("identity-sale"),source())
+        val before = store.snapshot().toString()
+        val first = store.syncIdentity()
+        assertEquals(first,RoomOrderStore(database).syncIdentity())
+        store.bindSyncChain(first.chainId)
+        store.prepareSyncReplacement()
+        assertTrue(store.syncIdentity().restored)
+        assertEquals(before,store.snapshot().toString())
+        val dossier = store.enrollmentDossier("terminal-test")
+        assertEquals(1,dossier.getJSONArray("prefix").length())
+        assertTrue(dossier.getBoolean("restored"))
+        assertFalse(before.contains("access_token"))
+        assertFalse(before.contains("refresh_token"))
+        assertFalse(before.contains("chainId"))
     }
 
     @Test

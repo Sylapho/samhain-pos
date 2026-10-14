@@ -89,7 +89,7 @@ IndexedDB n'est ni vidé ni supprimé après succès. Une installation sans comm
 
 ## Versioning et migrations Room
 
-La version courante est `5`. La migration `4 → 5` ajoute uniquement les tables `products` et `catalog_metadata` et ne modifie aucune commande existante. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
+La version courante est `6`. La migration `4 → 5` ajoute `products` et `catalog_metadata` ; `5 → 6` ajoute seulement `sync_identity` (chaîne durable, marqueur de restauration et liaison serveur). Ces migrations ne modifient aucune commande existante. `sync_identity` reste extérieur aux snapshots financiers/archives v1 et ne contient aucun token. Les [credentials Auth #114](tablet-enrollment.md) sont dans un fichier natif distinct chiffré par Keystore. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
 
 Pour une évolution future :
 

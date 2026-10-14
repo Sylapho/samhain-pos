@@ -21,7 +21,7 @@ Le catalogue est une donnée locale administrable. Il est conservé dans Room/SQ
 
 Une commande confirmée n'est pas annulée par une erreur d'impression. Avant chaque envoi, les documents concernés sont marqués `unknown` : après une interruption, le caissier doit vérifier le papier éventuellement sorti avant de réimprimer. Le transport USB confirme l'envoi des octets, pas la sortie physique de chaque ticket.
 
-Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Room/SQLite fonctionne entièrement hors ligne ; IndexedDB reste le stockage web et la source de migration des anciennes installations Android. La migration et le versioning natifs sont détaillés dans [`docs/android-persistence.md`](docs/android-persistence.md). Il n'existe pas encore de synchronisation entre appareils ni de backend.
+Les commandes sont conservées sur l'appareil tant que les données de l'application ne sont pas effacées. Room/SQLite fonctionne entièrement hors ligne ; IndexedDB reste le stockage web et la source de migration des anciennes installations Android. La migration et le versioning natifs sont détaillés dans [`docs/android-persistence.md`](docs/android-persistence.md). La synchronisation financière entre appareils n'est pas encore implémentée ; le registre Supabase optionnel ne participe pas aux encaissements.
 
 La sauvegarde et la restauration automatiques Android, y compris le transfert appareil-à-appareil, sont désactivées : elles ne doivent jamais cloner l'identité ni le journal d'une caisse. Le mécanisme de sauvegarde métier supporté est l'archive Samhain vérifiée. Toute désinstallation ou suppression des données locales est destructive sans archive préalable. Le runbook de remplacement, mise à jour et reprise se trouve dans [`docs/tablet-replacement-and-backup.md`](docs/tablet-replacement-and-backup.md).
 
@@ -31,7 +31,7 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 ## Prérequis
 
-La configuration Supabase optionnelle par environnement et sa transmission au futur worker Android sont décrites dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). Sans configuration, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md) ; le moteur réseau et l'enrôlement ne sont pas encore implémentés.
+La configuration Supabase optionnelle est décrite dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). L'enrôlement, les sessions Android chiffrées par Keystore, la révocation et le remplacement sont décrits dans [`docs/tablet-enrollment.md`](docs/tablet-enrollment.md). Sans configuration ou autorisation, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md) ; l'outbox et l'ingestion financière #35/#36 restent à implémenter.
 
 Les migrations PostgreSQL privées, les règles RLS et leurs tests sont décrits dans [`docs/supabase-database.md`](docs/supabase-database.md). Leur développement local utilise Docker et Supabase CLI ; ces outils ne sont pas nécessaires pour démarrer la caisse. Le chemin d'ingestion financière reste fermé en attendant #36.
 

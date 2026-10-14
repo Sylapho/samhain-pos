@@ -51,6 +51,35 @@ async function createArchive(indexedDb: IDBFactory): Promise<{
 describe('remplacement contrôlé de tablette', () => {
   beforeEach(() => localStorage.clear())
 
+  it('suspend les credentials avant la restauration sans dépendre du réseau ni modifier les hashes', async () => {
+    const indexedDb = new IDBFactory()
+    const source = await createArchive(indexedDb)
+    const originalArchive = JSON.stringify(source.archive)
+    const target = new IndexedDbOrderRepository(indexedDb, 'replacement-sync')
+    const terminal = new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => 'unused',
+      () => {},
+    )
+    const prepare = vi.fn(async () => {
+      expect(await target.getOrders()).toEqual([])
+    })
+    const replacement = new TabletReplacementService(
+      target,
+      terminal,
+      new LocalStorageTabletReplacementStateRepository(localStorage),
+      () => {},
+      () => new Date('2026-09-02T08:00:00Z'),
+      prepare,
+    )
+    await replacement.replaceFromArchive(source.archive)
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(source.archive)).toBe(originalArchive)
+    expect((await target.getLedgerEntries())[0].hash).toBe(source.archive.entries[0].hash)
+    expect(terminal.getConfiguration()?.terminalId).toBe(sourceTerminal.terminalId)
+    await Promise.all([source.repository.close(), target.close()])
+  })
+
   it('exige le mode responsable avant toute validation ou lecture de la cible', async () => {
     const stateRepository = {
       get: vi.fn(),

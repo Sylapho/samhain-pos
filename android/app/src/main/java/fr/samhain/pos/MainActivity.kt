@@ -17,6 +17,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(OrderStoragePlugin::class.java)
         registerPlugin(CatalogStoragePlugin::class.java)
         registerPlugin(DocumentExporterPlugin::class.java)
+        registerPlugin(TabletAuthPlugin::class.java)
         super.onCreate(savedInstanceState)
 
         allowContentInDisplayCutout()

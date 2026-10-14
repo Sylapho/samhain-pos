@@ -98,6 +98,8 @@ Disponibilité effective cible = `active` publié ET disponibilité globale auto
 
 ## 5. Identité de chaîne et enrôlement
 
+Implémentation #114 : voir [la procédure d'enrôlement](tablet-enrollment.md). Room v6 porte `sync_identity`, Auth et transport sont natifs avec Keystore, et le registre impose invitations, génération et preuve de possession. Les headers de preuve complètent le corps `samhain-sync/1` sans modifier ses champs ni les payloads financiers. L'outbox #35, les transactions d'ingestion #36 et le parcours d'import #61 restent à intégrer.
+
 `chainId` est un UUID technique durable généré une seule fois et stocké avec les métadonnées locales, dans une transaction ; ce champ est extérieur aux payloads scellés. Il désigne la succession globale du journal de cette base, pas une caisse A/B/C/D. Un reprovisionnement garde ce `chainId` et ses séquences. `terminalId` décrit l'identité métier au moment de chaque événement ; `installationId` identifie l'installation physique émettrice, renouvelée lors d'un remplacement. Aucune de ces chaînes de caractères seule ne prouve une autorisation.
 
 Le registre serveur associe chaîne, organisation, festival, installation active, génération d'enrôlement et identités terminal historiques autorisées. Un mapping associe chaque terminal aux plages de séquences où il est observé, avec preuves d'archive/préfixe et validation administrative. Un terminal peut réapparaître dans plusieurs plages ; ne pas supposer une bijection ni une seule identité par chaîne. L'enveloppe de chaque événement garde son terminal source, même si l'installation courante a changé de terminal. L'UUID du terminal courant n'est jamais substitué dans l'outbox.

@@ -1,6 +1,6 @@
 # Sauvegarde et remplacement des tablettes
 
-La procédure ci-dessous décrit le fonctionnement local actuel, sans synchronisation serveur. Pour la future intégration Supabase, [le contrat offline-first](architecture-supabase-offline-first.md#11-backfill-legacy-forks-et-restaurations) ajoute le rapprochement du préfixe et de la tête distante, une identité de chaîne distincte du terminal et le retrait de l'installation remplacée. Une archive ancienne ne permet pas de faire reculer la tête serveur ni de fusionner automatiquement un suffixe distant ; ces contrôles ne sont pas encore implémentés.
+La procédure ci-dessous décrit la restauration locale indépendante du réseau. L'[enrôlement Supabase #114](tablet-enrollment.md) ajoute une identité de chaîne Room distincte du terminal, la révocation de l'ancienne installation, une nouvelle génération et la comparaison du préfixe distant à l'activation. Une archive ancienne ou divergente suspend les échanges en récupération ; elle ne fait jamais reculer la tête serveur. Le moteur d'échanges #35/#36 et l'écran de restauration #61 restent séparés.
 
 ## Objet
 
@@ -148,7 +148,7 @@ Le reprovisionnement :
 - demande une confirmation forte avant tout changement de code ;
 - annonce qu'un nouvel identifiant est créé et que les anciennes ventes restent associées à l'ancienne caisse ;
 - est bloqué si une impression payée est à reprendre, incertaine, ou si cette vérification a échoué ;
-- ne doit pas, à l'avenir, être autorisé si une synchronisation est en attente. Ce futur état doit rejoindre le même contrôle de préconditions.
+- refuse désormais les événements non acquittés, transferts, erreurs ou continuité inconnue/échouée au niveau métier et UI. Sans le snapshot durable d'outbox #35, le changement est suspendu par défaut ; voir [le traitement d'incident](tablet-enrollment.md#changer-la-caisse-dune-tablette).
 
 Un renommage ne change jamais `terminalId`, `terminalCode` ou `provisionedAt` et reste possible malgré une impression en attente.
 

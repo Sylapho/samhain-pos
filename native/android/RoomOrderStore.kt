@@ -179,6 +179,61 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             }
         }
 
+    fun enrollmentDossier(terminalId: String): JSONObject = transaction {
+        validateStoredLedgerChain()
+        val state = currentMetadata()
+        val entries = ledger.getAll()
+        entries.filter { it.kind == "sale" }.forEach { entry ->
+            val sale = JSONObject(entry.payloadJson)
+            val order = orders.findById(sale.getString("orderId")) ?: error("Vente scellée manquante.")
+            require(order.integrityEntryId == entry.id && order.integritySequence == entry.sequence && order.integrityHash == entry.hash)
+            require(CanonicalJson.stringify(JSONObject(order.immutablePayloadJson)) == CanonicalJson.stringify(sale.getJSONObject("order")))
+        }
+        orders.getAll().filter { it.integrityEntryId != null }.forEach { order ->
+            require(entries.any { it.id == order.integrityEntryId && it.kind == "sale" })
+        }
+        require(entries.size < 10000) { "Dossier trop volumineux : vérification responsable nécessaire." }
+        require(state.nextJournalSequence == entries.size.toLong() + 1)
+        require(state.lastJournalHash == entries.lastOrNull()?.hash)
+        val identity = syncIdentity()
+        JSONObject().apply {
+            put("chainId", identity.chainId)
+            put("restored", identity.restored)
+            put("terminalId", terminalId)
+            put("prefix", JSONArray().also { prefix ->
+                entries.forEach { entry ->
+                    val json = JSONObject(entry.payloadJson)
+                    prefix.put(JSONObject().put("sequence",entry.sequence).put("eventId",entry.id)
+                        .put("hash",entry.hash).put("terminalId",json.getJSONObject("source").getJSONObject("terminal").getString("terminalId")))
+                }
+            })
+            put("legacyOrderIds", JSONArray().also { ids -> orders.getAll().filter { it.integrityEntryId == null }.forEach { ids.put(it.id) } })
+        }
+    }
+
+    fun syncIdentity(): SyncIdentityEntity = transaction {
+        val dao = database.syncIdentityDao()
+        dao.insertIfMissing(SyncIdentityEntity(chainId = java.util.UUID.randomUUID().toString()))
+        dao.get() ?: throw IllegalStateException("Identité de chaîne indisponible.")
+    }
+
+    fun bindSyncChain(chainId: String) = transaction {
+        java.util.UUID.fromString(chainId)
+        val identity = syncIdentity()
+        require(!identity.bound || identity.chainId == chainId) { "Conflit de chaîne : intervention requise." }
+        require(database.syncIdentityDao().update(identity.copy(chainId = chainId, bound = true)) == 1)
+    }
+
+    fun prepareSyncReplacement() = transaction {
+        val identity = syncIdentity()
+        require(database.syncIdentityDao().update(identity.copy(restored = true)) == 1)
+    }
+
+    fun confirmSyncContinuity() = transaction {
+        val identity = syncIdentity()
+        require(database.syncIdentityDao().update(identity.copy(restored = false)) == 1)
+    }
+
     fun compareAndSetPrinting(
         orderId: String,
         expected: JSONObject,
@@ -537,6 +592,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             require(orders.count() == 0 && ledger.count() == 0) {
                 "La restauration exige une base locale vide."
             }
+            prepareSyncReplacement()
             val snapshotOrders = snapshot.getJSONArray("orders")
             val technicalStates = snapshot.getJSONArray("technicalStates")
             val entries = snapshot.getJSONArray("entries")

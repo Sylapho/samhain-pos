@@ -20,7 +20,7 @@ select ok(not has_table_privilege('anon', c.oid, 'SELECT') and not has_table_pri
   where n.nspname = 'pos_private' and c.relkind = 'r' order by c.relname;
 select ok(not has_function_privilege('anon', p.oid, 'EXECUTE') and
   not has_function_privilege('service_role', p.oid, 'EXECUTE') and
-  has_function_privilege('authenticated', p.oid, 'EXECUTE') = (p.proname = 'can_read_chain'),
+  has_function_privilege('authenticated', p.oid, 'EXECUTE') = (p.proname in ('can_read_chain','direct_read_allowed')),
   p.proname || ': minimal EXECUTE grants')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'pos_private' order by p.proname;
@@ -28,7 +28,7 @@ select ok(p.proconfig @> array['search_path=""'], p.proname || ': locked search_
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'pos_private' order by p.proname;
 select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'pos_private' and p.prosecdef), 1::bigint, 'Only the bounded read helper is a definer');
+  where n.nspname = 'pos_private' and p.prosecdef), 2::bigint, 'Only the bounded read helpers are definers');
 select ok(not rolcanlogin and not rolinherit and not rolsuper and not rolbypassrls and not rolcreaterole,
   'Policy helper owner cannot log in or bypass RLS') from pg_roles where rolname = 'pos_policy_reader';
 select ok(not pg_has_role('authenticated', 'pos_policy_reader', 'MEMBER') and
@@ -40,10 +40,11 @@ select ok(not has_schema_privilege('authenticated', 'pos_private', 'CREATE') and
 select is((select count(*) from pg_views where schemaname in ('public', 'pos_private')
   and definition ilike '%pos_private%'), 0::bigint, 'No view exposes private data or bypasses RLS');
 select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.prosrc ilike '%pos_private%'), 0::bigint, 'No public ingestion RPC');
+  where n.nspname = 'public' and p.prosrc ilike '%pos_private%' and p.proname <> 'tablet_auth_v1'), 0::bigint, 'No public ingestion RPC');
 select is((select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid
-  join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'pos_private' and p.polcmd <> 'r'),
-  0::bigint, 'No write policy');
+  join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'pos_private' and p.polcmd <> 'r'
+    and p.polname <> 'enrollment_executor'),
+  0::bigint, 'No client write policy');
 select ok(not has_table_privilege('authenticated', c.oid, 'SELECT'), c.relname || ': registry not readable directly')
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
   where n.nspname = 'pos_private' and c.relname in ('organizations', 'festivals', 'installations', 'scope_grants');
@@ -69,11 +70,11 @@ reset role;
 
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000001', true);
 set local role authenticated;
-select is((select count(*) from pos_private.chains), 1::bigint, 'A reads only its chain');
-select is((select count(*) from pos_private.terminal_ranges), 1::bigint, 'A reads only its historical mappings');
-select is((select count(*) from pos_private.ledger_events), 6::bigint, 'A reads its six ledger events');
-select is((select count(*) from pos_private.sales), 2::bigint, 'A reads its sealed and legacy identities');
-select is((select count(*) from pos_private.sync_receipts), 7::bigint, 'A reads only its receipts');
+select is((select count(*) from pos_private.chains), 0::bigint, 'A must use possession proof for chain reads');
+select is((select count(*) from pos_private.terminal_ranges), 0::bigint, 'A must use possession proof for mappings');
+select is((select count(*) from pos_private.ledger_events), 0::bigint, 'A cannot bypass proof for financial reads');
+select is((select count(*) from pos_private.sales), 0::bigint, 'A must use possession proof for sales');
+select is((select count(*) from pos_private.sync_receipts), 0::bigint, 'A must use possession proof for receipts');
 select is((select count(*) from pos_private.ledger_events where chain_id <> pg_temp.chain_id(1)),
   0::bigint, 'A cannot read B, another festival, or another organization');
 select throws_ok('select * from pos_private.installations', '42501', null, 'A cannot read enrollment secrets/identities');
@@ -89,14 +90,14 @@ select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000002
 -- Forged application metadata is not an authorization source.
 select set_config('request.jwt.claims', '{"sub":"30000000-0000-0000-0000-000000000002","user_metadata":{"terminalId":"terminal:1","organizationId":"00000000-0000-0000-0000-000000000001","capability":"read_ledger"}}', true);
 set local role authenticated;
-select is((select count(*) from pos_private.ledger_events), 1::bigint, 'B reads only B, despite forged terminal metadata');
+select is((select count(*) from pos_private.ledger_events), 0::bigint, 'B cannot bypass proof with forged terminal metadata');
 select is((select count(*) from pos_private.ledger_events where chain_id = pg_temp.chain_id(1)), 0::bigint, 'B cannot read A');
 select throws_ok('update pos_private.chains set enrollment_generation = enrollment_generation + 1',
   '42501', null, 'B cannot grant itself a chain');
 reset role;
 select set_config('request.jwt.claim.sub', '', true);
 set local role authenticated;
-select is((select count(*) from pos_private.ledger_events), 1::bigint, 'Standard JWT claims object fallback still identifies B');
+select is((select count(*) from pos_private.ledger_events), 0::bigint, 'JWT claims fallback cannot bypass proof');
 reset role;
 select set_config('request.jwt.claims', '{}', true);
 set local role authenticated;
@@ -158,7 +159,7 @@ insert into pos_private.installations(installation_id, organization_id, festival
   values ('40000000-0000-0000-0000-000000000007', '00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', pg_temp.chain_id(1), '30000000-0000-0000-0000-000000000007', 2);
 select set_config('request.jwt.claim.sub', '30000000-0000-0000-0000-000000000007', true);
 set local role authenticated;
-select is((select count(*) from pos_private.ledger_events), 6::bigint, 'Replacement reads the unchanged history');
+select is((select count(*) from pos_private.ledger_events), 0::bigint, 'Replacement also requires possession proof for history');
 reset role;
 select throws_ok($$update pos_private.chains set enrollment_generation = 3 where chain_id = pg_temp.chain_id(1)$$,
   '23514', null, 'Generation cannot advance while an installation is active');

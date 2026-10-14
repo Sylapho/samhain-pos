@@ -3,10 +3,10 @@ name: Supabase database
 on:
   pull_request:
     branches: [main]
-    paths: ['supabase/**', 'scripts/test-supabase-migrations.mjs', '.github/workflows/supabase.yml']
+    paths: ['supabase/**', 'scripts/test-supabase-*.mjs', '.github/workflows/supabase.yml']
   push:
     branches: [main]
-    paths: ['supabase/**', 'scripts/test-supabase-migrations.mjs', '.github/workflows/supabase.yml']
+    paths: ['supabase/**', 'scripts/test-supabase-*.mjs', '.github/workflows/supabase.yml']
 
 permissions:
   contents: read
@@ -29,6 +29,8 @@ jobs:
         run: node scripts/test-supabase-migrations.mjs
       - name: Run SQL permissions and integrity tests
         run: supabase test db
+      - name: Prove single-use enrollment under concurrent activation
+        run: node scripts/test-supabase-enrollment-concurrency.mjs
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup

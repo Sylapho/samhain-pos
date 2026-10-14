@@ -31,10 +31,13 @@ enabled = false
 enabled = false
 
 [edge_runtime]
-enabled = false
+enabled = true
 
 [auth]
 enabled = true
 site_url = "http://localhost:5173"
-enable_signup = false
-enable_anonymous_sign_ins = false
+enable_signup = true
+enable_anonymous_sign_ins = true
+
+[functions.tablet-auth-v1]
+verify_jwt = true

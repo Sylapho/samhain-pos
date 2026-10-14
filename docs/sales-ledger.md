@@ -87,6 +87,8 @@ Le remplacement exact d'une tablette vierge utilise `TabletReplacementService`. 
 
 Le credential responsable ne fait pas partie de l'archive : une nouvelle tablette physique reçoit un nouveau PIN local, même si elle reprend le même `terminalId` métier. Le runbook complet est dans [`tablet-replacement-and-backup.md`](tablet-replacement-and-backup.md).
 
+La session Supabase et les clés d'installation sont également exclues des archives. L'[enrôlement #114](tablet-enrollment.md) utilise `sync_identity` Room v6 hors payloads financiers et exige une nouvelle habilitation après remplacement. Une archive v1 reste vérifiée sous son empreinte originale ; aucun champ de chaîne n'y est ajouté rétroactivement. Une tête distante plus avancée ou divergente suspend les échanges, sans modification du journal local.
+
 Procédure d’exploitation proposée :
 
 1. vérifier le journal puis clôturer à chaque fin de journée ou de service ;
