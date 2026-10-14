@@ -11,6 +11,19 @@ const configuration: TerminalConfiguration = {
 }
 
 describe('configuration de la caisse', () => {
+  it('indique au responsable que la synchronisation est absente sans désactiver les paramètres locaux', () => {
+    render(
+      <TerminalConfigurationDialog
+        configuration={configuration}
+        onProvision={vi.fn()}
+        onRename={vi.fn()}
+        onReprovision={vi.fn()}
+        onConfigured={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Synchronisation non configurée')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Enregistrer le nom' })).toBeEnabled()
+  })
   it('impose un code A à D au premier provisioning et propose le nom correspondant', () => {
     const onProvision = vi.fn().mockReturnValue(configuration)
     const onConfigured = vi.fn()

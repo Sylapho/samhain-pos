@@ -4,6 +4,8 @@ Ce runbook produit l'APK destiné aux caisses du festival. Les commandes sont pr
 
 ## 1. Prérequis
 
+Supabase est optionnel. Pour une release configurée, préparer `.env.production.local` avec URL, clé publiable et marqueur `production`, puis conserver `SAMHAIN_SUPABASE_PRODUCTION_URL` dans l'environnement de `pnpm android:sync:production` **et** de Gradle. Voir [le guide de configuration](supabase-configuration.md). Gradle refuse les ressources `android-test` en release et une URL configurée différente de l'URL confirmée ; aucun credential privé n'est autorisé dans les ressources. Sans configuration Supabase, les contrôles administratifs, catalogue et signature restent obligatoires, et la caisse fonctionne localement.
+
 - Node.js 22 et pnpm 10 via Corepack ;
 - JDK 21 ;
 - Android SDK avec Platform Tools (`adb`) et Build Tools (`apksigner`) ;

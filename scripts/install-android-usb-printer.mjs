@@ -7,6 +7,7 @@ const androidRoot = path.join(root, 'android')
 const manifestPath = path.join(androidRoot, 'app', 'src', 'main', 'AndroidManifest.xml')
 const projectBuildGradlePath = path.join(androidRoot, 'build.gradle')
 const appBuildGradlePath = path.join(androidRoot, 'app', 'build.gradle')
+const supabaseGradlePath = path.join(androidRoot, 'app', 'supabase-config.gradle')
 const capacitorConfigPath = path.join(root, 'capacitor.config.ts')
 const nativeTemplatesDir = path.join(root, 'native', 'android')
 const nativeTestTemplatesDir = path.join(nativeTemplatesDir, 'tests')
@@ -72,6 +73,10 @@ fs.writeFileSync(
 
 let appBuildGradle = fs.readFileSync(appBuildGradlePath, 'utf8')
 const appGradleLineEnding = appBuildGradle.includes('\r\n') ? '\r\n' : '\n'
+fs.copyFileSync(path.join(nativeTemplatesDir, 'supabase-config.gradle'), supabaseGradlePath)
+if (!appBuildGradle.includes("apply from: 'supabase-config.gradle'")) {
+  appBuildGradle += "\napply from: 'supabase-config.gradle'\n"
+}
 appBuildGradle = appBuildGradle.replace(
   /^[ \t]*kotlinOptions\s*\{\r?\n[ \t]*jvmTarget\s*=\s*['"]21['"]\r?\n[ \t]*\}\r?\n?/gm,
   '',

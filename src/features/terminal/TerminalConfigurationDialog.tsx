@@ -6,6 +6,8 @@ import type {
   TerminalProvisioningInput,
 } from '../../types/terminal'
 import { terminalCodes } from '../../types/terminal'
+import { supabaseConfiguration } from '../../config/supabaseRuntime'
+import { supabaseConfigurationMessage } from '../../config/supabase'
 
 type Props = {
   configuration: TerminalConfiguration | null
@@ -190,6 +192,15 @@ export function TerminalConfigurationDialog({
             <p className="text-sm text-stone-600">Caisse actuelle</p>
             <p>Nom : {configuration.displayName}</p>
             <p>Code : {configuration.terminalCode}</p>
+          </div>
+        ) : null}
+
+        {!isInitialProvisioning && !reprovisioning ? (
+          <div className="mt-4 border-b border-stone-300 pb-3">
+            <p className="font-bold">{supabaseConfigurationMessage(supabaseConfiguration)}</p>
+            <p className="mt-1 text-sm text-stone-700">
+              Les ventes et les impressions restent locales et disponibles sans réseau.
+            </p>
           </div>
         ) : null}
 
