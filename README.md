@@ -31,6 +31,8 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 ## Prérequis
 
+La configuration Supabase optionnelle par environnement et sa transmission au futur worker Android sont décrites dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). Sans configuration, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md) ; le moteur réseau et l'enrôlement ne sont pas encore implémentés.
+
 - Node.js 22 recommandé ;
 - pnpm (via Corepack) ;
 - JDK 21 (le JDK 25 n'est pas compatible avec le wrapper Gradle actuel) ;

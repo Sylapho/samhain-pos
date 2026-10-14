@@ -1,0 +1,45 @@
+// The web build is the only source of public network configuration for the native worker.
+def validateSamhainReleaseResources = tasks.register('validateSamhainReleaseResources') {
+    group = 'verification'
+    description = 'Refuse les ressources test et les credentials Supabase privilégiés dans une release.'
+    doLast {
+        def assets = file('src/main/assets/public')
+        def metadataFile = new File(assets, 'samhain-build.json')
+        if (!metadataFile.isFile()) {
+            throw new GradleException('Ressources Samhain absentes. Lancez pnpm android:sync:production.')
+        }
+        def metadata = new groovy.json.JsonSlurper().parse(metadataFile)
+        if (metadata.schemaVersion != 1 || metadata.mode != 'production') {
+            throw new GradleException('Ressources test interdites en release. Lancez pnpm android:sync:production.')
+        }
+        if (metadata.supabase?.status == 'configured') {
+            def expectedUrl = providers.environmentVariable('SAMHAIN_SUPABASE_PRODUCTION_URL').getOrNull()
+            if (metadata.supabase.environment != 'production' || metadata.supabase.url != expectedUrl?.trim()?.replaceAll('/$', '')) {
+                throw new GradleException('Projet Supabase de release non confirmé. Vérifiez SAMHAIN_SUPABASE_PRODUCTION_URL puis resynchronisez.')
+            }
+        }
+        assets.eachFileRecurse { resource ->
+            if (resource.isFile() && resource.name ==~ /.*\.(json|js|html|map|txt)/) {
+                def content = resource.getText('UTF-8')
+                def privileged = content =~ /sb_secret_[A-Za-z0-9_-]+/
+                if (privileged.find()) throw new GradleException('Credential privilégié interdit dans les ressources de release.')
+                def jwt = content =~ /eyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+/
+                while (jwt.find()) {
+                    try {
+                        def payload = new groovy.json.JsonSlurper().parseText(new String(java.util.Base64.urlDecoder.decode(jwt.group(1)), 'UTF-8'))
+                        if (payload.role == 'service_role') throw new GradleException('JWT privilégié interdit dans les ressources de release.')
+                    } catch (IllegalArgumentException ignored) {
+                        // A non-JWT code fragment is not a credential.
+                    } catch (groovy.json.JsonException ignored) {
+                    }
+                }
+            }
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name in ['preReleaseBuild', 'assembleRelease', 'bundleRelease', 'packageRelease']) {
+        task.dependsOn(validateSamhainReleaseResources)
+    }
+}
