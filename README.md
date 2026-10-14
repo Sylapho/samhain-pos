@@ -31,9 +31,9 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 ## Prérequis
 
-La configuration Supabase optionnelle est décrite dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). L'enrôlement, les sessions Android chiffrées par Keystore, la révocation et le remplacement sont décrits dans [`docs/tablet-enrollment.md`](docs/tablet-enrollment.md). Sans configuration ou autorisation, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md) ; l'outbox et l'ingestion financière #35/#36 restent à implémenter.
+La configuration Supabase optionnelle est décrite dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). L'enrôlement, les sessions Android chiffrées par Keystore, la révocation et le remplacement sont décrits dans [`docs/tablet-enrollment.md`](docs/tablet-enrollment.md). Sans configuration ou autorisation, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md). L'[ingestion transactionnelle #36](docs/supabase-ingestion.md) reçoit les cinq kinds, les imports legacy et les diagnostics de préfixe ; l'outbox/worker #35 reste à implémenter.
 
-Les migrations PostgreSQL privées, les règles RLS et leurs tests sont décrits dans [`docs/supabase-database.md`](docs/supabase-database.md). Leur développement local utilise Docker et Supabase CLI ; ces outils ne sont pas nécessaires pour démarrer la caisse. Le chemin d'ingestion financière reste fermé en attendant #36.
+Les migrations PostgreSQL privées, les règles RLS et leurs tests sont décrits dans [`docs/supabase-database.md`](docs/supabase-database.md). Leur développement local utilise Docker et Supabase CLI ; ces outils ne sont pas nécessaires pour démarrer la caisse. L'ingestion financière passe exclusivement par les Edge Functions authentifiées et leurs RPC réservées au serveur.
 
 - Node.js 22 recommandé ;
 - pnpm (via Corepack) ;

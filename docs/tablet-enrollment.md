@@ -4,7 +4,7 @@
 
 La configuration locale de caisse, les ventes, les paiements et l’impression USB restent indépendants de Supabase. Room est la source de vérité Android. L’ouverture des paramètres lit d’abord l’état enregistré ; seule une action explicite contacte le serveur. « Tablette autorisée » décrit une habilitation, jamais un acquittement de ventes. Hors connexion, cet état peut être ancien : utiliser **Vérifier / rafraîchir la session** pour interroger le serveur.
 
-Le navigateur reste une prévisualisation locale. Il ne simule pas d’enrôlement sécurisé et ne conserve aucun token. Les fonctionnalités Auth livrées ici ciblent Android. Le moteur d’outbox #35, les endpoints financiers #36 et l’écran d’import #61 ne sont pas livrés par cette issue.
+Le navigateur reste une prévisualisation locale. Il ne simule pas d’enrôlement sécurisé et ne conserve aucun token. Les fonctionnalités Auth livrées ici ciblent Android. Les [endpoints financiers #36](supabase-ingestion.md) sont livrés séparément ; le moteur d’outbox #35 et l’écran d’import #61 restent à intégrer.
 
 ## Préparer Supabase
 
@@ -86,7 +86,7 @@ Les RPC privilégiées sont fermées à PUBLIC/anon/authenticated. `tablet_auth_
 ## Contrats restant à intégrer
 
 - **#35** : créer l’outbox transactionnelle de tous les kinds et son snapshot durable pour `ReprovisioningPreconditions`. Consommer l’identité Room v6 sans générer une nouvelle chaîne lors d’un changement de terminal ; ne pas utiliser les anciennes colonnes sync des ventes comme preuve d’ACK. Utiliser le service natif commun pour refresh et `sendSync`, jamais des tokens dans WebView.
-- **#36** : `sendSync` garde le corps `samhain-sync/1` inchangé et ajoute `X-Samhain-Nonce` / `X-Samhain-Signature`. Chaque Edge fixe l’action au nom de son endpoint, valide Auth et appelle `verifyDeviceProof` sur le corps brut et ces headers. La RPC financière doit appeler `pos_private.consume_installation_proof(subject,context,nonce)` **dans sa transaction**, puis recontrôler chaque terminal/plage et continuer sous le même verrou de chaîne. Lui attribuer seulement les grants nécessaires, pas un accès client. `authorize` est un diagnostic, pas un permis réutilisable entre transactions. Prévoir une procédure de reprise qui revalide tout le préfixe et n’abaisse jamais la tête ; aucun endpoint ne lève actuellement `needs_recovery`.
+- **#36 livré** : `sendSync` garde le corps `samhain-sync/1` inchangé et ajoute `X-Samhain-Nonce` / `X-Samhain-Signature`. Les Edge vérifient Auth et la preuve sur le corps brut ; les RPC consomment la preuve dans leur transaction et contrôlent terminaux/plages sous verrou. Voir [ingestion et déploiement](supabase-ingestion.md). `ledger-prefix-v1` compare le préfixe, y compris en `needs_recovery`, sans ACK financier ni levée automatique de cet état. `authorize` reste un diagnostic, pas un permis réutilisable.
 - **#61** : utiliser `TabletReplacementService` et la restauration Room, préserver les archives v1, afficher séparément reprise locale et habilitation distante. Le parcours de sélection/import d’archive n’est pas simulé ici.
 
 Le dossier d’enrôlement est borné à moins de 10 000 entrées et 1 MiB HTTP. Au-delà, la demande échoue en récupération ; le dossier paginé/protocole de préfixe de #36 doit prendre le relais. Les inventaires legacy sans préfixe requièrent un examen administratif ; aucune identification de chaîne ne se fait par terminal seul.

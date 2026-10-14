@@ -41,3 +41,12 @@ enable_anonymous_sign_ins = true
 
 [functions.tablet-auth-v1]
 verify_jwt = true
+
+[functions.ledger-ingest-v1]
+verify_jwt = true
+
+[functions.legacy-import-v1]
+verify_jwt = true
+
+[functions.ledger-prefix-v1]
+verify_jwt = true

@@ -31,6 +31,8 @@ jobs:
         run: supabase test db
       - name: Prove single-use enrollment under concurrent activation
         run: node scripts/test-supabase-enrollment-concurrency.mjs
+      - name: Test real Auth, Edge, transactions, replay and concurrent ingestion
+        run: node scripts/test-supabase-ingest.mjs
       - name: Stop local Supabase
         if: always()
         run: supabase stop --no-backup
