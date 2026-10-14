@@ -8,6 +8,10 @@ import { OrderService } from '../../services/orderService'
 import { CheckoutFlow } from './CheckoutFlow'
 import type { TerminalConfiguration } from '../../types/terminal'
 import type { CheckoutIntent } from '../../types/checkout'
+import { CheckoutService } from '../../services/checkoutService'
+import { OrderPrintService } from '../../printing/orderPrintService'
+import { createValidCartItem } from '../../test/orderFixtures'
+import type { ReceiptPrinter } from '../../printing/types'
 
 const success: PrintJobResult = {
   ok: true,
@@ -98,9 +102,93 @@ function createLifecycle(initialOrder = printPreviewOrder) {
 }
 
 describe('encaissement et impression', () => {
-  it('enregistre la vente sans déclencher d’impression lorsque la case est décochée', async () => {
+  it.each(
+    (['card', 'cash'] as const).flatMap((paymentMethod) =>
+      [false, true].flatMap((requiresPreparation) =>
+        [false, true].map((printCustomerReceipt) => ({
+          paymentMethod,
+          requiresPreparation,
+          printCustomerReceipt,
+        })),
+      ),
+    ),
+  )(
+    'imprime après finalisation : $paymentMethod, préparation=$requiresPreparation, reçu=$printCustomerReceipt',
+    async ({ paymentMethod, requiresPreparation, printCustomerReceipt }) => {
+      const repository = new IndexedDbOrderRepository(new IDBFactory())
+      const lifecycle = createOrderService(repository)
+      const checkout = new CheckoutService(repository, undefined, () => terminalA)
+      const items = [createValidCartItem({ requiresPreparation })]
+      const expectedDocuments = [
+        ...(requiresPreparation ? ['pickupTicket' as const] : []),
+        ...(printCustomerReceipt ? ['customerReceipt' as const] : []),
+        ...(requiresPreparation ? ['preparationTicket' as const] : []),
+      ]
+      const printJob = vi.fn<ReceiptPrinter['printJob']>(async (steps) => {
+        const [stored] = await lifecycle.getOrders()
+        expect(stored?.paymentStatus).toBe('paid')
+        expect((await repository.getCheckoutIntents())[0]?.status).toBe('finalized')
+        expect(
+          (await repository.getLedgerEntries()).filter((entry) => entry.kind === 'sale'),
+        ).toHaveLength(1)
+        expect(
+          steps.filter((step) => step.type === 'document').map((step) => step.documentType),
+        ).toEqual(expectedDocuments)
+        return { ...success, completedDocuments: expectedDocuments }
+      })
+      const printer = new OrderPrintService({ printJob })
+      const printOrder = vi.fn(printer.printOrder.bind(printer))
+      render(
+        <CheckoutFlow
+          items={items}
+          onCancel={vi.fn()}
+          onNewOrder={vi.fn()}
+          checkout={checkout}
+          lifecycle={lifecycle}
+          printOrder={printOrder}
+        />,
+      )
+      expect(
+        screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }),
+      ).not.toBeChecked()
+      if (printCustomerReceipt) fireEvent.click(screen.getByRole('checkbox'))
+      fireEvent.click(
+        screen.getByRole('button', {
+          name: paymentMethod === 'card' ? 'Carte bancaire' : 'Espèces',
+        }),
+      )
+      if (paymentMethod === 'cash')
+        fireEvent.click(screen.getByRole('button', { name: /Montant exact/ }))
+      const start = screen.getByRole('button', {
+        name: paymentMethod === 'card' ? 'Préparer le paiement TPE' : 'Valider le paiement',
+      })
+      fireEvent.click(start)
+      fireEvent.click(start)
+      const confirm = await screen.findByRole('button', {
+        name: paymentMethod === 'card' ? 'Paiement TPE accepté' : 'Espèces reçues',
+      })
+      expect(printOrder).not.toHaveBeenCalled()
+      expect(await lifecycle.getOrders()).toEqual([])
+      fireEvent.click(confirm)
+      fireEvent.click(confirm)
+      await screen.findByRole('heading', { name: 'Commande validée' })
+      expect(printJob).toHaveBeenCalledTimes(expectedDocuments.length ? 1 : 0)
+      const [order] = await lifecycle.getOrders()
+      expect(order?.printing).toMatchObject({
+        status: 'printed',
+        pickupTicket: requiresPreparation ? 'printed' : 'not_requested',
+        customerReceipt: printCustomerReceipt ? 'printed' : 'not_requested',
+        preparationTicket: requiresPreparation ? 'printed' : 'not_requested',
+      })
+      expect(await lifecycle.getOrders()).toHaveLength(1)
+      await repository.close()
+    },
+  )
+
+  it('enregistre sans impression une commande sans préparation et sans reçu', async () => {
     const orderWithoutPrinting = {
       ...structuredClone(printPreviewOrder),
+      items: printPreviewOrder.items.map((item) => ({ ...item, requiresPreparation: false })),
       printing: {
         ...printPreviewOrder.printing,
         status: 'printed' as const,
@@ -114,7 +202,7 @@ describe('encaissement et impression', () => {
 
     render(
       <CheckoutFlow
-        items={printPreviewOrder.items}
+        items={orderWithoutPrinting.items}
         onCancel={vi.fn()}
         onNewOrder={vi.fn()}
         createOrder={createOrder}
@@ -122,14 +210,14 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    const printCheckbox = screen.getByRole('checkbox', { name: 'Imprimer le ticket' })
+    const printCheckbox = screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' })
     expect(printCheckbox).not.toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser sans impression' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
     expect(createOrder).toHaveBeenCalledWith(
-      printPreviewOrder.items,
+      orderWithoutPrinting.items,
       'card',
       expect.any(Date),
       false,
@@ -152,9 +240,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(await screen.findByRole('heading', { name: 'Commande validée' })).toBeInTheDocument()
     expect(createOrder).toHaveBeenCalledWith(
@@ -179,9 +267,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
     await screen.findByRole('heading', { name: 'Commande validée' })
     first.unmount()
 
@@ -194,7 +282,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' })).not.toBeChecked()
   })
 
   it('exige un choix explicite du moyen de paiement avant validation', () => {
@@ -211,7 +299,7 @@ describe('encaissement et impression', () => {
 
     const card = screen.getByRole('button', { name: 'Carte bancaire' })
     const cash = screen.getByRole('button', { name: 'Espèces' })
-    const checkout = screen.getByRole('button', { name: 'Encaisser sans impression' })
+    const checkout = screen.getByRole('button', { name: 'Encaisser' })
 
     expect(card).toHaveAttribute('aria-pressed', 'false')
     expect(cash).toHaveAttribute('aria-pressed', 'false')
@@ -357,7 +445,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Espèces' }))
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     const checkout = screen.getByRole('button', { name: 'Valider le paiement' })
@@ -482,8 +570,8 @@ describe('encaissement et impression', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(
       await screen.findByText('Aucun ticket n’était nécessaire pour cette commande.'),
@@ -509,9 +597,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    const checkout = screen.getByRole('button', { name: 'Encaisser et imprimer' })
+    const checkout = screen.getByRole('button', { name: 'Encaisser' })
     fireEvent.click(checkout)
     fireEvent.click(checkout)
 
@@ -523,7 +611,7 @@ describe('encaissement et impression', () => {
     expect(createOrder).toHaveBeenCalledOnce()
     expect(printOrder).not.toHaveBeenCalled()
     expect(lifecycle.beginPrinting).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Encaisser et imprimer' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Encaisser' })).toBeEnabled()
     expect(
       screen.queryByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
     ).not.toBeInTheDocument()
@@ -551,9 +639,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(
       screen.queryByRole('button', { name: 'Mettre en attente et nouvelle commande' }),
@@ -585,9 +673,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(
       await screen.findByText(
@@ -627,9 +715,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     await screen.findByText(/Commande A-0001 enregistrée. Imprimante déconnectée/)
     expect(
@@ -726,9 +814,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
     expect(
       await screen.findByText(
         'Commande A-0001 enregistrée. Imprimante déconnectée. Vérifiez le câble puis réessayez.',
@@ -768,9 +856,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
     expect(await screen.findByText(/impression partielle à reprendre/)).toBeInTheDocument()
     expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
@@ -810,9 +898,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
     await screen.findByText('Reçu de caisse : imprimé')
     fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
     fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente' }))
@@ -875,9 +963,9 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     expect(await screen.findByText('Reçu de caisse : imprimé')).toBeInTheDocument()
     expect(
@@ -982,16 +1070,16 @@ describe('encaissement et impression', () => {
     ).toBeInTheDocument()
   })
 
-  it('reprend la préparation après réouverture et plusieurs échecs sans réimprimer le client', async () => {
+  it('reprend la préparation après réouverture et plusieurs échecs sans reçu de caisse ni doublon du bon de retrait', async () => {
     const indexedDb = new IDBFactory()
     const repository = new IndexedDbOrderRepository(indexedDb)
     const service = createOrderService(repository)
-    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), false)
     await service.beginPrinting(order.id, ['pickupTicket', 'customerReceipt', 'preparationTicket'])
     await service.failPrinting(
       order.id,
       ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['pickupTicket'],
       'Préparation interrompue',
     )
     await repository.close()
@@ -1014,13 +1102,13 @@ describe('encaissement et impression', () => {
         printOrder={printOrder}
       />,
     )
-    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : non demandé')).toBeInTheDocument()
     const retry = screen.getByRole('button', { name: 'Reprendre l’impression' })
     fireEvent.click(retry)
     fireEvent.click(retry)
     await screen.findByText(/Commande .* enregistrée. Déconnexion/)
     expect(printOrder).toHaveBeenCalledOnce()
-    expect(screen.getByText('Reçu de caisse : imprimé')).toBeInTheDocument()
+    expect(screen.getByText('Reçu de caisse : non demandé')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Reprendre l’impression' }))
     await screen.findByRole('heading', { name: 'Commande validée' })
     expect(printOrder).toHaveBeenCalledTimes(2)
@@ -1040,7 +1128,7 @@ describe('encaissement et impression', () => {
     async (stage, documents, status) => {
       const repository = new IndexedDbOrderRepository(new IDBFactory())
       const service = createOrderService(repository)
-      const order = await service.createOrder(printPreviewOrder.items, 'card')
+      const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), true)
       const printOrder = vi
         .fn()
         .mockRejectedValue(new OrderPrintError('Coupe échouée', stage, undefined, [...documents]))
@@ -1072,7 +1160,7 @@ describe('encaissement et impression', () => {
   it('exige une vérification si la sauvegarde finale échoue après le transfert', async () => {
     const repository = new IndexedDbOrderRepository(new IDBFactory())
     const service = createOrderService(repository)
-    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), true)
     vi.spyOn(service, 'completePrinting').mockRejectedValueOnce(new Error('Stockage indisponible'))
     const printOrder = vi.fn().mockResolvedValue(success)
     const onNewOrder = vi.fn()
@@ -1103,7 +1191,7 @@ describe('encaissement et impression', () => {
     const indexedDb = new IDBFactory()
     const repository = new IndexedDbOrderRepository(indexedDb)
     const service = createOrderService(repository)
-    const order = await service.createOrder(printPreviewOrder.items, 'card')
+    const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), true)
     await service.failPrinting(
       order.id,
       ['pickupTicket', 'customerReceipt', 'preparationTicket'],
@@ -1183,7 +1271,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
     await screen.findByRole('button', { name: 'Paiement TPE accepté' })
@@ -1246,7 +1334,7 @@ describe('encaissement et impression', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
     await screen.findByRole('button', { name: 'Paiement TPE accepté' })

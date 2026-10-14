@@ -27,3 +27,10 @@ ce qui rend les répétitions et appels concurrents idempotents.
 Cette transaction couvre cinq object stores dans IndexedDB et cinq tables dans Room. L’impression
 ne commence qu’après son succès. Une erreur conserve donc l’intention confirmée et récupérable,
 sans vente financière partielle.
+
+Après finalisation, le bon de retrait (`pickupTicket`) et le ticket de préparation
+(`preparationTicket`) sont automatiquement en attente si les règles de préparation les exigent.
+Seul le reçu de caisse (`customerReceipt`) dépend de la case « Imprimer le ticket de caisse »,
+décochée par défaut. Cette politique est identique pour les espèces et la carte bancaire.
+Les états des commandes déjà persistées sont conservés : seuls les documents en attente ou en
+échec peuvent être repris, et un état incertain exige une vérification explicite du papier sorti.

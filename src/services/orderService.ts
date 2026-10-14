@@ -78,14 +78,11 @@ function initialPrinting(
   printCustomerReceipt: boolean,
   updatedAt: string,
 ): OrderPrinting {
-  const printTickets = printCustomerReceipt
   const printing: OrderPrinting = {
     status: 'pending',
-    pickupTicket:
-      printTickets && orderRequiresPickupTicket({ items }) ? 'pending' : 'not_requested',
-    customerReceipt: printTickets ? 'pending' : 'not_requested',
-    preparationTicket:
-      printTickets && orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
+    pickupTicket: orderRequiresPickupTicket({ items }) ? 'pending' : 'not_requested',
+    customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
+    preparationTicket: orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
     attempts: 0,
     updatedAt,
   }

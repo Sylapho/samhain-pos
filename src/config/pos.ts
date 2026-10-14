@@ -1,4 +1,4 @@
 export const posConfig = {
   timeZone: 'Europe/Paris',
-  defaultPrintCustomerReceipt: true,
+  defaultPrintCustomerReceipt: false,
 } as const
