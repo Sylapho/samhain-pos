@@ -273,6 +273,22 @@ interface CatalogMetadataDao {
     fun get(): CatalogMetadataEntity?
 }
 
+@Entity(tableName = "sync_identity")
+data class SyncIdentityEntity(
+    @PrimaryKey val id: Int = 1,
+    @ColumnInfo(name = "chain_id") val chainId: String,
+    val restored: Boolean = false,
+    val bound: Boolean = false,
+)
+
+@Dao
+interface SyncIdentityDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    fun insertIfMissing(identity: SyncIdentityEntity): Long
+    @Update fun update(identity: SyncIdentityEntity): Int
+    @Query("SELECT * FROM sync_identity WHERE id = 1") fun get(): SyncIdentityEntity?
+}
+
 @Database(
     entities = [
         OrderEntity::class,
@@ -282,11 +298,13 @@ interface CatalogMetadataDao {
         CheckoutIntentEntity::class,
         ProductEntity::class,
         CatalogMetadataEntity::class,
+        SyncIdentityEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
+    abstract fun syncIdentityDao(): SyncIdentityDao
     abstract fun orderDao(): OrderDao
 
     abstract fun orderPrintingDao(): OrderPrintingDao
@@ -303,6 +321,12 @@ abstract class SamhainPosDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS sync_identity (id INTEGER NOT NULL PRIMARY KEY, chain_id TEXT NOT NULL, restored INTEGER NOT NULL, bound INTEGER NOT NULL)")
+            }
+        }
 
         val MIGRATION_1_2 =
             object : Migration(1, 2) {
@@ -412,7 +436,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

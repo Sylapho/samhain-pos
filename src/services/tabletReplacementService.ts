@@ -5,6 +5,7 @@ import { verifySalesArchive } from './orderRepository'
 import { getResponsibleModeService } from './responsibleModeService'
 import { requireArchiveTerminalIdentity } from './salesLedgerService'
 import type { TerminalConfigurationService } from './terminalConfigurationService'
+import { tabletAuth } from '../native/tabletAuth'
 
 const TABLET_REPLACEMENT_STATE_KEY = 'samhain-pos.tablet-replacement.v1'
 
@@ -66,6 +67,13 @@ export class TabletReplacementService {
     private readonly requireResponsibleMode: () => void = () =>
       getResponsibleModeService().requireUnlocked(),
     private readonly now: () => Date = () => new Date(),
+    private readonly prepareSyncReplacement: () => Promise<void> = async () => {
+      if (tabletAuth.isAndroid()) {
+        const result = await tabletAuth.bridge.prepareReplacement()
+        if (result.prepared !== true)
+          throw new Error('La reprise de synchronisation n’a pas pu être suspendue.')
+      }
+    },
   ) {}
 
   async replaceFromArchive(archive: SalesArchive): Promise<ArchiveRestoreResult> {
@@ -114,6 +122,7 @@ export class TabletReplacementService {
     }
 
     if (!pending) {
+      await this.prepareSyncReplacement()
       this.stateRepository.save({
         schemaVersion: 1,
         archiveHash: archive.archiveHash,

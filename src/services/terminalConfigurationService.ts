@@ -5,6 +5,10 @@ import type {
 } from '../types/terminal'
 import { terminalCodes } from '../types/terminal'
 import { getResponsibleModeService } from './responsibleModeService'
+import {
+  reprovisioningPreconditions,
+  type ReprovisioningPreconditions,
+} from './reprovisioningPreconditions'
 
 const TERMINAL_CONFIGURATION_KEY = 'samhain-pos.terminal-configuration.v1'
 
@@ -39,6 +43,7 @@ export class TerminalConfigurationService {
     private readonly createId: () => string = () => globalThis.crypto.randomUUID(),
     private readonly requireResponsibleMode: () => void = () =>
       getResponsibleModeService().requireUnlocked(),
+    private readonly syncPreconditions: ReprovisioningPreconditions = reprovisioningPreconditions,
   ) {}
 
   getConfiguration(): TerminalConfiguration | null {
@@ -73,6 +78,7 @@ export class TerminalConfigurationService {
   reprovision(input: TerminalProvisioningInput, provisionedAt = new Date()): TerminalConfiguration {
     this.requireResponsibleMode()
     this.getRequiredConfiguration()
+    this.syncPreconditions.requireSafeToReprovision()
     return this.saveNewIdentity(input, provisionedAt)
   }
 

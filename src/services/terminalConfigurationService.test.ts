@@ -3,6 +3,14 @@ import { IDBFactory } from 'fake-indexeddb'
 import { createValidOrderItems } from '../test/orderFixtures'
 import { IndexedDbOrderRepository } from './orderRepository'
 import { OrderService } from './orderService'
+import { SyncReprovisioningPreconditions } from './reprovisioningPreconditions'
+
+const acknowledgedSync = new SyncReprovisioningPreconditions(() => ({
+  pendingEvents: 0,
+  transferring: false,
+  unresolvedError: false,
+  continuity: 'verified',
+}))
 import {
   LocalStorageTerminalConfigurationRepository,
   TerminalConfigurationService,
@@ -55,6 +63,7 @@ describe('configuration persistante du terminal', () => {
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => `terminal-${++nextId}`,
       () => {},
+      acknowledgedSync,
     )
     service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
 
@@ -109,6 +118,7 @@ describe('configuration persistante du terminal', () => {
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => 'terminal-b',
       () => responsibleMode.requireUnlocked(),
+      acknowledgedSync,
     )
     service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
     await responsibleMode.setupPin('4826', '4826')
@@ -132,6 +142,7 @@ describe('configuration persistante du terminal', () => {
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => `terminal-${++nextId}`,
       () => responsibleMode.requireUnlocked(),
+      acknowledgedSync,
     )
     service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
     await responsibleMode.setupPin('4826', '4826')
@@ -149,6 +160,7 @@ describe('configuration persistante du terminal', () => {
       new LocalStorageTerminalConfigurationRepository(localStorage),
       () => `terminal-${++nextId}`,
       () => {},
+      acknowledgedSync,
     )
     terminalService.provision({ terminalCode: 'A', displayName: 'Caisse A' })
     const repository = new IndexedDbOrderRepository(new IDBFactory(), 'reprovision-a-b')

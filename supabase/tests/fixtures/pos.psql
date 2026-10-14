@@ -25,7 +25,7 @@ insert into pos_private.installations(installation_id, organization_id, festival
   from generate_series(1, 2) n join pos_private.chains c on c.chain_id = pg_temp.chain_id(n);
 insert into pos_private.terminal_ranges(organization_id, festival_id, chain_id, first_sequence, terminal_id, evidence_reference)
   select organization_id, festival_id, chain_id, 1, 'terminal:' || right(chain_id::text, 1), 'fixture-only'
-  from pos_private.chains;
+  from pos_private.chains where chain_id in (pg_temp.chain_id(1),pg_temp.chain_id(2),pg_temp.chain_id(3),pg_temp.chain_id(4));
 insert into pos_private.scope_grants(organization_id, festival_id, auth_subject, capability) values
   ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'read_ledger'),
   ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004', 'manage_enrollment'),

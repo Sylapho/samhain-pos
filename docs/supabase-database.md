@@ -8,9 +8,11 @@ n’efface aucune donnée après un ACK.
 
 ## Schéma réellement créé
 
-Les neuf tables sont dans `pos_private`. Ce schéma est **absent** de la liste
-`api.schemas` de `supabase/config.toml`. Aucun objet POS public, vue ou RPC
-d’ingestion n’est créé. Les UUID organisation/festival sont des périmètres
+Les neuf tables de la fondation #113 sont dans `pos_private`. #114 ajoute quatre
+tables de sécurité décrites dans [le runbook d'enrôlement](tablet-enrollment.md).
+Ce schéma est **absent** de la liste `api.schemas` de `supabase/config.toml`.
+La seule RPC POS publique est désormais `tablet_auth_v1`, réservée au serveur ;
+aucune vue ou RPC d’ingestion financière n’est créée. Les UUID organisation/festival sont des périmètres
 techniques, sans information commerciale ou fiscale inventée.
 
 | Table             | Responsabilité et raison de la séparation                                                                                                                                                                                              |
@@ -182,6 +184,8 @@ comptes/capacités restent des décisions d’exploitation. #35 capturera l’ou
 #115 ajoutera les données catalogue lorsque leur besoin sera défini.
 
 ## Exécuter migrations et tests
+
+La migration additive #114 `20261014200000_tablet_enrollment.sql` ajoute les demandes, clés publiques d'installation, challenges et traces d'approbation/révocation. La RPC `tablet_auth_v1` est uniquement exécutable par le serveur Edge, sous un propriétaire NOLOGIN limité au registre. Elle ne fournit aucune ingestion financière. Les lectures directes des installations sont fermées, car elles contourneraient la preuve de possession ; les capacités humaines explicites restent soumises à RLS. Voir [la configuration et l'exploitation](tablet-enrollment.md). `enrollment.test.sql` complète la non-régression `pos.test.sql` et le script de concurrence vérifie une seule activation d'invitation sous deux connexions SQL réelles.
 
 Prérequis : Docker actif, Supabase CLI sur PATH et Node.js. Aucun SDK Supabase n’est
 ajouté au frontend. Aucune connexion à un projet hébergé ni clé serveur n’est requise.

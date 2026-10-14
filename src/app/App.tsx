@@ -22,6 +22,7 @@ import { checkoutService } from '../services/checkoutService'
 import { getCashSessionService, type CashSessionService } from '../services/cashSessionService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
 import { hasPendingTabletReplacement } from '../services/tabletReplacementService'
+import { reprovisioningPreconditions } from '../services/reprovisioningPreconditions'
 import {
   getTerminalConfiguration,
   provisionTerminal,
@@ -346,7 +347,7 @@ export function App({
         ? 'Impossible de changer la caisse tant que des encaissements ou impressions sont à reprendre.'
         : cashSessionState.status === 'ready'
           ? 'Clôturez la session de caisse avant de changer cette tablette de caisse.'
-          : null
+          : reprovisioningPreconditions.blockReason()
 
   if (tabletReplacementPending) {
     return (

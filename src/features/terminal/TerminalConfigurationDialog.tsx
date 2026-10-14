@@ -6,6 +6,7 @@ import type {
   TerminalProvisioningInput,
 } from '../../types/terminal'
 import { terminalCodes } from '../../types/terminal'
+import { TabletSynchronizationSettings } from './TabletSynchronizationSettings'
 import { supabaseConfiguration } from '../../config/supabaseRuntime'
 import { supabaseConfigurationMessage } from '../../config/supabase'
 
@@ -196,12 +197,13 @@ export function TerminalConfigurationDialog({
         ) : null}
 
         {!isInitialProvisioning && !reprovisioning ? (
-          <div className="mt-4 border-b border-stone-300 pb-3">
-            <p className="font-bold">{supabaseConfigurationMessage(supabaseConfiguration)}</p>
-            <p className="mt-1 text-sm text-stone-700">
-              Les ventes et les impressions restent locales et disponibles sans réseau.
+          supabaseConfiguration.status === 'invalid' ? (
+            <p className="mt-4 font-bold text-amber-950" role="alert">
+              {supabaseConfigurationMessage(supabaseConfiguration)}
             </p>
-          </div>
+          ) : (
+            <TabletSynchronizationSettings terminalId={configuration.terminalId} />
+          )
         ) : null}
 
         {isChoosingIdentity ? (
