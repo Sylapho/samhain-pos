@@ -110,6 +110,10 @@ temp/
 .eslintcache
 .stylelintcache
 
+# Supabase CLI local state (no credentials or linked project metadata)
+supabase/.temp/
+supabase/.branches/
+
 # Optional local reports
 reports/
 

@@ -1,0 +1,113 @@
+-- Included psql fixture; .psql is not discovered as a separate pgTAP suite.
+-- Synthetic SQL fixtures, not business data or hash-conformance vectors.
+-- Invoker helpers are temporary and are never deployed with migrations.
+create function pg_temp.chain_id(n integer) returns uuid language sql immutable as $$
+  select ('20000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid;
+$$;
+
+insert into auth.users(id) select ('30000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid
+  from generate_series(1, 9) n;
+insert into pos_private.organizations(organization_id) values
+  ('00000000-0000-0000-0000-000000000001'), ('00000000-0000-0000-0000-000000000002');
+insert into pos_private.festivals(organization_id, festival_id) values
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001'),
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002'),
+  ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003');
+insert into pos_private.chains(organization_id, festival_id, chain_id) values
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', pg_temp.chain_id(1)),
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', pg_temp.chain_id(2)),
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', pg_temp.chain_id(3)),
+  ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003', pg_temp.chain_id(4));
+insert into pos_private.installations(installation_id, organization_id, festival_id, chain_id, auth_subject, enrollment_generation)
+  select ('40000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
+    c.organization_id, c.festival_id, c.chain_id,
+    ('30000000-0000-0000-0000-' || lpad(case when n <= 2 then n else 7 end::text, 12, '0'))::uuid, 1
+  from generate_series(1, 2) n join pos_private.chains c on c.chain_id = pg_temp.chain_id(n);
+insert into pos_private.terminal_ranges(organization_id, festival_id, chain_id, first_sequence, terminal_id, evidence_reference)
+  select organization_id, festival_id, chain_id, 1, 'terminal:' || right(chain_id::text, 1), 'fixture-only'
+  from pos_private.chains;
+insert into pos_private.scope_grants(organization_id, festival_id, auth_subject, capability) values
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000003', 'read_ledger'),
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004', 'manage_enrollment'),
+  ('00000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000005', 'read_ledger');
+
+create function pg_temp.add_receipt(chain uuid, identifier text, event_type text default 'ledger') returns void
+language plpgsql security invoker as $$
+declare c pos_private.chains%rowtype; i pos_private.installations%rowtype;
+begin
+  select * into c from pos_private.chains where chain_id = chain;
+  -- Chains 3/4 are fixture-only administrative backfills with their own installation.
+  select * into i from pos_private.installations where chain_id = chain order by enrollment_generation desc limit 1;
+  if not found then
+    insert into pos_private.installations(installation_id, organization_id, festival_id, chain_id, auth_subject, enrollment_generation, active, revoked_at)
+      values (gen_random_uuid(), c.organization_id, c.festival_id, chain,
+        ('30000000-0000-0000-0000-' || lpad((right(chain::text, 1)::integer + 5)::text, 12, '0'))::uuid,
+        1, false, '2026-10-14T08:00:00Z')
+      returning * into i;
+  end if;
+  insert into pos_private.sync_receipts(organization_id, festival_id, chain_id, event_type, event_id,
+    ledger_event_id, legacy_order_id, installation_id, enrollment_generation, auth_subject, first_request_id)
+    values (c.organization_id, c.festival_id, chain, event_type, identifier,
+      case when event_type = 'ledger' then identifier end, case when event_type = 'legacy_order' then identifier end,
+      i.installation_id, i.enrollment_generation, i.auth_subject, gen_random_uuid());
+end;
+$$;
+
+create function pg_temp.add_event(chain uuid, identifier text, event_kind text, body jsonb,
+  emit_receipt boolean default true, terminal text default null, profile text default 'ts-ledger-v1') returns void
+language plpgsql security invoker as $$
+declare c pos_private.chains%rowtype; p jsonb; h text; t text;
+begin
+  select * into c from pos_private.chains where chain_id = chain;
+  h := md5(identifier) || md5(identifier); -- Shape-only fixture; #36 verifies actual SHA-256.
+  t := coalesce(terminal, 'terminal:' || right(chain::text, 1));
+  p := body || jsonb_build_object('id', identifier, 'schemaVersion', 1, 'kind', event_kind,
+    'sequence', c.head_sequence + 1, 'recordedAt', '2026-10-14T08:00:00.000Z',
+    'previousHash', c.head_hash, 'hash', h, 'source', jsonb_build_object(
+      'softwareVersion', 'fixture', 'buildMode', 'test', 'organization', jsonb_build_object('fixture', true),
+      'terminal', jsonb_build_object('terminalId', t, 'terminalCode', 'A', 'displayName', 'Fixture')));
+  insert into pos_private.ledger_events(organization_id, festival_id, chain_id, event_id, sequence,
+    schema_version, kind, recorded_at, previous_hash, hash, source_terminal_id, protocol_version,
+    ledger_canonicalization, payload_canonical, transport_fingerprint)
+    values (c.organization_id, c.festival_id, chain, identifier, c.head_sequence + 1, 1, event_kind,
+      p ->> 'recordedAt', c.head_hash, h, t, 1, profile, p::text, repeat('f', 64));
+  -- Also makes the fixture usable before the additive guard migration.
+  update pos_private.chains set head_sequence = c.head_sequence + 1, head_hash = h
+    where chain_id = chain and head_sequence = c.head_sequence;
+  if emit_receipt then perform pg_temp.add_receipt(chain, identifier); end if;
+end;
+$$;
+
+select pg_temp.add_event(pg_temp.chain_id(1), 'cash-session:session-A', 'cash_session_opened',
+  '{"session":{"sessionId":"session-A","periodStart":"2026-10-14T08:00:00.000Z","createdAt":"2026-10-14T08:00:00.000Z","openingFloatCents":0}}');
+select pg_temp.add_event(pg_temp.chain_id(1), 'sale:order-A', 'sale',
+  '{"orderId":"order-A","order":{"id":"order-A","orderNumber":"A-0001","receiptNumber":"R-A-0001","items":[],"itemCount":0,"totalCents":0,"paymentMethod":"cash","paymentStatus":"paid","paidAt":"2026-10-14T08:00:00.000Z","createdAt":"2026-10-14T08:00:00.000Z","status":"confirmed"}}');
+-- Before guards, insert the identity projection explicitly.
+insert into pos_private.sales(organization_id, festival_id, chain_id, order_id, ledger_event_id, sale_hash)
+  select organization_id, festival_id, chain_id, order_id, event_id, hash from pos_private.ledger_events
+  where kind = 'sale' on conflict do nothing;
+select pg_temp.add_event(pg_temp.chain_id(1), 'correction:refund-A', 'correction',
+  jsonb_build_object('correction', jsonb_build_object('operationId', 'refund-A', 'originalOrderId', 'order-A',
+    'originalOrderNumber', 'A-0001', 'originalReceiptNumber', 'R-A-0001', 'type', 'refund', 'reason', 'Fixture',
+    'amountDeltaCents', 0, 'paymentMethod', 'cash', 'originalSaleHash', md5('sale:order-A') || md5('sale:order-A'))));
+select pg_temp.add_event(pg_temp.chain_id(1), 'closure:close-A', 'closure',
+  '{"closure":{"operationId":"close-A","periodStart":"2026-10-14T08:00:00.000Z","periodEnd":"2026-10-14T08:00:00.000Z","totals":{}}}');
+insert into pos_private.sales(organization_id, festival_id, chain_id, order_id, legacy_payload_canonical, legacy_transport_fingerprint, legacy_protocol_version)
+  values ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', pg_temp.chain_id(1),
+    'legacy-A', '{"id":"legacy-A","orderNumber":"A-0000","registerName":"Fixture legacy","items":[],"totalCents":0}', repeat('d', 64), 1);
+select pg_temp.add_receipt(pg_temp.chain_id(1), 'legacy-A', 'legacy_order');
+select pg_temp.add_event(pg_temp.chain_id(1), 'correction:legacy-refund-A', 'correction',
+  '{"correction":{"operationId":"legacy-refund-A","originalOrderId":"legacy-A","originalSaleHash":null}}');
+select pg_temp.add_event(pg_temp.chain_id(1), 'cash-float-update:float-A', 'cash_float_updated',
+  '{"cashFloatUpdate":{"operationId":"float-A","sessionId":"session-A","previousOpeningFloatCents":0,"newOpeningFloatCents":0,"updatedAt":"2026-10-14T08:00:00.000Z"}}', true, null, 'android-ledger-v1');
+select pg_temp.add_event(pg_temp.chain_id(2), 'sale:order-B', 'sale',
+  '{"orderId":"order-B","order":{"id":"order-B","orderNumber":"A-0001","receiptNumber":"R-A-0001"}}');
+select pg_temp.add_event(pg_temp.chain_id(3), 'sale:order-C', 'sale',
+  '{"orderId":"order-C","order":{"id":"order-C","orderNumber":"A-0001"}}');
+select pg_temp.add_event(pg_temp.chain_id(4), 'sale:order-D', 'sale',
+  '{"orderId":"order-D","order":{"id":"order-D","orderNumber":"A-0001"}}');
+insert into pos_private.sales(organization_id, festival_id, chain_id, order_id, ledger_event_id, sale_hash)
+  select organization_id, festival_id, chain_id, order_id, event_id, hash from pos_private.ledger_events
+  where kind = 'sale' on conflict do nothing;
+set constraints all immediate;
+set constraints all deferred;
