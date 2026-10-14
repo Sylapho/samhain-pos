@@ -1,5 +1,7 @@
 # Sauvegarde et remplacement des tablettes
 
+La procédure ci-dessous décrit le fonctionnement local actuel, sans synchronisation serveur. Pour la future intégration Supabase, [le contrat offline-first](architecture-supabase-offline-first.md#11-backfill-legacy-forks-et-restaurations) ajoute le rapprochement du préfixe et de la tête distante, une identité de chaîne distincte du terminal et le retrait de l'installation remplacée. Une archive ancienne ne permet pas de faire reculer la tête serveur ni de fusionner automatiquement un suffixe distant ; ces contrôles ne sont pas encore implémentés.
+
 ## Objet
 
 Ce runbook est la procédure opérationnelle de Samhain POS pendant le festival. Il distingue strictement :

@@ -2,13 +2,13 @@
 
 ## Objet et statut
 
-Cette architecture répond au besoin technique du ticket #34 : empêcher les API métier normales de réécrire une vente validée, conserver les corrections sous forme de nouvelles opérations et détecter une altération des données journalisées. Elle fonctionne entièrement dans IndexedDB et n’ajoute aucune dépendance réseau au parcours d’encaissement.
+Cette architecture répond au besoin technique du ticket #34 : empêcher les API métier normales de réécrire une vente validée, conserver les corrections sous forme de nouvelles opérations et détecter une altération des données journalisées. Elle fonctionne localement dans Room/SQLite sur Android et IndexedDB sur le Web, sans dépendance réseau au parcours d’encaissement. La synchronisation future est définie dans [l'architecture Supabase offline-first](architecture-supabase-offline-first.md), sans implémentation réseau à ce stade.
 
 Ce document ne constitue ni une attestation de conformité ni une certification. La qualification fiscale de l’association, la procédure d’exploitation, les contrôles d’accès Android, la gestion des horloges et la version effectivement déployée doivent être audités avant une utilisation réelle. Le [BOFiP publié le 25 mars 2026](https://bofip.impots.gouv.fr/bofip/10691-PGP.html/identifiant%3DBOI-TVA-DECLA-30-10-30-20260325) et [l’article 286 du CGI](https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000053546765/2026-05-18) sont les références réglementaires utilisées lors de cette conception.
 
 ## Modèle local
 
-La base IndexedDB `samhain-pos`, version 2, sépare quatre responsabilités :
+Le journal a été introduit dans la base IndexedDB `samhain-pos` en version 2 ; la version courante est 4 (Room v5 sur Android). Le modèle sépare quatre responsabilités financières :
 
 - `orders` conserve l’instantané financier d’origine : lignes, options, prix, TVA, règlement, date, terminal, numéros de commande et de reçu ;
 - `orderTechnicalState` conserve uniquement l’état d’impression, qui doit pouvoir évoluer après la vente sans modifier les données financières ;
@@ -106,5 +106,5 @@ Le BOFiP précise notamment que les données élémentaires, les cumuls et les p
 - définir les rôles autorisés à corriger, clôturer, exporter et restaurer, puis journaliser leur identité ;
 - déployer et valider le runbook de sauvegarde/remplacement sur les modèles Android réellement utilisés ;
 - décider comment ancrer périodiquement l’empreinte de tête sur un support indépendant ;
-- concevoir la synchronisation multi-tablettes en conservant une chaîne par terminal et sans réécrire les événements locaux ;
+- implémenter la synchronisation multi-tablettes selon [le contrat Supabase](architecture-supabase-offline-first.md), en conservant une identité durable par chaîne locale distincte de `terminalId`, sans réécrire les événements locaux ;
 - faire auditer les scénarios de changement d’heure, mise à jour logicielle, perte de tablette et reprise après incident.
