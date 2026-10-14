@@ -518,7 +518,7 @@ describe('caisse', () => {
     expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /^Montant exact/ }))
     expect(screen.getByRole('button', { name: 'Valider le paiement' })).toBeEnabled()
-    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' })).not.toBeChecked()
   })
 
   it('protège l’annulation de la commande par une confirmation', () => {
@@ -610,9 +610,9 @@ describe('caisse', () => {
     fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
     fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
 
     await screen.findByText(/Commande A-0001 enregistrée. Imprimante déconnectée/)
     fireEvent.click(screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }))
@@ -658,9 +658,9 @@ describe('caisse', () => {
       fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
       fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
       fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket' }))
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Imprimer le ticket de caisse' }))
       fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Encaisser et imprimer' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Encaisser' }))
       await screen.findByText(/enregistrée. Imprimante déconnectée/)
       fireEvent.click(
         screen.getByRole('button', { name: 'Mettre en attente et nouvelle commande' }),

@@ -160,6 +160,44 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun operationalTicketsAreIndependentOfReceiptForBothPaymentMethods() = onDatabaseThread {
+        for (method in listOf("card", "cash")) {
+            for (requiresPreparation in listOf(false, true)) {
+                for (receiptRequested in listOf(false, true)) {
+                    val id = "policy-$method-$requiresPreparation-$receiptRequested"
+                    val intent = checkoutIntent(id)
+                    intent.put("paymentMethod", method)
+                    intent.put("printCustomerReceipt", receiptRequested)
+                    intent.getJSONArray("cartSnapshot").getJSONObject(0)
+                        .put("requiresPreparation", requiresPreparation)
+                    store.createCheckoutIntent(intent)
+                    store.markCheckoutPaymentToVerify(id, "2026-09-01T12:01:00.000Z")
+                    store.confirmCheckoutPayment(id, "2026-09-01T12:02:00.000Z")
+                    val order = store.finalizeCheckoutIntent(id, "2026-09-01T12:03:00.000Z")
+                    val state = order.getJSONObject("printing")
+                    val operationalState = if (requiresPreparation) "pending" else "not_requested"
+                    assertEquals(operationalState, state.getString("pickupTicket"))
+                    assertEquals(operationalState, state.getString("preparationTicket"))
+                    assertEquals(
+                        if (receiptRequested) "pending" else "not_requested",
+                        state.getString("customerReceipt"),
+                    )
+                    assertEquals(
+                        if (requiresPreparation || receiptRequested) "pending" else "printed",
+                        state.getString("status"),
+                    )
+                    assertEquals(
+                        order.toString(),
+                        store.finalizeCheckoutIntent(id, "2026-09-01T12:04:00.000Z").toString(),
+                    )
+                }
+            }
+        }
+        assertEquals(8, store.snapshot().getJSONArray("orders").length())
+        assertEquals(8, store.snapshot().getJSONArray("entries").length())
+    }
+
+    @Test
     fun checkoutWithoutPreparationFinalizesWithNoRequestedDocument() = onDatabaseThread {
         val intent = checkoutIntent("no-preparation")
         intent.put("printCustomerReceipt", false)

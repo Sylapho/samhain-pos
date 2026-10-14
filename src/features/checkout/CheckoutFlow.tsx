@@ -66,7 +66,7 @@ export function CheckoutFlow({
     initialOrder?.paymentMethod ?? initialIntent?.paymentMethod ?? null,
   )
   const [cashReceivedCents, setCashReceivedCents] = useState<number | null>(null)
-  const [printTickets, setPrintTickets] = useState(
+  const [printCustomerReceipt, setPrintCustomerReceipt] = useState(
     initialOrder
       ? initialOrder.printing.customerReceipt !== 'not_requested'
       : (initialIntent?.printCustomerReceipt ?? false),
@@ -265,7 +265,7 @@ export function CheckoutFlow({
             let activeIntent = intent
             if (!activeIntent) {
               activeIntent = storeUpdatedIntent(
-                await checkout.createIntent(items, paymentMethod, printTickets),
+                await checkout.createIntent(items, paymentMethod, printCustomerReceipt),
               )
             }
             if (activeIntent.status === 'pending_payment') {
@@ -301,24 +301,19 @@ export function CheckoutFlow({
               updatedAt: new Date().toISOString(),
             })
             storeUpdatedOrder(persistedOrder)
-            if (activeIntent.printCustomerReceipt) {
-              try {
-                await performPrint(persistedOrder, {}, true)
-              } catch (error) {
-                if (error instanceof PrintStatePersistenceError) {
-                  setFeedback({
-                    kind: 'error',
-                    text: error.printMayHaveStarted
-                      ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
-                      : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
-                  })
-                } else {
-                  reportPrintFailure(persistedOrder, error)
-                }
+            try {
+              await performPrint(persistedOrder, {}, true)
+            } catch (error) {
+              if (error instanceof PrintStatePersistenceError) {
+                setFeedback({
+                  kind: 'error',
+                  text: error.printMayHaveStarted
+                    ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                    : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+                })
+              } else {
+                reportPrintFailure(persistedOrder, error)
               }
-            } else {
-              setPrintingComplete(true)
-              setFeedback({ kind: 'success', text: 'Commande enregistrée sans impression.' })
             }
             return
           } catch {
@@ -339,7 +334,7 @@ export function CheckoutFlow({
 
         let persistedOrder: Order
         try {
-          persistedOrder = await createOrder(items, paymentMethod, new Date(), printTickets)
+          persistedOrder = await createOrder(items, paymentMethod, new Date(), printCustomerReceipt)
         } catch {
           setFeedback({
             kind: 'error',
@@ -349,24 +344,19 @@ export function CheckoutFlow({
         }
 
         storeUpdatedOrder(persistedOrder)
-        if (printTickets) {
-          try {
-            await performPrint(persistedOrder, {}, true)
-          } catch (error) {
-            if (error instanceof PrintStatePersistenceError) {
-              setFeedback({
-                kind: 'error',
-                text: error.printMayHaveStarted
-                  ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
-                  : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
-              })
-            } else {
-              reportPrintFailure(persistedOrder, error)
-            }
+        try {
+          await performPrint(persistedOrder, {}, true)
+        } catch (error) {
+          if (error instanceof PrintStatePersistenceError) {
+            setFeedback({
+              kind: 'error',
+              text: error.printMayHaveStarted
+                ? `Commande ${persistedOrder.orderNumber} enregistrée. L’état final de l’impression n’a pas pu être sauvegardé. Vérifiez les tickets sortis avant de relancer.`
+                : `Commande ${persistedOrder.orderNumber} enregistrée. Aucun ticket n’a été lancé car l’état de reprise n’a pas pu être sauvegardé.`,
+            })
+          } else {
+            reportPrintFailure(persistedOrder, error)
           }
-        } else {
-          setPrintingComplete(true)
-          setFeedback({ kind: 'success', text: 'Commande enregistrée sans impression.' })
         }
       } finally {
         printingRef.current = false
@@ -512,12 +502,12 @@ export function CheckoutFlow({
               <input
                 type="checkbox"
                 className="size-6 accent-[#1f6a4b]"
-                aria-label="Imprimer le ticket"
-                checked={printTickets}
+                aria-label="Imprimer le ticket de caisse"
+                checked={printCustomerReceipt}
                 disabled={busy || order !== null || intent !== null}
-                onChange={(event) => setPrintTickets(event.target.checked)}
+                onChange={(event) => setPrintCustomerReceipt(event.target.checked)}
               />
-              Imprimer le ticket
+              Imprimer le ticket de caisse
             </label>
 
             {order ? (
@@ -600,14 +590,10 @@ export function CheckoutFlow({
                             ? 'Valider le paiement'
                             : paymentMethod === 'card'
                               ? createOrder
-                                ? printTickets
-                                  ? 'Encaisser et imprimer'
-                                  : 'Encaisser sans impression'
+                                ? 'Encaisser'
                                 : 'Préparer le paiement TPE'
                               : createOrder
-                                ? printTickets
-                                  ? 'Encaisser et imprimer'
-                                  : 'Encaisser sans impression'
+                                ? 'Encaisser'
                                 : 'Préparer l’encaissement'}
               </Button>
             </div>
