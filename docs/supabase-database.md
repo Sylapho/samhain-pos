@@ -11,9 +11,9 @@ n’efface aucune donnée après un ACK.
 Les neuf tables de la fondation #113 sont dans `pos_private`. #114 ajoute quatre
 tables de sécurité décrites dans [le runbook d'enrôlement](tablet-enrollment.md).
 Ce schéma est **absent** de la liste `api.schemas` de `supabase/config.toml`.
-La seule RPC POS publique est désormais `tablet_auth_v1`, réservée au serveur ;
-aucune vue ou RPC d’ingestion financière n’est créée. Les UUID organisation/festival sont des périmètres
-techniques, sans information commerciale ou fiscale inventée.
+Les RPC POS publiques sont `tablet_auth_v1`, `ledger_ingest_v1`, `legacy_import_v1` et
+`ledger_prefix_v1`, réservées au serveur Edge. Les UUID organisation/festival sont des
+périmètres techniques, sans information commerciale ou fiscale inventée.
 
 | Table             | Responsabilité et raison de la séparation                                                                                                                                                                                              |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -115,7 +115,7 @@ installations actives. Aucun index de statistiques spéculatif n’est ajouté.
 | PK ventes portée/commande et UNIQUE portée/chaîne/commande | Détection de doublon inter-chaînes et FK des corrections/legacy.                              |
 | PK reçus portée/chaîne/type/événement et UNIQUE UUID reçu  | Retrouver le reçu initial au replay et identifier l’ACK.                                      |
 
-## Grants et RLS
+## Grants et RLS de la fondation, étendus par #114/#36
 
 RLS est activée et forcée sur les neuf tables dès la première migration. La première
 migration ne donne aucun accès API ; la suivante ajoute uniquement les lectures
@@ -125,26 +125,28 @@ autorisées et les garde-fous. Il n’existe **aucune politique d’écriture**.
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PUBLIC`, `anon`            | Aucun accès au schéma, aux tables ou fonctions POS.                                                                                                                                                     |
 | `authenticated`             | USAGE du schéma ; SELECT sur chaînes, mappings, ledger, ventes et reçus, sous RLS. EXECUTE du seul prédicat privé `can_read_chain`. Aucun accès direct au registre d’habilitations et aucune mutation.  |
-| `service_role`              | Aucun grant POS, aucune fonction exécutable. BYPASSRLS seul ne donne pas les privilèges SQL manquants. L’ingestion reste fermée jusqu’à #36.                                                            |
+| `service_role`              | EXECUTE uniquement sur les RPC publiques serveur ; aucun accès direct aux tables privées. BYPASSRLS ne donne pas les privilèges SQL manquants.                                                          |
 | `pos_policy_reader`         | NOLOGIN, NOINHERIT, sans BYPASSRLS ; SELECT sur les cinq tables de registre nécessaires au prédicat, sous politiques dédiées de lecture. Aucun droit sur les payloads/reçus, aucune écriture ni CREATE. |
 | Propriétaire des migrations | Maintenance et fixtures locales uniquement. Pas un credential applicatif.                                                                                                                               |
 
-Le prédicat privé `can_read_chain(organization, festival, chain)` est le seul
-`SECURITY DEFINER`. Son propriétaire est `pos_policy_reader`, ses objets sont
+Le prédicat privé `can_read_chain(organization, festival, chain)` est un
+`SECURITY DEFINER` de lecture. Son propriétaire est `pos_policy_reader`, ses objets sont
 qualifiés et son `search_path` est vide. Il dérive **toujours** le sujet des claims
 PostgreSQL vérifiés par PostgREST, avec la même expression que `auth.uid()` ;
 aucun paramètre sujet, terminal ou `user_metadata` ne peut donner des droits.
-Les autres fonctions sont des triggers invoker privés, EXECUTE révoqué aux rôles API.
+Les triggers de stockage sont invoker et privés, EXECUTE révoqué aux rôles API.
+#114/#36 ajoutent leurs RPC definers réservées au serveur, `direct_read_allowed`
+et le helper fermé de contrôle de session ; leurs droits sont décrits dans les runbooks.
 
 L’extraction lit `request.jwt.claim.sub`, puis `request.jwt.claims.sub`. Ces paramètres
 sont ceux du gateway authentifié, pas des champs du corps HTTP. Aucun RPC ne permet
 de les modifier. Le prédicat ne requiert ainsi aucun grant sur le schéma `auth`,
 géré par Supabase : le rôle `postgres` de migration n’en possède pas le grant option.
-Il ne s’agit pas d’une vérification de signature JWT en SQL ; #36 doit vérifier le
-JWT/session à la frontière HTTPS et revalider l’autorisation dans sa transaction.
+Il ne s’agit pas d’une vérification de signature JWT en SQL. Les Edge #36 vérifient
+le JWT ; leurs RPC revalident la session active et l’autorisation dans la transaction.
 
-Une installation lit uniquement sa chaîne, avec une habilitation active et une
-génération courante dans des périmètres actifs. Un humain explicitement doté de
+Une installation utilise les diagnostics sous preuve pour sa chaîne ; les lectures
+directes sont fermées par #114. Un humain explicitement doté de
 `read_ledger` lit uniquement les chaînes du périmètre attribué. Un sujet ayant servi
 à une installation n’utilise jamais le chemin de capacité humaine pour retrouver
 des droits après révocation. `manage_enrollment` seul ne donne pas de lecture financière.
@@ -152,36 +154,21 @@ La révocation du registre s’applique à la prochaine requête même si le JWT
 expiré. Cela ne prétend pas annuler une lecture déjà en cours ni bloquer les ventes
 d’une tablette hors ligne. Le PIN responsable local n’intervient jamais ici.
 
-## Contrat à compléter dans #36 et #114
+## Chemin serveur livré dans #36 et #114
 
-**#36** doit créer l’Edge HTTPS authentifiée puis une unique RPC transactionnelle
-validée. Ne pas ajouter de grants directs `service_role` sur ces tables pour contourner
-la validation. N’ouvrir EXECUTE que sur le chemin serveur complet, avec propriétaire
-limité si un definer est nécessaire, objets qualifiés et `search_path = ''`.
+L'[enrôlement #114](tablet-enrollment.md) fournit invitations, clés, générations et
+révocation. L'[ingestion #36](supabase-ingestion.md) ajoute une migration non destructive,
+les trois Edge Functions et leurs RPC transactionnelles sous propriétaire limité.
+Elle revalide les sessions Auth actives, les autorisations et la preuve sous verrous,
+canonicalise les profils TS/Android, vérifie SHA-256 et fingerprint, puis applique
+les règles financières au préfixe durable. Les reçus sont durables et les lots atomiques.
+Les triggers existants font l'append et la projection : leur contrôle différé est
+forcé avant de quitter le definer afin de garder service_role sans accès direct.
 
-La RPC devra recevoir le sujet **issu du JWT vérifié par l’Edge**, recontrôler les
-capacités et périmètres actifs, installation/génération, mappings historiques et
-verrouiller chaîne **et registre d’habilitation** pour sérialiser une révocation
-concurrente. Elle devra vérifier Auth/session/utilisateur actif, tailles de lots,
-protocoles, canonicalisation TS/Kotlin, clés JSON dupliquées, SHA-256 financier et
-fingerprint de transport ; puis les règles complètes de ventes, corrections,
-quantités/TVA historiques, sessions/fonds et clôtures, sans catalogue actuel.
-
-Sous ces verrous, comparer les replays au tuple original complet, vérifier
-`expectedHead`, traiter lacunes/forks/dépendances, insérer nouveaux événements et
-reçus dans la même transaction, et retourner les ACK après commit. Le trigger fait
-déjà l’avancement de tête et la projection des ventes scellées : ne pas les avancer
-une seconde fois. Pour legacy, insérer `sales` puis son reçu sans append du ledger.
-Le reçu conserve sa première date et son UUID ; un replay ne fait pas d’UPDATE ni
-d’`ON CONFLICT DO UPDATE`. Les contraintes seules n’émettent pas d’ACK et ne classent
-pas encore les conflits selon les codes HTTP du contrat.
-
-**#114** doit fournir l’enrôlement approuvé, les credentials propres à l’installation,
-leur stockage natif et la gestion des sessions/révocations. Le registre présent
-permet les droits, générations et preuves historiques ; il ne constitue pas une
-interface d’administration ou un flux d’enrôlement utilisable. Les attributions de
-comptes/capacités restent des décisions d’exploitation. #35 capturera l’outbox locale ;
-#115 ajoutera les données catalogue lorsque leur besoin sera défini.
+Legacy ne fait pas avancer la tête. Prefix ne produit jamais d'ACK et reste accessible
+sous preuve en needs_recovery. Ni cette fonction ni l'ingestion ne fusionnent une
+branche ou ne lèvent automatiquement la récupération. Le worker/outbox #35 reste
+à implémenter. Voir le runbook pour les erreurs, limites, tests et déploiement de test.
 
 ## Exécuter migrations et tests
 
@@ -223,17 +210,17 @@ destinés aux tests ; aucun helper ni fixture n’est dans les migrations déplo
 Les hashes synthétiques des fixtures testent conservation et contraintes SQL,
 **pas** la conformité cryptographique ou métier d’une ingestion #36.
 
-Couverture : droits de chaque table/fonction, absence de vue/RPC publique, rôles
+Couverture : droits de chaque table/fonction, absence de vue/RPC client contournant les validations, rôles
 anonyme/A/B/humain/manager/hors périmètre, scopes actifs et retirés, falsification de
 métadonnées, installation remplacée, collisions d’ID/séquence/opération/session/vente,
 FK, écritures directes, UPDATE/DELETE/TRUNCATE, snapshots historiques et legacy,
 octets UTF-8/échappements/précision de date, têtes, mappings, reçu obligatoire et rollback.
 
-Restent à tester avec #36/#114 : vrais JWT/gateway/HTTP, expiration/refresh Auth,
+Les tests locaux #36 couvrent désormais JWT/gateway/HTTP, sessions révoquées,
 révocation concurrente avec ingestion, concurrence de lots, ACK perdu/replay,
-`expectedHead`, canonicalisation TS/Kotlin/serveur, calculs financiers et parcours
-d’enrôlement natif. La caisse et l’USB n’ont pas besoin d’essai matériel pour cette
-modification SQL seule ; les essais d’intégration restent nécessaires avant exploitation.
+`expectedHead`, canonicalisation TS/Kotlin/serveur et calculs financiers. Le test
+Robolectric des vecteurs ne remplace pas le parcours natif complet sur tablette.
+Les essais sur le projet hébergé de test et sur le matériel restent nécessaires avant exploitation.
 
 Vérifications de livraison du 14 octobre 2026 : Supabase CLI **2.121.0**, PostgreSQL
 Supabase **17.11**, installation vierge et évolution des neuf tables par le script
@@ -255,13 +242,13 @@ Chaque nouvel objet doit retirer explicitement les grants/EXECUTE hérités, dé
 sa RLS et passer les tests de droits ; les default privileges privés ne suffisent
 pas à neutraliser d’éventuels grants globaux d’un autre propriétaire.
 
-| Critère #113                                          | Mise en œuvre et vérification                                                                                                                             |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Base vierge et évolution sans perte                   | Deux migrations ordonnées ; script de reconstruction et comparaison complète des neuf tables.                                                             |
-| Isolation A/B/périmètres et refus anonyme             | Grants minimaux et prédicat Auth/registre actif ; assertions pgTAP par rôle et capacité.                                                                  |
-| Conservation IDs/séquences/hashes/snapshots           | Texte original, projections générées, dates locales textuelles, immutabilité et tests d’octets/historiques.                                               |
-| Refus des mutations et insertions hors chemin validé  | Aucun grant d’écriture API/service-role, aucun RPC d’ingestion ; triggers d’immutabilité et contraintes techniques. L’ouverture du chemin validé est #36. |
-| Tests des objets exposés, index/projections justifiés | Inventaire SQL des grants/RLS/search_path/definer, absence de vues/RPC publiques, tables et index documentés ci-dessus.                                   |
+| Critère #113                                          | Mise en œuvre et vérification                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Base vierge et évolution sans perte                   | Deux migrations ordonnées ; script de reconstruction et comparaison complète des neuf tables.                                      |
+| Isolation A/B/périmètres et refus anonyme             | Grants minimaux et prédicat Auth/registre actif ; assertions pgTAP par rôle et capacité.                                           |
+| Conservation IDs/séquences/hashes/snapshots           | Texte original, projections générées, dates locales textuelles, immutabilité et tests d’octets/historiques.                        |
+| Refus des mutations et insertions hors chemin validé  | Aucun grant d’écriture directe API/service-role ; RPC #36 réservées au serveur, triggers d’immutabilité et contraintes techniques. |
+| Tests des objets exposés, index/projections justifiés | Inventaire SQL des grants/RLS/search_path/definer, absence de vues/RPC publiques, tables et index documentés ci-dessus.            |
 
 Références officielles : [RLS et grants](https://supabase.com/docs/guides/database/postgres/row-level-security),
 [CLI migrations et tests](https://supabase.com/docs/reference/cli/introduction),

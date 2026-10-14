@@ -28,7 +28,7 @@ select ok(p.proconfig @> array['search_path=""'], p.proname || ': locked search_
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'pos_private' order by p.proname;
 select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'pos_private' and p.prosecdef), 2::bigint, 'Only the bounded read helpers are definers');
+  where n.nspname = 'pos_private' and p.prosecdef and p.proname <> 'require_sync_session'), 2::bigint, 'Only bounded read helpers besides the closed Auth check are definers');
 select ok(not rolcanlogin and not rolinherit and not rolsuper and not rolbypassrls and not rolcreaterole,
   'Policy helper owner cannot log in or bypass RLS') from pg_roles where rolname = 'pos_policy_reader';
 select ok(not pg_has_role('authenticated', 'pos_policy_reader', 'MEMBER') and
@@ -40,10 +40,11 @@ select ok(not has_schema_privilege('authenticated', 'pos_private', 'CREATE') and
 select is((select count(*) from pg_views where schemaname in ('public', 'pos_private')
   and definition ilike '%pos_private%'), 0::bigint, 'No view exposes private data or bypasses RLS');
 select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.prosrc ilike '%pos_private%' and p.proname <> 'tablet_auth_v1'), 0::bigint, 'No public ingestion RPC');
+  where n.nspname = 'public' and p.prosrc ilike '%pos_private%' and
+    (has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('authenticated',p.oid,'EXECUTE'))), 0::bigint, 'No client-callable public ingestion RPC');
 select is((select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid
   join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'pos_private' and p.polcmd <> 'r'
-    and p.polname <> 'enrollment_executor'),
+    and p.polname not in ('enrollment_executor','ledger_executor')),
   0::bigint, 'No client write policy');
 select ok(not has_table_privilege('authenticated', c.oid, 'SELECT'), c.relname || ': registry not readable directly')
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -186,7 +187,8 @@ reset role;
 
 -- Invariant checks run as the migration owner, so RLS is not their protection.
 select is((select count(distinct kind) from pos_private.ledger_events), 5::bigint, 'All five event kinds retained');
-select is((select count(*) from pos_private.ledger_events where kind = 'sale' and payload #>> '{order,orderNumber}' = 'A-0001'),
+select is((select count(*) from pos_private.ledger_events where kind = 'sale' and payload #>> '{order,orderNumber}' = 'A-0001'
+  and chain_id in (pg_temp.chain_id(1),pg_temp.chain_id(2),pg_temp.chain_id(3),pg_temp.chain_id(4))),
   4::bigint, 'Local ticket numbers can repeat across chains');
 select ok((select not (payload -> 'correction' ? 'refundLines') from pos_private.ledger_events where event_id = 'correction:refund-A'),
   'Historical correction stays without refundLines');

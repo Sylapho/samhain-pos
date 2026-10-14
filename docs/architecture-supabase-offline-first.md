@@ -98,7 +98,7 @@ Disponibilité effective cible = `active` publié ET disponibilité globale auto
 
 ## 5. Identité de chaîne et enrôlement
 
-Implémentation #114 : voir [la procédure d'enrôlement](tablet-enrollment.md). Room v6 porte `sync_identity`, Auth et transport sont natifs avec Keystore, et le registre impose invitations, génération et preuve de possession. Les headers de preuve complètent le corps `samhain-sync/1` sans modifier ses champs ni les payloads financiers. L'outbox #35, les transactions d'ingestion #36 et le parcours d'import #61 restent à intégrer.
+Implémentation #114 : voir [la procédure d'enrôlement](tablet-enrollment.md). Room v6 porte `sync_identity`, Auth et transport sont natifs avec Keystore, et le registre impose invitations, génération et preuve de possession. Les headers de preuve complètent le corps `samhain-sync/1` sans modifier ses champs ni les payloads financiers. Les [transactions d'ingestion #36](supabase-ingestion.md) sont livrées ; l'outbox #35 et le parcours d'import #61 restent à intégrer.
 
 `chainId` est un UUID technique durable généré une seule fois et stocké avec les métadonnées locales, dans une transaction ; ce champ est extérieur aux payloads scellés. Il désigne la succession globale du journal de cette base, pas une caisse A/B/C/D. Un reprovisionnement garde ce `chainId` et ses séquences. `terminalId` décrit l'identité métier au moment de chaque événement ; `installationId` identifie l'installation physique émettrice, renouvelée lors d'un remplacement. Aucune de ces chaînes de caractères seule ne prouve une autorisation.
 
