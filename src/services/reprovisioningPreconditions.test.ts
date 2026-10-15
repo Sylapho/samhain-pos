@@ -43,4 +43,28 @@ describe('préconditions de changement de caisse', () => {
     state = { ...safe, pendingEvents: 2 }
     expect(() => guard.requireSafeToReprovision()).toThrow(/acquittés/)
   })
+  it('attend une preuve durable avant de changer l’identité et conserve celle-ci si la preuve échoue', async () => {
+    localStorage.clear()
+    const service = new TerminalConfigurationService(
+      new LocalStorageTerminalConfigurationRepository(localStorage),
+      () => crypto.randomUUID(),
+      () => {},
+    )
+    const original = service.provision({ terminalCode: 'A', displayName: 'Caisse A' })
+    await expect(
+      service.reprovisionWithVerifiedSync(
+        { terminalCode: 'B', displayName: 'Caisse B' },
+        async () => {
+          throw new Error('pending')
+        },
+      ),
+    ).rejects.toThrow('pending')
+    expect(service.getConfiguration()).toEqual(original)
+    const next = await service.reprovisionWithVerifiedSync(
+      { terminalCode: 'B', displayName: 'Caisse B' },
+      async () => {},
+    )
+    expect(next.terminalId).not.toBe(original.terminalId)
+    expect(next.terminalCode).toBe('B')
+  })
 })

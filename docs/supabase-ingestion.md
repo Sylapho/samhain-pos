@@ -2,8 +2,7 @@
 
 Les copies financières sont reçues par `ledger-ingest-v1`, `legacy-import-v1` et
 `ledger-prefix-v1`. Le contrat reste [samhain-sync/1](architecture-supabase-offline-first.md).
-Room/IndexedDB, l'encaissement et l'impression restent locaux. Le worker/outbox #35
-n'est pas livré ici ; aucun appel serveur n'est ajouté au parcours de vente.
+Room/IndexedDB, l'encaissement et l'impression restent locaux. L'[outbox et le worker #35](outbox-synchronization.md) consomment ce contrat sans appel réseau dans le parcours de vente.
 
 ## Chemin de sécurité et transaction
 
@@ -146,6 +145,10 @@ La CI Supabase exécute aussi cette intégration.
 Pour les vecteurs de plateforme : `pnpm android:install-native`, puis
 `android/gradlew -p android testDebugUnitTest --tests fr.samhain.pos.CanonicalJsonConformanceTest`
 avec JDK 21 et SDK Android. Ces tests Robolectric ne prouvent pas le Keystore,
-le transport HTTPS OEM ni l'impression USB sur tablette. Le worker #35 consommera
+le transport HTTPS OEM ni l'impression USB sur tablette. Le worker #35 consomme
 les enveloppes/ACK présents et `sendSync` natif ; il devra créer son outbox durable,
 vérifier la bijection des ACK puis marquer le lot atomiquement, sans purger le journal.
+
+## Outbox #35 intégrée
+
+La capture transactionnelle et le worker natif sont décrits dans [Outbox et synchronisation](outbox-synchronization.md). Ce document distingue les garanties locales testées des validations HTTPS/Keystore/WorkManager/USB à réaliser sur tablette. Les références antérieures à un worker futur décrivent le découpage des issues à leur livraison initiale.

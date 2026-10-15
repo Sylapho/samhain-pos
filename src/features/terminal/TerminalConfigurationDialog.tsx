@@ -14,7 +14,9 @@ type Props = {
   configuration: TerminalConfiguration | null
   onProvision: (input: TerminalProvisioningInput) => TerminalConfiguration
   onRename: (displayName: string) => TerminalConfiguration
-  onReprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
+  onReprovision: (
+    input: TerminalProvisioningInput,
+  ) => TerminalConfiguration | Promise<TerminalConfiguration>
   onConfigured: (configuration: TerminalConfiguration) => void
   onClose?: () => void
   reprovisioningBlockReason?: string | null
@@ -39,6 +41,7 @@ export function TerminalConfigurationDialog({
     null,
   )
   const reprovisionSubmissionStarted = useRef(false)
+  const [submittingReprovision, setSubmittingReprovision] = useState(false)
   const isInitialProvisioning = configuration === null
   const isChoosingIdentity = isInitialProvisioning || reprovisioning
 
@@ -78,17 +81,27 @@ export function TerminalConfigurationDialog({
   const confirmReprovision = () => {
     if (!pendingReprovision || reprovisionSubmissionStarted.current) return
     reprovisionSubmissionStarted.current = true
-    let updated: TerminalConfiguration
+    setSubmittingReprovision(true)
+    let updated: TerminalConfiguration | Promise<TerminalConfiguration>
     try {
       updated = onReprovision(pendingReprovision)
     } catch (caught) {
       reprovisionSubmissionStarted.current = false
+      setSubmittingReprovision(false)
       setError(
         caught instanceof Error ? caught.message : 'La configuration n’a pas été enregistrée.',
       )
       return
     }
-    onConfigured(updated)
+    if (updated instanceof Promise) {
+      void updated.then(onConfigured).catch((caught: unknown) => {
+        reprovisionSubmissionStarted.current = false
+        setSubmittingReprovision(false)
+        setError(
+          caught instanceof Error ? caught.message : 'La configuration n’a pas été enregistrée.',
+        )
+      })
+    } else onConfigured(updated)
   }
 
   if (configuration && pendingReprovision) {
@@ -99,6 +112,7 @@ export function TerminalConfigurationDialog({
         aria-modal="true"
         aria-labelledby="terminal-reprovision-confirmation-title"
         onClick={() => {
+          if (reprovisionSubmissionStarted.current) return
           setPendingReprovision(null)
           setError(null)
         }}
@@ -137,14 +151,21 @@ export function TerminalConfigurationDialog({
           ) : null}
           <div className="mt-6 grid gap-3 sm:grid-cols-[auto_minmax(0,1fr)]">
             <Button
+              disabled={submittingReprovision}
               onClick={() => {
+                if (reprovisionSubmissionStarted.current) return
                 setPendingReprovision(null)
                 setError(null)
               }}
             >
               Annuler
             </Button>
-            <Button variant="primary" className="min-h-14 text-lg" onClick={confirmReprovision}>
+            <Button
+              variant="primary"
+              className="min-h-14 text-lg"
+              onClick={confirmReprovision}
+              disabled={submittingReprovision}
+            >
               Confirmer le changement
             </Button>
           </div>

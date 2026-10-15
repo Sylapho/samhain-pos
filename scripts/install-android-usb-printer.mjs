@@ -112,6 +112,8 @@ if (!appBuildGradle.includes('unitTests.includeAndroidResources = true')) {
   )
 }
 const roomDependencies = [
+  '    implementation "androidx.work:work-runtime:2.11.1"',
+  '    testImplementation "androidx.work:work-testing:2.11.1"',
   `    implementation "androidx.room:room-runtime:${roomVersion}"`,
   `    ksp "androidx.room:room-compiler:${roomVersion}"`,
   `    testImplementation "androidx.room:room-testing:${roomVersion}"`,
@@ -209,6 +211,21 @@ if (/class\s+MainActivity\s*:\s*BridgeActivity\(\)\s*\{\s*\}/s.test(mainActivity
 fs.writeFileSync(mainActivityKotlinPath, normalizeLineEndings(mainActivity, mainActivityLineEnding))
 
 let manifest = fs.readFileSync(manifestPath, 'utf8')
+if (!manifest.includes('OutboxStartupProvider')) {
+  manifest = manifest.replace(
+    /<application([^>]*)>/,
+    '<application$1>\n        <provider android:name=".OutboxStartupProvider" android:authorities="' +
+      appId +
+      '.outbox-startup" android:exported="false" android:initOrder="-100" />',
+  )
+}
+if (!manifest.includes('android.permission.ACCESS_NETWORK_STATE')) {
+  manifest = manifest.replace(
+    /<manifest([^>]*)>/,
+    '<manifest$1>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+  )
+}
+fs.writeFileSync(manifestPath, manifest)
 if (!manifest.includes('android.hardware.usb.host')) {
   manifest = manifest.replace(
     /<manifest([^>]*)>/,

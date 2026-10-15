@@ -1,3 +1,4 @@
+import { synchronizationService } from './synchronizationService'
 import type {
   TerminalCode,
   TerminalConfiguration,
@@ -80,6 +81,19 @@ export class TerminalConfigurationService {
     this.getRequiredConfiguration()
     this.syncPreconditions.requireSafeToReprovision()
     return this.saveNewIdentity(input, provisionedAt)
+  }
+
+  async reprovisionWithVerifiedSync(
+    input: TerminalProvisioningInput,
+    verify: () => Promise<void> = () => synchronizationService.requireSafeToReprovision(),
+  ): Promise<TerminalConfiguration> {
+    this.requireResponsibleMode()
+    const original = this.getRequiredConfiguration()
+    await verify()
+    this.requireResponsibleMode()
+    if (this.getRequiredConfiguration().terminalId !== original.terminalId)
+      throw new Error('L’identité de caisse a changé pendant la vérification.')
+    return this.saveNewIdentity(input, new Date())
   }
 
   adoptRestoredIdentity(
@@ -177,6 +191,8 @@ export function renameTerminal(displayName: string): TerminalConfiguration {
   return getTerminalConfigurationService().rename(displayName)
 }
 
-export function reprovisionTerminal(input: TerminalProvisioningInput): TerminalConfiguration {
-  return getTerminalConfigurationService().reprovision(input)
+export function reprovisionTerminal(
+  input: TerminalProvisioningInput,
+): Promise<TerminalConfiguration> {
+  return getTerminalConfigurationService().reprovisionWithVerifiedSync(input)
 }

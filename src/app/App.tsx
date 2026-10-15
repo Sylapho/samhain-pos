@@ -22,7 +22,11 @@ import { checkoutService } from '../services/checkoutService'
 import { getCashSessionService, type CashSessionService } from '../services/cashSessionService'
 import { getResponsibleModeService, type ResponsibleMode } from '../services/responsibleModeService'
 import { hasPendingTabletReplacement } from '../services/tabletReplacementService'
-import { reprovisioningPreconditions } from '../services/reprovisioningPreconditions'
+import {
+  reprovisioningPreconditions,
+  SyncReprovisioningPreconditions,
+} from '../services/reprovisioningPreconditions'
+import { synchronizationService, type SyncDiagnostics } from '../services/synchronizationService'
 import {
   getTerminalConfiguration,
   provisionTerminal,
@@ -48,7 +52,9 @@ type Props = {
     load: () => TerminalConfiguration | null
     provision: (input: TerminalProvisioningInput) => TerminalConfiguration
     rename: (displayName: string) => TerminalConfiguration
-    reprovision: (input: TerminalProvisioningInput) => TerminalConfiguration
+    reprovision: (
+      input: TerminalProvisioningInput,
+    ) => TerminalConfiguration | Promise<TerminalConfiguration>
   }
   responsibleMode?: ResponsibleMode
   loadPendingTabletReplacement?: () => boolean
@@ -114,6 +120,22 @@ export function App({
     }
   })
   const [terminalConfigurationOpen, setTerminalConfigurationOpen] = useState(false)
+  const [syncDiagnostics, setSyncDiagnostics] = useState<SyncDiagnostics | null>(null)
+  useEffect(() => {
+    if (!terminalConfigurationOpen) return
+    let active = true
+    void synchronizationService
+      .diagnostics()
+      .then((state) => {
+        if (active) setSyncDiagnostics(state)
+      })
+      .catch(() => {
+        if (active) setSyncDiagnostics(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [terminalConfigurationOpen])
   const [cashSessionState, setCashSessionState] = useState<
     | { status: 'loading' }
     | { status: 'missing' }
@@ -347,7 +369,14 @@ export function App({
         ? 'Impossible de changer la caisse tant que des encaissements ou impressions sont à reprendre.'
         : cashSessionState.status === 'ready'
           ? 'Clôturez la session de caisse avant de changer cette tablette de caisse.'
-          : reprovisioningPreconditions.blockReason()
+          : syncDiagnostics
+            ? new SyncReprovisioningPreconditions(() => ({
+                pendingEvents: syncDiagnostics.pendingEvents,
+                transferring: syncDiagnostics.sending > 0,
+                unresolvedError: syncDiagnostics.errors > 0 || !syncDiagnostics.backfillComplete,
+                continuity: syncDiagnostics.continuity,
+              })).blockReason()
+            : reprovisioningPreconditions.blockReason()
 
   if (tabletReplacementPending) {
     return (

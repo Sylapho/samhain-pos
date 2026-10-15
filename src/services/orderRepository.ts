@@ -1,3 +1,5 @@
+import { originalLedgerProfile } from '../utils/ledgerCanonicalization'
+import { captureIndexedDbEvent, IndexedDbOutboxRepository } from './outboxRepository'
 import type { Order, OrderIntegrity, OrderPrinting, PaymentMethod } from '../types/order'
 import type { CheckoutIntent } from '../types/checkout'
 import type { TerminalIdentity } from '../types/terminal'
@@ -216,12 +218,6 @@ function hashLedgerEntry(entry: Omit<SalesLedgerEntry, 'hash'>): string {
   return hashCanonicalValue(entry)
 }
 
-function entryWithoutHash(entry: SalesLedgerEntry): Omit<SalesLedgerEntry, 'hash'> {
-  const copy = { ...entry } as Partial<SalesLedgerEntry>
-  delete copy.hash
-  return copy as Omit<SalesLedgerEntry, 'hash'>
-}
-
 function archiveWithoutHash(archive: SalesArchive): Omit<SalesArchive, 'archiveHash'> {
   const copy = { ...archive } as Partial<SalesArchive>
   delete copy.archiveHash
@@ -406,7 +402,7 @@ export function verifyAuditSnapshot(snapshot: AuditSnapshot): IntegrityVerificat
     if (entry.schemaVersion !== SALES_LEDGER_SCHEMA_VERSION) {
       errors.push(`Version de journal non prise en charge à l’entrée ${entry.id}.`)
     }
-    if (hashLedgerEntry(entryWithoutHash(entry)) !== entry.hash) {
+    if (originalLedgerProfile(entry) === null) {
       errors.push(`Empreinte invalide à l’entrée ${entry.id}.`)
     }
     previousHash = entry.hash
@@ -700,6 +696,8 @@ export class IndexedDbOrderRepository
         new Promise<Order>((resolve, reject) => {
           const transaction = database.transaction(
             [
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
               CHECKOUT_INTENTS_STORE,
               ORDERS_STORE,
               ORDER_TECHNICAL_STORE,
@@ -846,6 +844,7 @@ export class IndexedDbOrderRepository
                     printing: order.printing,
                   } satisfies StoredOrderTechnicalState)
                   ledger.add(entry)
+                  captureIndexedDbEvent(transaction, entry)
                   metadata = {
                     ...appendEntryMetadata(metadata, entry),
                     nextOrderSequence: metadata.nextOrderSequence + 1,
@@ -896,7 +895,14 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<Order>((resolve, reject) => {
           const transaction = database.transaction(
-            [ORDERS_STORE, ORDER_TECHNICAL_STORE, SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              ORDERS_STORE,
+              ORDER_TECHNICAL_STORE,
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readwrite',
           )
           const orders = transaction.objectStore(ORDERS_STORE)
@@ -957,6 +963,7 @@ export class IndexedDbOrderRepository
                 printing: order.printing,
               } satisfies StoredOrderTechnicalState)
               ledger.add(entry)
+              captureIndexedDbEvent(transaction, entry)
               metadataStore.put(metadata)
             } catch (error) {
               operationError = error
@@ -1057,7 +1064,12 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<CashSessionOpenedLedgerEntry>((resolve, reject) => {
           const transaction = database.transaction(
-            [SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readwrite',
           )
           const ledger = transaction.objectStore(SALES_LEDGER_STORE)
@@ -1125,6 +1137,7 @@ export class IndexedDbOrderRepository
                   hash: hashLedgerEntry(entryWithoutDigest),
                 }
                 ledger.add(entry)
+                captureIndexedDbEvent(transaction, entry)
                 metadata = appendEntryMetadata(metadata, entry)
                 metadataStore.put(metadata)
                 result = entry
@@ -1158,7 +1171,12 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<CashFloatUpdatedLedgerEntry>((resolve, reject) => {
           const transaction = database.transaction(
-            [SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readwrite',
           )
           const ledger = transaction.objectStore(SALES_LEDGER_STORE)
@@ -1222,6 +1240,7 @@ export class IndexedDbOrderRepository
                   hash: hashLedgerEntry(entryWithoutDigest),
                 }
                 ledger.add(entry)
+                captureIndexedDbEvent(transaction, entry)
                 metadata = appendEntryMetadata(metadata, entry)
                 metadataStore.put(metadata)
                 result = entry
@@ -1255,7 +1274,13 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<CorrectionLedgerEntry>((resolve, reject) => {
           const transaction = database.transaction(
-            [ORDERS_STORE, SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              ORDERS_STORE,
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readwrite',
           )
           const orders = transaction.objectStore(ORDERS_STORE)
@@ -1328,6 +1353,7 @@ export class IndexedDbOrderRepository
                     hash: hashLedgerEntry(entryWithoutDigest),
                   }
                   ledger.add(entry)
+                  captureIndexedDbEvent(transaction, entry)
                   metadata = appendEntryMetadata(metadata, entry)
                   metadataStore.put(metadata)
                   result = entry
@@ -1365,7 +1391,12 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<ClosureLedgerEntry>((resolve, reject) => {
           const transaction = database.transaction(
-            [SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readwrite',
           )
           const ledger = transaction.objectStore(SALES_LEDGER_STORE)
@@ -1448,6 +1479,7 @@ export class IndexedDbOrderRepository
                   hash: hashLedgerEntry(entryWithoutDigest),
                 }
                 ledger.add(entry)
+                captureIndexedDbEvent(transaction, entry)
                 metadata = {
                   ...appendEntryMetadata(metadata, entry),
                   lastClosureEnd: request.periodEnd,
@@ -1526,7 +1558,14 @@ export class IndexedDbOrderRepository
     const database = await this.openDatabase()
     return new Promise<ArchiveRestoreResult>((resolve, reject) => {
       const transaction = database.transaction(
-        [ORDERS_STORE, ORDER_TECHNICAL_STORE, SALES_LEDGER_STORE, METADATA_STORE],
+        [
+          ORDERS_STORE,
+          ORDER_TECHNICAL_STORE,
+          SALES_LEDGER_STORE,
+          METADATA_STORE,
+          indexedDbStores.outbox,
+          indexedDbStores.syncMetadata,
+        ],
         'readwrite',
       )
       const orders = transaction.objectStore(ORDERS_STORE)
@@ -1545,10 +1584,17 @@ export class IndexedDbOrderRepository
             return
           }
           try {
-            for (const order of archive.orders) orders.add(structuredClone(order))
+            for (const order of archive.orders) {
+              orders.add(structuredClone(order))
+              if (!order.integrity)
+                captureIndexedDbEvent(transaction, toImmutableOrderSnapshot(order))
+            }
             for (const technical of archive.technicalStates)
               technicalStates.add(structuredClone(technical))
-            for (const entry of archive.entries) ledger.add(structuredClone(entry))
+            for (const entry of archive.entries) {
+              ledger.add(structuredClone(entry))
+              captureIndexedDbEvent(transaction, entry)
+            }
             metadataStore.put({ key: SEQUENCES_KEY, ...archive.metadata } satisfies StoredSequences)
           } catch (error) {
             operationError = error
@@ -1682,7 +1728,14 @@ export class IndexedDbOrderRepository
       (database) =>
         new Promise<AuditSnapshot>((resolve, reject) => {
           const transaction = database.transaction(
-            [ORDERS_STORE, ORDER_TECHNICAL_STORE, SALES_LEDGER_STORE, METADATA_STORE],
+            [
+              ORDERS_STORE,
+              ORDER_TECHNICAL_STORE,
+              SALES_LEDGER_STORE,
+              METADATA_STORE,
+              indexedDbStores.outbox,
+              indexedDbStores.syncMetadata,
+            ],
             'readonly',
           )
           const orderRequest = transaction.objectStore(ORDERS_STORE).getAll()
@@ -1727,10 +1780,23 @@ export class IndexedDbOrderRepository
 
   private openDatabase(): Promise<IDBDatabase> {
     if (this.databasePromise) return this.databasePromise
-    this.databasePromise = openSamhainDatabase(this.indexedDb, this.databaseName).catch((error) => {
-      this.databasePromise = null
-      throw error
-    })
+    this.databasePromise = openSamhainDatabase(this.indexedDb, this.databaseName)
+      .then((database) => {
+        // Local maintenance never delays a checkout or opens a network session.
+        void (async () => {
+          const outbox = new IndexedDbOutboxRepository(this.indexedDb, this.databaseName)
+          while (!(await outbox.backfillBatch())) {
+            /* Durable batches permit concurrent sales. */
+          }
+        })().catch(() => {
+          /* Diagnostics can explicitly retry the durable cursor. */
+        })
+        return database
+      })
+      .catch((error) => {
+        this.databasePromise = null
+        throw error
+      })
     return this.databasePromise
   }
 }

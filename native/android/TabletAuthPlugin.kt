@@ -26,7 +26,7 @@ class TabletAuthPlugin : Plugin() {
     }
     private fun execute(call: PluginCall, operation: () -> JSONObject) {
         executor.execute {
-            try { call.resolve(JSObject(operation().toString())) }
+            try { call.resolve(JSObject(operation().toString())); OutboxScheduler.schedule(context) }
             catch (error: TabletAuthFailure) { call.resolve(JSObject(TabletAuthService.state(error.code).toString())) }
             catch (_: Exception) { call.reject("Vérification native impossible. Les données locales sont conservées.","TABLET_AUTH_RECOVERY_REQUIRED") }
         }

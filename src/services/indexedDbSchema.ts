@@ -1,6 +1,8 @@
-export const SAMHAIN_DATABASE_VERSION = 4
+export const SAMHAIN_DATABASE_VERSION = 5
 
 export const indexedDbStores = {
+  outbox: 'outbox',
+  syncMetadata: 'syncMetadata',
   orders: 'orders',
   orderTechnicalState: 'orderTechnicalState',
   salesLedger: 'salesLedger',
@@ -18,6 +20,15 @@ export function openSamhainDatabase(
     const request = indexedDb.open(databaseName, SAMHAIN_DATABASE_VERSION)
     request.onupgradeneeded = () => {
       const database = request.result
+      if (!database.objectStoreNames.contains(indexedDbStores.outbox)) {
+        const outbox = database.createObjectStore(indexedDbStores.outbox, { keyPath: 'eventId' })
+        outbox.createIndex('chainSequence', ['chainId', 'sequence'], { unique: true })
+        outbox.createIndex('statusNextAttempt', ['status', 'nextAttemptAt'])
+      }
+      if (!database.objectStoreNames.contains(indexedDbStores.syncMetadata)) {
+        const sync = database.createObjectStore(indexedDbStores.syncMetadata, { keyPath: 'key' })
+        sync.add({ key: 'identity', chainId: globalThis.crypto.randomUUID() })
+      }
       if (!database.objectStoreNames.contains(indexedDbStores.orders)) {
         database.createObjectStore(indexedDbStores.orders, { keyPath: 'id' })
       }
@@ -30,6 +41,9 @@ export function openSamhainDatabase(
       if (!database.objectStoreNames.contains(indexedDbStores.salesLedger)) {
         database.createObjectStore(indexedDbStores.salesLedger, { keyPath: 'id' })
       }
+      const ledger = request.transaction!.objectStore(indexedDbStores.salesLedger)
+      if (!ledger.indexNames.contains('sequence'))
+        ledger.createIndex('sequence', 'sequence', { unique: true })
       if (!database.objectStoreNames.contains(indexedDbStores.checkoutIntents)) {
         const intents = database.createObjectStore(indexedDbStores.checkoutIntents, {
           keyPath: 'id',

@@ -1,3 +1,4 @@
+import { SAMHAIN_DATABASE_VERSION } from './indexedDbSchema'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
 import { printPreviewOrder } from '../mocks/printOrder'
@@ -49,7 +50,7 @@ function services(indexedDb: IDBFactory, databaseName: string) {
 
 async function alterStoredOrder(indexedDb: IDBFactory, databaseName: string): Promise<void> {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDb.open(databaseName, 4)
+    const request = indexedDb.open(databaseName, SAMHAIN_DATABASE_VERSION)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })

@@ -179,6 +179,12 @@ interface OrderDao {
     @Query("SELECT * FROM orders ORDER BY created_at ASC, id ASC")
     fun getAll(): List<OrderEntity>
 
+    @Query("SELECT * FROM orders WHERE integrity_entry_id IS NULL AND id > :cursor ORDER BY id ASC LIMIT :limit")
+    fun legacyAfter(cursor: String, limit: Int): List<OrderEntity>
+
+    @Query("SELECT COUNT(*) FROM orders WHERE integrity_entry_id IS NULL")
+    fun legacyCount(): Int
+
     @Query("SELECT COUNT(*) FROM orders")
     fun count(): Int
 }
@@ -211,6 +217,9 @@ interface SalesLedgerDao {
 
     @Query("SELECT * FROM sales_ledger ORDER BY sequence ASC")
     fun getAll(): List<SalesLedgerEntity>
+
+    @Query("SELECT * FROM sales_ledger WHERE sequence > :cursor ORDER BY sequence ASC LIMIT :limit")
+    fun batchAfter(cursor: Long, limit: Int): List<SalesLedgerEntity>
 
     @Query("SELECT COUNT(*) FROM sales_ledger")
     fun count(): Int
@@ -299,11 +308,14 @@ interface SyncIdentityDao {
         ProductEntity::class,
         CatalogMetadataEntity::class,
         SyncIdentityEntity::class,
+        OutboxEntry::class,
+        OutboxBackfill::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
+    abstract fun outboxDao(): OutboxDao
     abstract fun syncIdentityDao(): SyncIdentityDao
     abstract fun orderDao(): OrderDao
 
@@ -321,6 +333,16 @@ abstract class SamhainPosDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS outbox (eventId TEXT NOT NULL PRIMARY KEY, chainId TEXT NOT NULL, eventType TEXT NOT NULL, kind TEXT NOT NULL, entityId TEXT NOT NULL, sourceTerminalId TEXT, sequence INTEGER, hash TEXT, previousHash TEXT, payloadCanonical TEXT NOT NULL, ledgerCanonicalization TEXT, organizationId TEXT, festivalId TEXT, transportFingerprint TEXT, status TEXT NOT NULL, attemptCount INTEGER NOT NULL, lastAttemptAt INTEGER, nextAttemptAt INTEGER NOT NULL, lastError TEXT, claimOwner TEXT, leaseExpiresAt INTEGER, receiptId TEXT, serverReceivedAt TEXT, syncedAt INTEGER)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_outbox_chainId_eventId ON outbox(chainId, eventId)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_outbox_chainId_sequence ON outbox(chainId, sequence)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_outbox_status_nextAttemptAt ON outbox(status, nextAttemptAt)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS outbox_backfill (id INTEGER NOT NULL PRIMARY KEY, ledgerCursor INTEGER NOT NULL, legacyCursor TEXT NOT NULL, legacyComplete INTEGER NOT NULL, batchLimit INTEGER NOT NULL, recoveryAttempts INTEGER NOT NULL, recoveryRequested INTEGER NOT NULL, enabled INTEGER NOT NULL)")
+            }
+        }
 
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -436,7 +458,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { instance = it }
             }

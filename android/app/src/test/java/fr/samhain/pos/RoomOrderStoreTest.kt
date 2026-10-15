@@ -57,11 +57,13 @@ class RoomOrderStoreTest {
             before = originalStore.snapshot().toString()
             val sqlite = original.openHelper.writableDatabase
             sqlite.execSQL("DROP TABLE sync_identity")
+            sqlite.execSQL("DROP TABLE outbox")
+            sqlite.execSQL("DROP TABLE outbox_backfill")
             sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42",arrayOf(hash))
             sqlite.version = 5
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_5_6).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7).build()
         try {
             val reopenedStore = RoomOrderStore(migrated)
             assertEquals(before,reopenedStore.snapshot().toString())

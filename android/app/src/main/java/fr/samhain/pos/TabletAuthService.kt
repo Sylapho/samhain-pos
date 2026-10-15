@@ -7,10 +7,14 @@ import java.util.UUID
 import javax.net.ssl.HttpsURLConnection
 import org.json.JSONObject
 
+internal class SyncHttpFailure(val httpStatus: Int, val errorCode: String, val retryAfterMillis: Long? = null) : Exception(errorCode)
+
 internal class TabletAuthFailure(val code: String) : Exception(code)
 
 internal fun interface TabletAuthHttp {
     fun post(path: String, token: String?, body: JSONObject): JSONObject
+    fun postProtectedRaw(path: String, token: String, payload: String, nonce: String, signature: String): JSONObject =
+        postProtected(path, token, JSONObject(payload), nonce, signature)
     fun postProtected(path: String, token: String, body: JSONObject, nonce: String, signature: String): JSONObject {
         throw UnsupportedOperationException("Protected sync transport unavailable")
     }
@@ -20,35 +24,83 @@ internal enum class ProtectedSyncEndpoint(val route: String) {
     LEDGER("ledger-ingest-v1"), LEGACY("legacy-import-v1"), PREFIX("ledger-prefix-v1")
 }
 
-internal class SupabaseAuthHttp(private val config: SupabaseConfiguration) : TabletAuthHttp {
+internal class SupabaseAuthHttp(
+    private val config: SupabaseConfiguration,
+    private val open: (URL) -> HttpsURLConnection = { it.openConnection() as HttpsURLConnection },
+) : TabletAuthHttp {
     override fun post(path: String, token: String?, body: JSONObject): JSONObject = request(path,token,body,emptyMap())
     override fun postProtected(path: String, token: String, body: JSONObject, nonce: String, signature: String): JSONObject =
         request(path,token,body,mapOf("X-Samhain-Nonce" to nonce,"X-Samhain-Signature" to signature))
 
-    private fun request(path: String, token: String?, body: JSONObject, proofHeaders: Map<String,String>): JSONObject {
+    override fun postProtectedRaw(path: String, token: String, payload: String, nonce: String, signature: String): JSONObject =
+        request(path,token,JSONObject(payload),mapOf("X-Samhain-Nonce" to nonce,"X-Samhain-Signature" to signature),payload)
+
+    private fun readBounded(stream: java.io.InputStream): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while(true) {
+            val count = stream.read(buffer)
+            if(count < 0) break
+            require(output.size() + count <= 1048576)
+            output.write(buffer,0,count)
+        }
+        return output.toByteArray()
+    }
+
+    private fun request(path: String, token: String?, body: JSONObject, proofHeaders: Map<String,String>, rawPayload: String = body.toString()): JSONObject {
         require(config.status == "configured")
-        val connection = URL(config.url + path).openConnection() as HttpsURLConnection
+        val connection = open(URL(config.url + path))
+        val timeout = TIMEOUTS.schedule({ connection.disconnect() },30,java.util.concurrent.TimeUnit.SECONDS)
         try {
             connection.instanceFollowRedirects = false
             connection.requestMethod = "POST"
-            connection.connectTimeout = 15000
+            connection.connectTimeout = 30000
             connection.readTimeout = 30000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type","application/json")
             connection.setRequestProperty("apikey",config.publishableKey)
             token?.let { connection.setRequestProperty("Authorization","Bearer $it") }
             proofHeaders.forEach { (name,value) -> connection.setRequestProperty(name,value) }
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val bytes = rawPayload.toByteArray(Charsets.UTF_8)
+            require(bytes.size <= 1048576)
+            connection.outputStream.use { it.write(bytes) }
             val status = connection.responseCode
             if (status == 401) throw TabletAuthFailure("session_expired")
             if (status == 403) throw TabletAuthFailure("authorization_denied")
-            if (status !in 200..299) throw TabletAuthFailure(if (status >= 500 || status == 429) "server_unreachable" else "needs_recovery")
-            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            if (proofHeaders.isNotEmpty() && status in 201..299) throw SyncHttpFailure(408,"INVALID_ACK")
+            if (proofHeaders.isNotEmpty() && status != 200) {
+                val response = connection.errorStream?.use { stream -> String(readBounded(stream),Charsets.UTF_8) }
+                val error = try { JSONObject(response ?: "{}").getJSONObject("error") } catch (_: Exception) { JSONObject() }
+                val code = error.optString("code","HTTP_ERROR")
+                val allowed = setOf("HEAD_MOVED","MISSING_PREDECESSOR","DEPENDENCY_MISSING","SEQUENCE_FORK",
+                    "EVENT_CONTENT_CONFLICT","DUPLICATE_ORDER_OTHER_CHAIN","TRANSACTION_RETRY","SERVER_UNAVAILABLE",
+                    "INTERNAL_ERROR","RATE_LIMITED","INVALID_ENVELOPE","INVALID_HASH","INVALID_FINGERPRINT",
+                    "INVALID_PAYLOAD","BUSINESS_INCONSISTENCY","CANONICALIZATION_UNSUPPORTED","PROTOCOL_UNSUPPORTED",
+                    "LEDGER_SCHEMA_UNSUPPORTED","BATCH_TOO_LARGE","EVENT_TOO_LARGE")
+                val retryAfter = SyncEngine.retryAfter(connection.getHeaderField("Retry-After"),System.currentTimeMillis())
+                    ?: error.optLong("retryAfterSeconds",-1).takeIf { it in 0..2147483647 }?.let { it * 1000 }
+                throw SyncHttpFailure(status,if(code in allowed) code else "HTTP_ERROR",retryAfter)
+            }
+            if (status !in 200..299) throw TabletAuthFailure(if (status >= 500 || status == 429 || status == 408) "server_unreachable" else "needs_recovery")
+            val response = connection.inputStream.use { String(readBounded(it),Charsets.UTF_8) }
             require(response.toByteArray(Charsets.UTF_8).size <= 1048576)
             return JSONObject(response)
         } catch (error: TabletAuthFailure) { throw error }
+        catch (_: org.json.JSONException) {
+            if(proofHeaders.isNotEmpty()) throw SyncHttpFailure(408,"INVALID_ACK")
+            throw TabletAuthFailure("needs_recovery")
+        }
+        catch (_: IllegalArgumentException) {
+            if(proofHeaders.isNotEmpty()) throw SyncHttpFailure(408,"INVALID_ACK")
+            throw TabletAuthFailure("needs_recovery")
+        }
         catch (_: java.io.IOException) { throw TabletAuthFailure("server_unreachable") }
-        finally { connection.disconnect() }
+        finally { timeout.cancel(false); connection.disconnect() }
+    }
+    companion object {
+        private val TIMEOUTS = java.util.concurrent.Executors.newScheduledThreadPool(1) { runnable ->
+            Thread(runnable,"samhain-http-timeout").apply { isDaemon = true }
+        }
     }
 }
 
@@ -143,13 +195,22 @@ internal class TabletAuthService(
 
     // Real native transport seam for #35/#36, never exposed to JavaScript.
     fun sendSync(endpoint: ProtectedSyncEndpoint, body: JSONObject): JSONObject = synchronized(SESSION_LOCK) {
-        if (needsLocalRecovery()) throw TabletAuthFailure("needs_recovery")
+        if (needsLocalRecovery() && endpoint != ProtectedSyncEndpoint.PREFIX) throw TabletAuthFailure("needs_recovery")
         val current = publicState(vault.read() ?: throw TabletAuthFailure("not_enrolled"))
-        if (current.getString("status") != "authorized") throw TabletAuthFailure(current.getString("status"))
+        if (current.getString("status") != "authorized" && !(endpoint == ProtectedSyncEndpoint.PREFIX && current.getString("status") == "needs_recovery")) throw TabletAuthFailure(current.getString("status"))
         for (field in listOf("organizationId","festivalId","chainId","installationId","enrollmentGeneration")) {
             require(body.get(field).toString() == current.get(field).toString())
         }
-        signedRequest(endpoint.route,endpoint.route,body)
+        val wasExpired = vault.read()!!.getJSONObject("session").getLong("expires_at") <= now() + 60
+        try { signedRequest(endpoint.route,endpoint.route,body) }
+        catch (error: TabletAuthFailure) {
+            if(error.code != "session_expired" || wasExpired) { failureState(error.code); throw error }
+            val stored = vault.read() ?: throw error
+            stored.getJSONObject("session").put("expires_at",0)
+            vault.write(stored)
+            try { signedRequest(endpoint.route,endpoint.route,body) }
+            catch (retryError: TabletAuthFailure) { failureState(retryError.code); throw retryError }
+        }
     }
 
     private fun signedRequest(action: String, route: String, body: JSONObject): JSONObject {
@@ -159,7 +220,7 @@ internal class TabletAuthService(
         val hash = MessageDigest.getInstance("SHA-256").digest(payload.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         val message = "samhain-auth/1\n${body.getString("installationId")}\n$action\n$nonce\n$hash"
         val signature = signer.sign(message.toByteArray(Charsets.UTF_8))
-        if (route != "tablet-auth-v1") return http.postProtected("/functions/v1/$route",token,body,nonce,signature)
+        if (route != "tablet-auth-v1") return http.postProtectedRaw("/functions/v1/$route",token,payload,nonce,signature)
         return http.post("/functions/v1/$route",token,JSONObject().put("action",action).put("payload",payload)
             .put("nonce",nonce).put("signature",signature))
     }

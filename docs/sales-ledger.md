@@ -8,7 +8,7 @@ Ce document ne constitue ni une attestation de conformité ni une certification.
 
 ## Modèle local
 
-Le journal a été introduit dans la base IndexedDB `samhain-pos` en version 2 ; la version courante est 4 (Room v5 sur Android). Le modèle sépare quatre responsabilités financières :
+Le journal a été introduit dans la base IndexedDB `samhain-pos` en version 2 ; la version courante est 5 (Room v7 sur Android). Le modèle sépare quatre responsabilités financières :
 
 - `orders` conserve l’instantané financier d’origine : lignes, options, prix, TVA, règlement, date, terminal, numéros de commande et de reçu ;
 - `orderTechnicalState` conserve uniquement l’état d’impression, qui doit pouvoir évoluer après la vente sans modifier les données financières ;
@@ -110,3 +110,7 @@ Le BOFiP précise notamment que les données élémentaires, les cumuls et les p
 - décider comment ancrer périodiquement l’empreinte de tête sur un support indépendant ;
 - implémenter la synchronisation multi-tablettes selon [le contrat Supabase](architecture-supabase-offline-first.md), en conservant une identité durable par chaîne locale distincte de `terminalId`, sans réécrire les événements locaux ;
 - faire auditer les scénarios de changement d’heure, mise à jour logicielle, perte de tablette et reprise après incident.
+
+## Outbox #35 intégrée
+
+La capture transactionnelle et le worker natif sont décrits dans [Outbox et synchronisation](outbox-synchronization.md). Ce document distingue les garanties locales testées des validations HTTPS/Keystore/WorkManager/USB à réaliser sur tablette. Les références antérieures à un worker futur décrivent le découpage des issues à leur livraison initiale.

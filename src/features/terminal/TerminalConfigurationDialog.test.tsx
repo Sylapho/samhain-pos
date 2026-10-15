@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { TerminalConfiguration } from '../../types/terminal'
 import { TerminalConfigurationDialog } from './TerminalConfigurationDialog'
@@ -11,6 +11,37 @@ const configuration: TerminalConfiguration = {
 }
 
 describe('configuration de la caisse', () => {
+  it('verrouille une vérification asynchrone puis permet de reprendre après refus', async () => {
+    let rejectProof: (error: Error) => void = () => {}
+    const proof = new Promise<TerminalConfiguration>((_, reject) => {
+      rejectProof = reject
+    })
+    const onReprovision = vi.fn().mockReturnValue(proof)
+    const onConfigured = vi.fn()
+    render(
+      <TerminalConfigurationDialog
+        configuration={configuration}
+        onProvision={vi.fn()}
+        onRename={vi.fn()}
+        onReprovision={onReprovision}
+        onConfigured={onConfigured}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Changer la caisse utilisée' }))
+    fireEvent.click(screen.getByRole('button', { name: 'B' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer le changement' }))
+    expect(screen.getByRole('button', { name: 'Confirmer le changement' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Annuler' })).toBeDisabled()
+    expect(onConfigured).not.toHaveBeenCalled()
+    await act(async () => {
+      rejectProof(new Error('Des événements sont en attente.'))
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('Des événements sont en attente.')
+    expect(screen.getByRole('button', { name: 'Confirmer le changement' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Annuler' })).toBeEnabled()
+  })
   it('indique au responsable que la synchronisation est absente sans désactiver les paramètres locaux', () => {
     render(
       <TerminalConfigurationDialog
