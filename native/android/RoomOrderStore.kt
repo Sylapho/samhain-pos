@@ -221,6 +221,8 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         java.util.UUID.fromString(chainId)
         val identity = syncIdentity()
         require(!identity.bound || identity.chainId == chainId) { "Conflit de chaîne : intervention requise." }
+        require(identity.chainId == chainId || database.outboxDao().all(identity.chainId).none { it.transportFingerprint != null })
+        database.outboxDao().bindUnassigned(chainId)
         require(database.syncIdentityDao().update(identity.copy(chainId = chainId, bound = true)) == 1)
     }
 
@@ -263,6 +265,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             if (current.legacyMigrationCompleted) {
                 return@transaction importResult(0, 0)
             }
+            OutboxStore(database).resetBackfill()
             val incomingOrders = snapshot.getJSONArray("orders")
             val incomingTechnical = snapshot.getJSONArray("technicalStates")
             val incomingEntries = snapshot.getJSONArray("entries")
@@ -331,7 +334,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                             "Conflit de migration : la séquence ${entry.getLong("sequence")} est déjà utilisée.",
                         )
                     }
-                    ledger.insert(toLedgerEntity(entry))
+                    insertLedger(entry)
                     importedEntries += 1
                 }
             }
@@ -409,7 +412,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 put("correction", correction)
             }
             val entry = sealLedgerEntry(withoutHash)
-            ledger.insert(toLedgerEntity(entry))
+            insertLedger(entry)
             state = appendMetadata(state, entry)
             require(metadata.update(state) == 1)
             entry
@@ -459,7 +462,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 put("session", session)
             }
             val entry = sealLedgerEntry(withoutHash)
-            ledger.insert(toLedgerEntity(entry))
+            insertLedger(entry)
             state = appendMetadata(state, entry)
             require(metadata.update(state) == 1)
             entry
@@ -511,7 +514,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 put("cashFloatUpdate", update)
             }
             val entry = sealLedgerEntry(withoutHash)
-            ledger.insert(toLedgerEntity(entry))
+            insertLedger(entry)
             state = appendMetadata(state, entry)
             require(metadata.update(state) == 1)
             entry
@@ -581,7 +584,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 put("closure", closure)
             }
             val entry = sealLedgerEntry(withoutHash)
-            ledger.insert(toLedgerEntity(entry))
+            insertLedger(entry)
             state = appendMetadata(state, entry).copy(lastClosureEnd = periodEnd)
             require(metadata.update(state) == 1)
             entry
@@ -593,6 +596,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 "La restauration exige une base locale vide."
             }
             prepareSyncReplacement()
+            OutboxStore(database).resetBackfill()
             val snapshotOrders = snapshot.getJSONArray("orders")
             val technicalStates = snapshot.getJSONArray("technicalStates")
             val entries = snapshot.getJSONArray("entries")
@@ -620,7 +624,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     )
                 }
             }
-            forEachObject(entries) { ledger.insert(toLedgerEntity(it)) }
+            forEachObject(entries) { insertLedger(it) }
             validateStoredLedgerChain()
             val sourceMetadata = snapshot.getJSONObject("metadata")
             val current = currentMetadata()
@@ -690,7 +694,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         }
         orders.insert(toOrderEntity(stored))
         printing.insert(toPrintingEntity(order.getString("id"), technical))
-        ledger.insert(toLedgerEntity(entry))
+        insertLedger(entry)
         state =
             state.copy(
                 nextOrderSequence = state.nextOrderSequence + 1,
@@ -831,6 +835,12 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         }
     }
 
+    private fun insertLedger(entry: JSONObject) {
+        val entity = toLedgerEntity(entry)
+        ledger.insert(entity)
+        OutboxStore(database).capture(entity)
+    }
+
     private fun toLedgerEntity(entry: JSONObject): SalesLedgerEntity {
         validateLedgerEntryHash(entry)
         return SalesLedgerEntity(
@@ -853,7 +863,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
     private fun validateLedgerEntryHash(entry: JSONObject) {
         val withoutHash = JSONObject(entry.toString())
         val hash = withoutHash.takeRequiredString("hash")
-        require(CanonicalJson.sha256(withoutHash) == hash) {
+        require(CanonicalJson.sha256(withoutHash) == hash || SyncProtocol.sha(SyncProtocol.canonical(withoutHash)) == hash) {
             "Empreinte invalide pour l’entrée ${entry.optString("id")}"
         }
     }

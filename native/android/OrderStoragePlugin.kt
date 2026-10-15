@@ -98,10 +98,35 @@ class OrderStoragePlugin : Plugin() {
     fun restoreSnapshot(call: PluginCall) =
         execute(call) { store.restoreSnapshot(call.requiredObject("snapshot")) }
 
+    @PluginMethod
+    fun setSyncEnabled(call: PluginCall) = execute(call) {
+        OutboxStore(SamhainPosDatabase.getInstance(context)).setEnabled(call.getBoolean("enabled") ?: error("missing"))
+        OutboxScheduler.schedule(context)
+        JSONObject().put("updated",true)
+    }
+
+    @PluginMethod
+    fun getSyncDiagnostics(call: PluginCall) = execute(call) {
+        val authentication = TabletAuthService.get(context).status().optString("status")
+        OutboxStore(SamhainPosDatabase.getInstance(context)).diagnostics().apply {
+            put("authentication",authentication)
+            if(authentication !in setOf("authorized","session_expired")) put("continuity","unknown")
+        }
+    }
+
+    @PluginMethod
+    fun retrySynchronization(call: PluginCall) = execute(call) {
+        OutboxStore(SamhainPosDatabase.getInstance(context)).requestRecovery()
+        OutboxScheduler.schedule(context)
+        JSONObject().put("scheduled",true)
+    }
+
     private fun execute(call: PluginCall, operation: () -> JSONObject) {
         databaseExecutor.execute {
             try {
-                call.resolve(JSObject(operation().toString()))
+                val result = operation()
+                call.resolve(JSObject(result.toString()))
+                OutboxScheduler.schedule(context)
             } catch (error: Exception) {
                 call.reject(
                     error.message ?: "Erreur de persistance Room/SQLite.",

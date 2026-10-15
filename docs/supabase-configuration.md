@@ -30,7 +30,7 @@ pnpm android:sync:production
 
 Vite valide les entrées dans `src/config/supabase.ts`, n'expose pas automatiquement les `VITE_*`, et injecte uniquement le résultat expurgé. Il produit `dist/samhain-build.json` (schéma 1, mode et configuration publique). Capacitor copie ce fichier dans `android/app/src/main/assets/public/samhain-build.json`. Aucune variable Supabase brute n'est exposée via `import.meta.env` ; seul le flag de développement existant est explicitement autorisé hors production.
 
-`SupabaseConfiguration.load(context)` lit ce même asset directement, sans WebView, appel réseau ni credential privé. Un asset absent, corrompu ou incompatible donne un état `invalid` sans exception vers le checkout. Le futur worker #35 consommera cet état ; #114 fournit **séparément** les sessions Auth natives chiffrées par Keystore. Il n'y a aucun getter de token vers JavaScript ni session dans cet asset public. Une configuration prête n'indique ni appareil enrôlé ni synchronisation réussie.
+`SupabaseConfiguration.load(context)` lit ce même asset directement, sans WebView, appel réseau ni credential privé. Un asset absent, corrompu ou incompatible donne un état `invalid` sans exception vers le checkout. Le worker #35 consomme cet état ; #114 fournit **séparément** les sessions Auth natives chiffrées par Keystore. Il n'y a aucun getter de token vers JavaScript ni session dans cet asset public. Une configuration prête n'indique ni appareil enrôlé ni synchronisation réussie.
 
 L'installateur natif copie la classe Kotlin, ses tests et `supabase-config.gradle` de façon idempotente. Gradle refuse en release les assets absents ou construits en mode test, et recontrôle l'URL de production configurée avec la variable du processus. Les builds Vite recherchent les clés `sb_secret_...` et les JWT `service_role` dans leurs sorties ; Gradle fait de même dans les ressources textuelles de release. Les erreurs ne contiennent jamais les valeurs détectées. Ne pas ajouter de secrets à des assets copiés, sources natives, archives ou logs : ces contrôles ne sont pas un coffre-fort ni un audit de tous les secrets possibles.
 
@@ -45,3 +45,7 @@ URL et clé publiable sont publiques dans le bundle/APK, conformément aux [type
 ## Vérification
 
 `pnpm test:run` couvre absence/partiel/HTTPS/clé/modes, la confirmation du projet de production, les sorties Vite expurgées et la détection des credentials privilégiés. Les tests applicatifs existants couvrent le checkout et l'impression locale. `SupabaseConfigurationTest` couvre le lecteur natif avec Robolectric ; exécuter `testDebugUnitTest` depuis `android/` avec JDK 21 et SDK Android. Avant distribution, vérifier les ressources réellement copiées, exécuter les garde-fous Gradle puis tester démarrage, vente et impression sur tablette sans réseau. Aucune connexion Supabase réelle ni impression USB n'est prouvée par les tests de configuration.
+
+## Outbox #35 intégrée
+
+La capture transactionnelle et le worker natif sont décrits dans [Outbox et synchronisation](outbox-synchronization.md). Ce document distingue les garanties locales testées des validations HTTPS/Keystore/WorkManager/USB à réaliser sur tablette. Les références antérieures à un worker futur décrivent le découpage des issues à leur livraison initiale.

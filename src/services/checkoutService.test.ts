@@ -1,3 +1,4 @@
+import { SAMHAIN_DATABASE_VERSION } from './indexedDbSchema'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it } from 'vitest'
 import { createValidCartItem, createValidOrderItems } from '../test/orderFixtures'
@@ -30,7 +31,7 @@ function setOrderSequence(
   nextOrderSequence: number,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const open = indexedDb.open(databaseName, 4)
+    const open = indexedDb.open(databaseName, SAMHAIN_DATABASE_VERSION)
     open.onerror = () => reject(open.error)
     open.onsuccess = () => {
       const database = open.result

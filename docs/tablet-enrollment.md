@@ -4,7 +4,7 @@
 
 La configuration locale de caisse, les ventes, les paiements et l’impression USB restent indépendants de Supabase. Room est la source de vérité Android. L’ouverture des paramètres lit d’abord l’état enregistré ; seule une action explicite contacte le serveur. « Tablette autorisée » décrit une habilitation, jamais un acquittement de ventes. Hors connexion, cet état peut être ancien : utiliser **Vérifier / rafraîchir la session** pour interroger le serveur.
 
-Le navigateur reste une prévisualisation locale. Il ne simule pas d’enrôlement sécurisé et ne conserve aucun token. Les fonctionnalités Auth livrées ici ciblent Android. Les [endpoints financiers #36](supabase-ingestion.md) sont livrés séparément ; le moteur d’outbox #35 et l’écran d’import #61 restent à intégrer.
+Le navigateur reste une prévisualisation locale. Il ne simule pas d’enrôlement sécurisé et ne conserve aucun token. Les fonctionnalités Auth livrées ici ciblent Android. Les [endpoints financiers #36](supabase-ingestion.md) sont livrés séparément ; le moteur d’outbox #35 est intégré ; l’écran d’import #61 reste séparé.
 
 ## Préparer Supabase
 
@@ -71,7 +71,7 @@ Lorsque le serveur confirme que l’archive restaurée manque un suffixe, ne pas
 
 ## Changer la caisse d’une tablette
 
-Le changement normal conserve la chaîne financière. Il est protégé dans `TerminalConfigurationService`, en plus du contrôle UI. Il refuse pending, transfert, erreur non résolue, continuité échouée **ou inconnue**. Sans l’outbox #35, aucune preuve « tout acquitté » n’existe : ce changement est donc suspendu par défaut, y compris sans réseau. Le renommage reste disponible.
+Le changement normal conserve la chaîne financière. Le parcours normal relit désormais les diagnostics durables #35 avant la mutation. Il est protégé dans `TerminalConfigurationService`, en plus du contrôle UI. Il refuse pending, transfert, erreur non résolue, continuité échouée **ou inconnue**. La preuve exige le rattrapage complet, toutes les entrées acquittées et une continuité vérifiée ; sinon le changement reste suspendu. Le renommage reste disponible.
 
 Procédure exceptionnelle : arrêter l’opération de changement, vérifier et exporter une archive, consigner motif, terminal courant, chaîne, installations/générations, têtes, erreurs et états pending ; traiter l’incident avec le responsable. Jusqu’à #35, continuer sous l’identité actuelle ou préparer une autre caisse vierge autorisée. Il n’existe pas de bouton de contournement, de purge de file ou de reprovisionnement d’exception silencieux. Une future procédure approuvée devra conserver ces traces et valider les mappings historiques côté serveur.
 
@@ -96,3 +96,7 @@ Le dossier d’enrôlement est borné à moins de 10 000 entrées et 1 MiB HTTP.
 Exécuter `pnpm test:run`, `pnpm lint`, `pnpm build`, `deno check supabase/functions/tablet-auth-v1/index.ts`, puis `pnpm android:sync:test` et `android/gradlew.bat -p android testDebugUnitTest assembleDebug` avec JDK 21/SDK Android. Les suites `supabase test db` vérifient les migrations, droits et révocations ; `node scripts/test-supabase-enrollment-concurrency.mjs` vérifie deux activations réelles concurrentes sur la pile **locale jetable**.
 
 Avant exploitation, tester sur le projet de test : vrai signup/refresh/JWT/gateway, approbation d’un responsable habilité et refus d’un autre, révocation avec JWT encore valide, perte de clé, arrêt/redémarrage Android et mode avion avec vente et impression USB. Les tests JCE/Robolectric utilisent une clé injectée pour vérifier les octets chiffrés et le redémarrage disque ; ils ne prouvent pas le Keystore matériel de votre tablette. Tester cloud/D2D sur les modèles OEM. Ne pas annoncer un test matériel ou une connexion distante qui n’a pas été exécuté.
+
+## Outbox #35 intégrée
+
+La capture transactionnelle et le worker natif sont décrits dans [Outbox et synchronisation](outbox-synchronization.md). Ce document distingue les garanties locales testées des validations HTTPS/Keystore/WorkManager/USB à réaliser sur tablette. Les références antérieures à un worker futur décrivent le découpage des issues à leur livraison initiale.

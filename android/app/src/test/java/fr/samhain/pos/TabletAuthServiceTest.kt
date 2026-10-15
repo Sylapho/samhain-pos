@@ -162,6 +162,44 @@ class TabletAuthServiceTest {
         val wrongKey = GcmCredentials { KeyGenerator.getInstance("AES").apply { init(256) }.generateKey() }
         assertThrows(Exception::class.java) { wrongKey.decrypt(gcm.encrypt(plain)) }
     }
+    @Test fun unexpectedSync401RefreshesOnceSignsTheExactBodyAndThenPausesOn403() {
+        val vault = MemoryVault()
+        val binding = JSONObject().put("organizationId","organization").put("festivalId","festival")
+            .put("chainId","chain").put("installationId","installation").put("enrollmentGeneration",1)
+        vault.write(JSONObject().put("session",session()).put("status","authorized")
+            .put("installationId","installation").put("binding",binding))
+        var refreshes = 0
+        var sent = 0
+        var deny = false
+        var signed = ""
+        val signing = object : InstallationSigner {
+            override fun publicKey() = "test"
+            override fun sign(message: ByteArray): String { signed = String(message,Charsets.UTF_8); return "signature" }
+        }
+        val transport = object : TabletAuthHttp {
+            override fun post(path: String, token: String?, body: JSONObject): JSONObject {
+                if(path.contains("refresh_token")) { refreshes++; return session(2000) }
+                return JSONObject().put("nonce","fresh-nonce-$sent")
+            }
+            override fun postProtectedRaw(path: String, token: String, payload: String, nonce: String, signature: String): JSONObject {
+                sent++
+                assertEquals(SyncProtocol.sha(payload),signed.substringAfterLast('\n'))
+                if(deny) throw TabletAuthFailure("authorization_denied")
+                if(sent == 1) throw TabletAuthFailure("session_expired")
+                return JSONObject().put("committed",true)
+            }
+        }
+        val auth = TabletAuthService(config,vault,signing,transport,{ JSONObject() },{},now = { 10 })
+        val body = JSONObject(binding.toString()).put("protocolVersion",1).put("events",org.json.JSONArray()).put("opaque","é/😀")
+        val before = body.toString()
+        assertTrue(auth.sendSync(ProtectedSyncEndpoint.LEDGER,body).getBoolean("committed"))
+        assertEquals(1,refreshes); assertEquals(2,sent); assertEquals(before,body.toString())
+        deny = true
+        assertThrows(TabletAuthFailure::class.java) { auth.sendSync(ProtectedSyncEndpoint.LEDGER,body) }
+        assertEquals("authorization_denied",auth.status().getString("status"))
+        assertThrows(TabletAuthFailure::class.java) { auth.sendSync(ProtectedSyncEndpoint.LEDGER,body) }
+        assertEquals(3,sent)
+    }
     @Test fun capacitorBridgeLoggingCannotExposePasswordsOrInvitationCodesEvenInDebug() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         assertFalse(CapConfig.loadDefault(context).isLoggingEnabled)
