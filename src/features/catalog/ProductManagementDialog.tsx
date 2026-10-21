@@ -12,6 +12,8 @@ import { getProductStartingPriceCents } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
 import { CategoryManagement } from './CategoryManagement'
 import { CatalogSynchronization } from './CatalogSynchronization'
+import { SynchronizationStatus } from '../responsible/SynchronizationStatus'
+import type { ResponsibleMode } from '../../services/responsibleModeService'
 
 type Props = {
   products: Product[]
@@ -21,6 +23,8 @@ type Props = {
   onProductsChanged: (products: Product[]) => void
   onClose: () => void
   onApplyCatalog?: (choice?: 'local' | 'remote') => Promise<void>
+  responsibleMode?: ResponsibleMode
+  onConfigureSynchronization?: () => void
 }
 
 type EditorState = {
@@ -101,8 +105,12 @@ export function ProductManagementDialog({
   onProductsChanged,
   onClose,
   onApplyCatalog,
+  responsibleMode,
+  onConfigureSynchronization,
 }: Props) {
-  const [section, setSection] = useState<'products' | 'categories' | 'sync'>('products')
+  const [section, setSection] = useState<'products' | 'categories' | 'sync' | 'data-sync'>(
+    'products',
+  )
   const [categoryBusy, setCategoryBusy] = useState(false)
   const pending = useRef(false)
   const activeCategories = categories.filter(({ active }) => active)
@@ -186,7 +194,9 @@ export function ProductManagementDialog({
                 ? 'Produits'
                 : section === 'categories'
                   ? 'Catégories'
-                  : 'Catalogue partagé'}
+                  : section === 'data-sync'
+                    ? 'Synchronisation des données'
+                    : 'Catalogue partagé'}
             </h2>
           </div>
           <Button disabled={busyId !== null || categoryBusy} onClick={onClose}>
@@ -194,7 +204,10 @@ export function ProductManagementDialog({
           </Button>
         </header>
 
-        <nav aria-label="Administration" className="flex gap-3 border-b border-stone-300 p-4">
+        <nav
+          aria-label="Administration"
+          className="flex flex-wrap gap-3 border-b border-stone-300 p-4"
+        >
           <Button
             aria-pressed={section === 'products'}
             disabled={busyId !== null || categoryBusy || editor !== null}
@@ -218,9 +231,24 @@ export function ProductManagementDialog({
               Catalogue partagé
             </Button>
           )}
+          {onConfigureSynchronization && (
+            <Button
+              aria-pressed={section === 'data-sync'}
+              disabled={busyId !== null || categoryBusy || editor !== null}
+              onClick={() => setSection('data-sync')}
+            >
+              Synchronisation des données
+            </Button>
+          )}
         </nav>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {section === 'sync' && onApplyCatalog ? (
+          {section === 'data-sync' && onConfigureSynchronization ? (
+            <SynchronizationStatus
+              responsibleMode={responsibleMode}
+              onConfigure={onConfigureSynchronization}
+              onLocked={onClose}
+            />
+          ) : section === 'sync' && onApplyCatalog ? (
             <CatalogSynchronization
               service={service}
               products={products}

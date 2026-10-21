@@ -116,9 +116,11 @@ class OrderStoragePlugin : Plugin() {
 
     @PluginMethod
     fun retrySynchronization(call: PluginCall) = execute(call) {
-        OutboxStore(SamhainPosDatabase.getInstance(context)).requestRecovery()
-        OutboxScheduler.schedule(context)
-        JSONObject().put("scheduled",true)
+        val authentication = TabletAuthService.get(context).status().optString("status")
+        val allowed = authentication in setOf("authorized","session_expired") &&
+            OutboxStore(SamhainPosDatabase.getInstance(context)).canRetry()
+        if(allowed) OutboxScheduler.schedule(context)
+        JSONObject().put("scheduled",allowed)
     }
 
     private fun execute(call: PluginCall, operation: () -> JSONObject) {

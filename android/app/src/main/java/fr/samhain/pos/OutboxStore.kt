@@ -1,6 +1,7 @@
 package fr.samhain.pos
 
 import java.util.UUID
+import java.time.Instant
 import java.util.concurrent.Callable
 import org.json.JSONObject
 
@@ -140,6 +141,13 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
         dao.updateBackfill(state.copy(recoveryRequested = true,recoveryAttempts = 0))
     }
 
+    // A manual wakeup never clears a conflict, a claim or a persisted backoff.
+    fun canRetry(): Boolean = tx {
+        val chain = identity().chainId
+        dao.backfill()?.enabled != false && dao.blockedCount(chain) == 0 &&
+            dao.diagnosticEntries(chain).none { it.status == "sending" }
+    }
+
     fun takeRecoveryRequest(): Boolean = tx {
         val state = dao.backfill() ?: return@tx false
         if(!state.recoveryRequested) return@tx false
@@ -201,18 +209,34 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
 
     fun diagnostics(): JSONObject = tx {
         val chain = identity()
-        val rows = dao.all(chain.chainId)
+        val rows = dao.diagnosticEntries(chain.chainId)
         val state = dao.backfill()
         val capturedLedger = rows.count { it.sequence != null }
         val capturedLegacy = rows.count { it.sequence == null }
         val backfillComplete = state?.legacyComplete == true && capturedLedger == database.salesLedgerDao().count() &&
             capturedLegacy == database.orderDao().legacyCount()
-        val errors = rows.count { it.status in setOf("paused_auth","needs_recovery","quarantined") }
+        val failures = rows.filter { it.status != "synced" &&
+            (it.status in setOf("paused_auth","needs_recovery","quarantined") || (it.status == "pending" && it.lastError?.let { code -> code != "BATCH_DEFERRED" } == true)) }
+        val errors = failures.size
+        val lastFailure = failures.maxByOrNull { it.lastAttemptAt ?: 0 }
+        val category = when {
+            failures.any { it.status in setOf("needs_recovery","quarantined") } -> "conflict"
+            failures.any { it.status == "paused_auth" } -> "authentication"
+            lastFailure?.lastError == "NETWORK_ERROR" -> "service_unreachable"
+            failures.isNotEmpty() -> "temporary"
+            else -> "none"
+        }
+        // Only receipts written by acknowledge() count, including historical receipts being replayed.
+        val receipts = rows.filter { it.receiptId != null && it.syncedAt != null && it.serverReceivedAt != null }
+        val received = receipts.maxByOrNull { Instant.parse(it.serverReceivedAt).toEpochMilli() }?.serverReceivedAt
         JSONObject().put("chainId",chain.chainId).put("enabled",state?.enabled ?: true).put("pendingEvents",rows.count { it.status != "synced" })
             .put("pending",rows.count { it.status == "pending" }).put("sending",rows.count { it.status == "sending" })
             .put("errors",errors).put("backfillComplete",backfillComplete)
-            .put("continuity",if(!chain.restored && chain.bound && backfillComplete && errors == 0 && rows.all { it.status == "synced" }) "verified" else "unknown")
-            .put("lastSuccessAt",dao.lastSuccess(chain.chainId) ?: JSONObject.NULL)
-            .put("lastError",dao.lastFailure(chain.chainId)?.lastError ?: JSONObject.NULL)
+            .put("continuity",if(!chain.restored && chain.bound && backfillComplete && errors == 0 && rows.all { it.status == "synced" && it.receiptId != null && it.syncedAt != null && it.serverReceivedAt != null }) "verified" else "unknown")
+            .put("lastSuccessAt",receipts.mapNotNull { it.syncedAt }.maxOrNull() ?: JSONObject.NULL)
+            .put("lastServerReceivedAt",received ?: JSONObject.NULL)
+            .put("lastExchangeAt",JSONObject.NULL)
+            .put("errorCategory",category)
+            .put("lastError",lastFailure?.lastError ?: JSONObject.NULL)
     }
 }

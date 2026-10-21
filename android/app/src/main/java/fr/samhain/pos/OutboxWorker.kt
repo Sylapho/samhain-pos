@@ -41,6 +41,7 @@ internal object OutboxScheduler {
                 val database = SamhainPosDatabase.getInstance(context)
                 val chain = RoomOrderStore(database).syncIdentity().chainId
                 val state = database.outboxDao().backfill()
+                if(state?.enabled == false || (database.outboxDao().blockedCount(chain) > 0 && state?.recoveryRequested != true)) return@execute
                 val needsBackfill = state == null || !state.legacyComplete || state.ledgerCursor < (database.metadataDao().get()?.nextJournalSequence ?: 1) - 1
                 if(!needsBackfill && database.outboxDao().outstandingCount(chain) == 0) return@execute
                 enqueue(context,chain)

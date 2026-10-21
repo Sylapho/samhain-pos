@@ -91,6 +91,12 @@ class OutboxStoreTest {
         val rows = db.outboxDao().all(orders.syncIdentity().chainId)
         assertEquals(setOf("sale","correction","closure","cash_session_opened","cash_float_updated"),rows.map { it.kind }.toSet())
         assertTrue(rows.all { it.status == "pending" && it.transportFingerprint == null })
+        assertEquals(5,outbox.diagnostics().getInt("pendingEvents"))
+        assertEquals(5,outbox.diagnostics().getInt("pending"))
+        assertEquals(0,outbox.diagnostics().getInt("errors"))
+        engine({ _, body -> response(body) }).drain()
+        assertEquals(0,outbox.diagnostics().getInt("pendingEvents"))
+        assertFalse(outbox.diagnostics().isNull("lastServerReceivedAt"))
     }
     @Test fun durableClaimSerializesAndRecoversExpiredCrash() = run {
         orders.createOrder(request("sale"),source())
@@ -157,6 +163,9 @@ class OutboxStoreTest {
         engine({ _, _ -> error("quarantined chain must not send") }).drain()
         assertEquals("quarantined",db.outboxDao().find("sale:one")!!.status)
         assertEquals("pending",db.outboxDao().find("sale:two")!!.status)
+        assertFalse(outbox.canRetry())
+        assertEquals("conflict",outbox.diagnostics().getString("errorCategory"))
+        assertEquals(1,outbox.diagnostics().getInt("errors"))
     }
     @Test fun backfillIsBoundedResumableAndCoexistsWithNewSales() = run {
         repeat(205) { orders.createOrder(request("historical-$it"),source()) }
@@ -306,6 +315,77 @@ class OutboxStoreTest {
             assertEquals(financial,RoomOrderStore(durable).snapshot().toString())
         } finally { durable.close(); context.deleteDatabase(name) }
     }
+    @Test fun diagnosticsOnlyUseValidatedReceiptsAndKeepNewPendingSeparate() = run {
+        orders.bindSyncChain(orders.syncIdentity().chainId)
+        outbox.backfillBatch()
+        assertTrue(outbox.diagnostics().isNull("lastServerReceivedAt"))
+        orders.createOrder(request("receipt"),source())
+        engine({ _, body -> response(body).apply { put("committed",false) } }).drain()
+        assertTrue(outbox.diagnostics().isNull("lastSuccessAt"))
+        assertEquals("temporary",outbox.diagnostics().getString("errorCategory"))
+        clock += 6000
+        engine({ _, body -> response(body) }).drain()
+        val confirmed = outbox.diagnostics()
+        assertEquals("2026-10-15T09:00:00.000Z",confirmed.getString("lastServerReceivedAt"))
+        assertEquals(clock,confirmed.getLong("lastSuccessAt"))
+        assertEquals("verified",confirmed.getString("continuity"))
+        assertTrue(confirmed.isNull("lastExchangeAt"))
+        orders.createOrder(request("new-pending"),source())
+        val current = OutboxStore(db).diagnostics()
+        assertEquals(1,current.getInt("pendingEvents"))
+        assertEquals("unknown",current.getString("continuity"))
+        assertEquals(confirmed.getString("lastServerReceivedAt"),current.getString("lastServerReceivedAt"))
+        assertEquals(clock,current.getLong("lastSuccessAt"))
+    }
+
+    @Test fun manualWakeDoesNotResetBackoffOrAllowActiveClaimOrDisabledSync() = run {
+        orders.createOrder(request("retry"),source())
+        engine({ _, _ -> throw SyncHttpFailure(503,"SERVER_UNAVAILABLE",60000) }).drain()
+        val before = db.outboxDao().find("sale:retry")!!
+        assertTrue(outbox.canRetry())
+        assertEquals(before,db.outboxDao().find("sale:retry"))
+        assertEquals("temporary",outbox.diagnostics().getString("errorCategory"))
+        engine({ _, _ -> error("backoff must be respected") }).drain()
+        assertEquals(before,db.outboxDao().find("sale:retry"))
+        clock += 60001
+        outbox.claim(scope(),"active-worker",clock)
+        assertFalse(outbox.canRetry())
+        assertEquals(1,outbox.diagnostics().getInt("sending"))
+        outbox.setEnabled(false)
+        assertFalse(outbox.canRetry())
+    }
+
+    @Test fun receiptAndFailureDiagnosticsSurviveActualDatabaseReopen() = run {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "diagnostics-${UUID.randomUUID()}.db"
+        var durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).build()
+        val binding = scope()
+        try {
+            val financial = RoomOrderStore(durable)
+            binding.put("chainId",financial.syncIdentity().chainId)
+            financial.bindSyncChain(binding.getString("chainId"))
+            financial.createOrder(request("confirmed"),source())
+            SyncEngine(durable,{ binding },{ _, body -> response(body) },{ clock },{ it }).drain()
+            financial.createOrder(request("offline"),source())
+            SyncEngine(durable,{ binding },{ _, _ -> throw TabletAuthFailure("server_unreachable") },{ clock },{ it }).drain()
+        } finally { durable.close() }
+        durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).build()
+        try {
+            val status = OutboxStore(durable).diagnostics()
+            assertEquals("2026-10-15T09:00:00.000Z",status.getString("lastServerReceivedAt"))
+            assertEquals(clock,status.getLong("lastSuccessAt"))
+            assertEquals(1,status.getInt("pendingEvents"))
+            assertEquals(1,status.getInt("errors"))
+            assertEquals("service_unreachable",status.getString("errorCategory"))
+            clock += 6000
+            SyncEngine(durable,{ binding },{ _, body -> response(body) },{ clock },{ it }).drain()
+            val resumed = OutboxStore(durable).diagnostics()
+            assertEquals(0,resumed.getInt("pendingEvents"))
+            assertEquals("none",resumed.getString("errorCategory"))
+            assertEquals("verified",resumed.getString("continuity"))
+        } finally { durable.close(); context.deleteDatabase(name) }
+    }
+
     private fun request(
         id: String,
         paymentMethod: String = "cash",
