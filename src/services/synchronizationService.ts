@@ -13,6 +13,9 @@ export type SyncDiagnostics = {
   backfillComplete: boolean
   lastSuccessAt: number | null
   lastError: string | null
+  lastServerReceivedAt: string | null
+  lastExchangeAt: number | null
+  errorCategory: 'none' | 'service_unreachable' | 'temporary' | 'authentication' | 'conflict'
 }
 
 interface NativeSyncDiagnostics {
@@ -23,6 +26,7 @@ interface NativeSyncDiagnostics {
 
 const native = registerPlugin<NativeSyncDiagnostics>('OrderStorage')
 const isAndroid = () => Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
+let retryInFlight: Promise<void> | null = null
 
 export const synchronizationService = {
   async diagnostics(): Promise<SyncDiagnostics> {
@@ -42,17 +46,31 @@ export const synchronizationService = {
       backfillComplete: false,
       lastSuccessAt: null,
       lastError: null,
+      lastServerReceivedAt: null,
+      lastExchangeAt: null,
+      errorCategory: entries.some((entry) =>
+        ['needs_recovery', 'quarantined'].includes(entry.status),
+      )
+        ? 'conflict'
+        : 'none',
     }
   },
-  async retry(): Promise<void> {
-    if (isAndroid()) {
-      await native.retrySynchronization()
-      return
-    }
-    const outbox = new IndexedDbOutboxRepository(globalThis.indexedDB)
-    while (!(await outbox.backfillBatch())) {
-      /* Only local capture in the browser preview. */
-    }
+  retry(): Promise<void> {
+    if (retryInFlight) return retryInFlight
+    retryInFlight = (async () => {
+      if (isAndroid()) {
+        const result = await native.retrySynchronization()
+        if (!result.scheduled) throw new Error('Relance indisponible dans l’état actuel.')
+        return
+      }
+      const outbox = new IndexedDbOutboxRepository(globalThis.indexedDB)
+      while (!(await outbox.backfillBatch())) {
+        /* Only local capture in the browser preview. */
+      }
+    })().finally(() => {
+      retryInFlight = null
+    })
+    return retryInFlight
   },
   async setEnabled(enabled: boolean): Promise<void> {
     if (!isAndroid()) throw new Error('Les échanges sécurisés sont disponibles sur Android.')

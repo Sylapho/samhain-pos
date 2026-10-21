@@ -116,22 +116,31 @@ internal class TabletAuthService(
     private val needsLocalRecovery: () -> Boolean = { false },
     private val continuityVerified: () -> Unit = {},
 ) {
-    fun status(verify: Boolean = false): JSONObject = synchronized(SESSION_LOCK) {
-        if (config.status != "configured") return@synchronized state(if(config.status == "not_configured") "not_configured" else "needs_recovery")
-        val stored = try { vault.read() } catch (_: Exception) { return@synchronized state("needs_recovery") }
-        if (stored == null) return@synchronized state("not_enrolled")
-        if (stored.optString("status") == "authorized" && needsLocalRecovery()) return@synchronized publicState(stored).put("status","needs_recovery")
-        if (!verify) {
-            val result = publicState(stored)
-            if (stored.optJSONObject("session")?.optLong("expires_at",0)?.let { it <= now() } == true && result.getString("status") !in setOf("revoked","needs_recovery")) result.put("status","session_expired")
-            return@synchronized result
+    fun status(verify: Boolean = false): JSONObject {
+        // Local diagnostics run on the storage executor: never wait for a network/session lock.
+        if (!verify) return localStatus()
+        return synchronized(SESSION_LOCK) {
+            if (config.status != "configured") return@synchronized state(if(config.status == "not_configured") "not_configured" else "needs_recovery")
+            val stored = try { vault.read() } catch (_: Exception) { return@synchronized state("needs_recovery") }
+            if (stored == null) return@synchronized state("not_enrolled")
+            if (stored.optString("status") == "authorized" && needsLocalRecovery()) return@synchronized publicState(stored).put("status","needs_recovery")
+            try {
+                val result = deviceRequest("status", JSONObject().put("installationId",stored.getString("installationId")))
+                rememberResult(result)
+                publicState(vault.read()!!)
+            } catch (error: TabletAuthFailure) { failureState(error.code) }
+            catch (_: Exception) { failureState("needs_recovery") }
         }
-        try {
-            val result = deviceRequest("status", JSONObject().put("installationId",stored.getString("installationId")))
-            rememberResult(result)
-            publicState(vault.read()!!)
-        } catch (error: TabletAuthFailure) { failureState(error.code) }
-        catch (_: Exception) { failureState("needs_recovery") }
+    }
+
+    private fun localStatus(): JSONObject {
+        if (config.status != "configured") return state(if(config.status == "not_configured") "not_configured" else "needs_recovery")
+        val stored = try { vault.read() } catch (_: Exception) { return state("needs_recovery") }
+        if (stored == null) return state("not_enrolled")
+        val result = publicState(stored)
+        if (result.getString("status") == "authorized" && needsLocalRecovery()) return result.put("status","needs_recovery")
+        if (stored.optJSONObject("session")?.optLong("expires_at",0)?.let { it <= now() } == true && result.getString("status") == "authorized") result.put("status","session_expired")
+        return result
     }
 
     fun requestEnrollment(terminalId: String, reconnect: Boolean = false): JSONObject = synchronized(SESSION_LOCK) {

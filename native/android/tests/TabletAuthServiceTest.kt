@@ -84,6 +84,35 @@ class TabletAuthServiceTest {
         vault.data = "corrupt"
         assertEquals("needs_recovery",service(vault,http()).status().getString("status"))
     }
+    @Test fun expiredTokenDoesNotHideDeniedAuthorizationOrPendingEnrollment() {
+        val vault = MemoryVault()
+        service(vault,http()).requestEnrollment("terminal")
+        for(status in listOf("authorization_denied","revoked","pending","needs_recovery")) {
+            vault.write(vault.read()!!.put("status",status))
+            assertEquals(status,service(vault,http(),{ 2001 }).status().getString("status"))
+        }
+    }
+    @Test fun localDiagnosticsDoNotWaitForNetworkWhileSessionExchangeIsBlocked() {
+        val vault = MemoryVault()
+        service(vault,http()).requestEnrollment("terminal")
+        assertEquals("authorized",service(vault,http()).status(true).getString("status"))
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val blocked = service(vault,TabletAuthHttp { _,_,_ ->
+                entered.countDown()
+                require(release.await(5,java.util.concurrent.TimeUnit.SECONDS))
+                throw TabletAuthFailure("server_unreachable")
+            })
+            val network = pool.submit<JSONObject> { blocked.status(true) }
+            assertTrue(entered.await(2,java.util.concurrent.TimeUnit.SECONDS))
+            val local = pool.submit<JSONObject> { service(vault,http()).status() }
+            assertEquals("authorized",local.get(2,java.util.concurrent.TimeUnit.SECONDS).getString("status"))
+            release.countDown()
+            assertEquals("server_unreachable",network.get().getString("status"))
+        } finally { release.countDown(); pool.shutdownNow() }
+    }
     @Test fun refreshFailureDoesNotEraseCredentialsOrPretendSuccess() {
         val vault = MemoryVault()
         service(vault,http()).requestEnrollment("terminal")

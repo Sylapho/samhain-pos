@@ -21,6 +21,10 @@ import { initialCategories } from '../data/initialCategories'
 import { createCartItemDraft } from '../utils/cart'
 import { CatalogService } from '../services/catalogService'
 import { sha256Hex } from '../utils/integrity'
+import { synchronizationService } from '../services/synchronizationService'
+import { IndexedDbOrderRepository } from '../services/orderRepository'
+import { OrderService } from '../services/orderService'
+import { CheckoutService } from '../services/checkoutService'
 
 function App(props: ComponentProps<typeof ProductionApp>) {
   const cashSession = {
@@ -113,6 +117,7 @@ describe('caisse', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('bloque les ventes jusqu’à la validation obligatoire du fond de caisse', async () => {
@@ -275,6 +280,103 @@ describe('caisse', () => {
     expect(within(administration).getByText('Administration')).toBeInTheDocument()
     fireEvent.click(within(administration).getByRole('button', { name: 'Fermer' }))
     expect(responsibleMode.isUnlocked()).toBe(false)
+  })
+
+  it('protège le suivi par PIN puis ouvre les paramètres existants de reconnexion', async () => {
+    const mode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await mode.setupPin('4826', '4826')
+    mode.lock()
+    const read = vi.spyOn(synchronizationService, 'diagnostics').mockResolvedValue({
+      enabled: true,
+      authentication: 'session_expired',
+      pendingEvents: 5,
+      pending: 4,
+      sending: 0,
+      errors: 1,
+      continuity: 'unknown',
+      backfillComplete: true,
+      lastSuccessAt: null,
+      lastServerReceivedAt: null,
+      lastExchangeAt: null,
+      lastError: 'AUTH_REQUIRED',
+      errorCategory: 'authentication',
+    })
+    const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'app-sync-admin')
+    render(
+      <App
+        responsibleMode={mode}
+        catalogService={new CatalogService(repository, initialCatalogProducts)}
+        loadRecoverableOrders={async () => []}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }))
+    expect(read).not.toHaveBeenCalled()
+    expect(
+      screen.queryByRole('region', { name: 'Synchronisation des données' }),
+    ).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('PIN responsable'), { target: { value: '4826' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Synchronisation des données' }))
+    await screen.findByRole('heading', { name: 'Session de synchronisation expirée' })
+    fireEvent.click(screen.getByRole('button', { name: 'Paramètres de synchronisation' }))
+    expect(screen.getByRole('dialog', { name: 'Paramètres de la caisse' })).toBeInTheDocument()
+    expect(mode.isUnlocked()).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
+    expect(mode.isUnlocked()).toBe(false)
+  })
+
+  it('laisse enregistrer et imprimer une vente après une panne du suivi distant', async () => {
+    const mode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await mode.setupPin('4826', '4826')
+    vi.spyOn(synchronizationService, 'diagnostics').mockRejectedValue(
+      new Error('service inaccessible'),
+    )
+    const retry = vi.spyOn(synchronizationService, 'retry')
+    const orderRepository = new IndexedDbOrderRepository(new IDBFactory())
+    const terminal = new LocalStorageTerminalConfigurationRepository(localStorage).get()!
+    const checkout = new CheckoutService(orderRepository, undefined, () => terminal)
+    const lifecycle = new OrderService(orderRepository, undefined, () => terminal)
+    const printOrder = vi.fn().mockResolvedValue({
+      ...printSuccess,
+      completedDocuments: ['pickupTicket', 'preparationTicket'],
+    })
+    const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'app-sync-outage')
+    const catalog = new CatalogService(repository, initialCatalogProducts)
+    await catalog.loadCatalog()
+    render(
+      <App
+        responsibleMode={mode}
+        catalogService={catalog}
+        loadRecoverableOrders={async () => []}
+        checkoutDependencies={{ checkout, lifecycle, printOrder }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Synchronisation des données' }))
+    await screen.findByRole('heading', { name: 'Suivi non disponible' })
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Paiement TPE accepté' }))
+    await screen.findByRole('heading', { name: 'Commande validée' })
+    expect(await lifecycle.getOrders()).toHaveLength(1)
+    expect((await lifecycle.getOrders())[0]).toMatchObject({
+      paymentStatus: 'paid',
+      printing: { status: 'printed' },
+    })
+    expect(
+      (await orderRepository.getLedgerEntries()).filter((entry) => entry.kind === 'sale'),
+    ).toHaveLength(1)
+    expect(printOrder).toHaveBeenCalledOnce()
+    expect(retry).not.toHaveBeenCalled()
+    await orderRepository.close()
   })
 
   it.each(['panier', 'options', 'paiement', 'repos'] as const)(

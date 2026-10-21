@@ -96,7 +96,42 @@ autorisée. Une divergence ne peut pas être ignorée par le bouton de relance.
 `synchronizationService.diagnostics()` expose compteurs, Auth, dernière réussite,
 dernière erreur, complétude et continuité. `retry()` utilise le même travail unique.
 `setEnabled()` conserve le choix natif sans désactiver la capture. Ces méthodes
-préparent #116 ; aucun nouveau dashboard n'est ajouté.
+alimentent **Administration → Synchronisation des données** (#116), après le PIN local.
+Le suivi et les paramètres de reconnexion se ferment à expiration du mode responsable
+ou lorsque l'application passe en arrière-plan. Les lectures automatiques ne prolongent
+pas la session responsable. Quitter le suivi n'annule aucun travail natif.
+
+`pendingEvents` compte toutes les entrées non acquittées, tous types confondus ;
+`sending` compte les claims en cours ; `errors` compte les événements bloqués ou
+en attente après une erreur temporaire (ce dernier compteur peut donc recouper `pending`).
+`errorCategory` distingue indisponibilité du service, incident temporaire, authentification
+et conflit/reprise nécessaire. Les messages techniques ne sont pas affichés dans ce suivi.
+
+Les lectures périodiques Room utilisent une projection sans payload financier.
+La lecture locale d'autorisation ne prend pas le verrou des échanges réseau : le
+coffre chiffré sérialise seulement ses lectures/écritures de fichier. Consulter le suivi
+pendant une requête lente ne bloque donc pas l'exécuteur de stockage sur le réseau.
+Les opérations d'authentification et de renouvellement restent sérialisées entre elles.
+
+`lastServerReceivedAt` est le maximum chronologique des `serverReceivedAt` des reçus
+validés et persistés. `lastSuccessAt` reste l'heure locale d'acquittement, distincte de
+l'heure serveur ; les deux sont affichées séparément. Un ancien reçu reste historique
+en présence de nouvelles opérations. « Synchronisation à jour » exige une autorisation,
+les échanges activés, une capture complète, la continuité vérifiée, aucun événement
+non acquitté ni erreur, et un reçu validé. Internet et une file vide seuls ne suffisent pas.
+Une information absente/incomplète donne « Non disponible » ou un suivi incomplet.
+
+`lastExchangeAt` vaut actuellement `null` : les tentatives et réponses de tous les
+endpoints ne disposent pas d'un horodatage durable commun. Le suivi affiche donc
+« Non disponible », sans présenter `lastAttemptAt` ni un échec réseau comme un échange
+réussi. Aucune nouvelle table ou migration n'est nécessaire pour ce suivi.
+
+La relance regroupe les appels JavaScript simultanés, puis utilise WorkManager `KEEP`
+et les claims Room existants. Elle est refusée si désactivée, non autorisée, déjà en envoi
+ou en conflit. Elle ne remet à zéro ni backoff ni compteur de récupération, et ne demande
+pas automatiquement une récupération de préfixe. Une reprise d'intégrité exige une
+intervention distincte ; le bouton ne contourne pas la quarantaine. Une demande acceptée
+indique seulement une planification possible, jamais une réception serveur.
 
 Le reprovisionnement normal relit la preuve Room au niveau du service avant de
 changer l'identité. Pending, claim, erreur, rattrapage incomplet ou continuité

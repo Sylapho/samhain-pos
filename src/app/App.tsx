@@ -294,6 +294,16 @@ export function App({
   }, [responsibleMode])
 
   useEffect(() => {
+    if (!productManagementOpen && !terminalConfigurationOpen) return
+    const timer = window.setInterval(() => {
+      if (responsibleMode.isUnlocked()) return
+      setProductManagementOpen(false)
+      setTerminalConfigurationOpen(false)
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [productManagementOpen, terminalConfigurationOpen, responsibleMode])
+
+  useEffect(() => {
     if (!terminalConfiguration) return
     let active = true
     void (async () => {
@@ -792,6 +802,11 @@ export function App({
 
       {productManagementOpen && catalogManagement ? (
         <ProductManagementDialog
+          responsibleMode={responsibleMode}
+          onConfigureSynchronization={() => {
+            setProductManagementOpen(false)
+            setTerminalConfigurationOpen(true)
+          }}
           products={products}
           categories={categories}
           onCategoriesChanged={setCategories}

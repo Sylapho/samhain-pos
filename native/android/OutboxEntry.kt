@@ -53,6 +53,8 @@ interface OutboxDao {
     @Query("SELECT * FROM outbox WHERE eventId = :id") fun find(id: String): OutboxEntry?
     @Query("SELECT * FROM outbox WHERE chainId = :chain ORDER BY sequence ASC, eventId ASC")
     fun all(chain: String): List<OutboxEntry>
+    @Query("SELECT sequence, status, lastError, lastAttemptAt, receiptId, serverReceivedAt, syncedAt FROM outbox WHERE chainId = :chain")
+    fun diagnosticEntries(chain: String): List<OutboxDiagnosticEntry>
     @Query("SELECT * FROM outbox WHERE chainId = :chain AND status != 'synced' ORDER BY sequence ASC, eventId ASC LIMIT :limit")
     fun outstanding(chain: String, limit: Int): List<OutboxEntry>
     @Query("SELECT * FROM outbox WHERE chainId = :chain AND sequence > :cursor ORDER BY sequence ASC LIMIT :limit")
@@ -74,3 +76,14 @@ interface OutboxDao {
     @Update fun updateBackfill(state: OutboxBackfill): Int
     @Query("SELECT * FROM outbox_backfill WHERE id = 1") fun backfill(): OutboxBackfill?
 }
+
+// Polling the responsible screen must not load every immutable financial payload.
+data class OutboxDiagnosticEntry(
+    val sequence: Long?,
+    val status: String,
+    val lastError: String?,
+    val lastAttemptAt: Long?,
+    val receiptId: String?,
+    val serverReceivedAt: String?,
+    val syncedAt: Long?,
+)

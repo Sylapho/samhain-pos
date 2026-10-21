@@ -59,23 +59,26 @@ internal class TabletCredentialVault(context: Context, keyProvider: (() -> Secre
         }
     }
 
-    override fun read(): JSONObject? {
-        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return null
-        return JSONObject(crypto.decrypt(file.openRead().use { it.readBytes() }).toString(Charsets.UTF_8)).also {
+    override fun read(): JSONObject? = synchronized(FILE_LOCK) {
+        if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) return@synchronized null
+        JSONObject(crypto.decrypt(file.openRead().use { it.readBytes() }).toString(Charsets.UTF_8)).also {
             require(it.getInt("schemaVersion") == 1)
         }
     }
 
-    override fun write(value: JSONObject) {
+    override fun write(value: JSONObject) = synchronized(FILE_LOCK) {
         val encrypted = crypto.encrypt(value.toString().toByteArray(Charsets.UTF_8))
         val stream = file.startWrite()
         try { stream.write(encrypted); file.finishWrite(stream) }
         catch (error: Exception) { file.failWrite(stream); throw error }
     }
 
-    override fun clear() { file.delete() }
+    override fun clear() = synchronized(FILE_LOCK) { file.delete() }
 
-    companion object { private const val AES_ALIAS = "samhain.tablet.credentials.v1" }
+    companion object {
+        private const val AES_ALIAS = "samhain.tablet.credentials.v1"
+        private val FILE_LOCK = Any()
+    }
 }
 
 internal class KeystoreInstallationSigner : InstallationSigner {
