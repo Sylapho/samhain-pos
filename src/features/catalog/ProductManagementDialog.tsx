@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import type { CatalogService } from '../../services/catalogService'
 import {
-  productCategories,
-  type CategoryId,
+  type Category,
   type Product,
   type ProductIngredient,
   type ProductVariant,
@@ -11,9 +10,12 @@ import {
 } from '../../types/catalog'
 import { getProductStartingPriceCents } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
+import { CategoryManagement } from './CategoryManagement'
 
 type Props = {
   products: Product[]
+  categories: Category[]
+  onCategoriesChanged: (categories: Category[]) => void
   service: CatalogService
   onProductsChanged: (products: Product[]) => void
   onClose: () => void
@@ -57,12 +59,12 @@ function editableProduct(product: Product, isNew = false): EditorState {
   }
 }
 
-function newProduct(displayOrder: number): EditorState {
+function newProduct(displayOrder: number, categoryId: string): EditorState {
   return editableProduct(
     {
       id: globalThis.crypto.randomUUID(),
       name: '',
-      categoryId: 'assiettes',
+      categoryId,
       active: true,
       displayOrder,
       requiresPreparation: true,
@@ -89,7 +91,18 @@ function ingredientsFromInput(value: string, previous: ProductIngredient[]): Pro
   }))
 }
 
-export function ProductManagementDialog({ products, service, onProductsChanged, onClose }: Props) {
+export function ProductManagementDialog({
+  products,
+  categories,
+  onCategoriesChanged,
+  service,
+  onProductsChanged,
+  onClose,
+}: Props) {
+  const [section, setSection] = useState<'products' | 'categories'>('products')
+  const [categoryBusy, setCategoryBusy] = useState(false)
+  const pending = useRef(false)
+  const activeCategories = categories.filter(({ active }) => active)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -105,7 +118,8 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
   const refresh = async () => onProductsChanged(await service.getProducts())
 
   const save = async () => {
-    if (!editor) return
+    if (!editor || pending.current) return
+    pending.current = true
     setBusyId(editor.product.id)
     setError(null)
     try {
@@ -130,11 +144,14 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Le produit n’a pas pu être enregistré.')
     } finally {
+      pending.current = false
       setBusyId(null)
     }
   }
 
   const toggleActive = async (product: Product) => {
+    if (pending.current) return
+    pending.current = true
     setBusyId(product.id)
     setError(null)
     try {
@@ -143,6 +160,7 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
     } catch {
       setError('Le changement d’état n’a pas pu être enregistré. Réessayez.')
     } finally {
+      pending.current = false
       setBusyId(null)
     }
   }
@@ -161,79 +179,127 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
               Administration
             </div>
             <h2 id="catalog-admin-title" className="text-2xl font-black">
-              Produits
+              {section === 'products' ? 'Produits' : 'Catégories'}
             </h2>
           </div>
-          <Button onClick={onClose}>Fermer</Button>
+          <Button disabled={busyId !== null || categoryBusy} onClick={onClose}>
+            Fermer
+          </Button>
         </header>
 
+        <nav aria-label="Administration" className="flex gap-3 border-b border-stone-300 p-4">
+          <Button
+            aria-pressed={section === 'products'}
+            disabled={busyId !== null || categoryBusy || editor !== null}
+            onClick={() => setSection('products')}
+          >
+            Produits
+          </Button>
+          <Button
+            aria-pressed={section === 'categories'}
+            disabled={busyId !== null || categoryBusy || editor !== null}
+            onClick={() => setSection('categories')}
+          >
+            Catégories
+          </Button>
+        </nav>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          <div className="flex items-center justify-between gap-4 border-b border-stone-300 pb-4">
-            <p className="font-bold text-stone-700">
-              {products.length} produit{products.length > 1 ? 's' : ''} enregistré
-              {products.length > 1 ? 's' : ''} sur cette tablette
-            </p>
-            <Button
-              variant="primary"
-              onClick={() =>
-                setEditor(newProduct(Math.max(-1, ...products.map((p) => p.displayOrder)) + 1))
-              }
-            >
-              Ajouter un produit
-            </Button>
-          </div>
-
-          {error ? (
-            <p
-              className="mt-4 border border-red-300 bg-red-50 p-3 font-bold text-red-900"
-              role="alert"
-            >
-              {error}
-            </p>
-          ) : null}
-
-          {products.length === 0 ? (
-            <p className="py-12 text-center font-bold text-stone-600">Aucun produit enregistré.</p>
+          {section === 'categories' ? (
+            <CategoryManagement
+              categories={categories}
+              service={service}
+              onCategoriesChanged={onCategoriesChanged}
+              onBusyChanged={setCategoryBusy}
+            />
           ) : (
-            <div className="divide-y divide-stone-300">
-              {sortedProducts.map((product) => (
-                <article
-                  key={product.id}
-                  className="grid items-center gap-3 py-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto]"
+            <>
+              <div className="flex items-center justify-between gap-4 border-b border-stone-300 pb-4">
+                <p className="font-bold text-stone-700">
+                  {products.length} produit{products.length > 1 ? 's' : ''} enregistré
+                  {products.length > 1 ? 's' : ''} sur cette tablette
+                </p>
+                <Button
+                  variant="primary"
+                  disabled={!activeCategories.length || busyId !== null}
+                  onClick={() =>
+                    setEditor(
+                      newProduct(
+                        Math.max(-1, ...products.map((p) => p.displayOrder)) + 1,
+                        activeCategories[0]!.id,
+                      ),
+                    )
+                  }
                 >
-                  <div className="min-w-0">
-                    <h3 className="truncate text-lg font-black">{product.name}</h3>
-                    <p className="font-semibold text-stone-600">
-                      {productCategories.find(({ id }) => id === product.categoryId)?.label} · TVA{' '}
-                      {product.vatRate} %
-                    </p>
-                  </div>
-                  <div>
-                    <div className="font-black tabular-nums">
-                      {product.variants?.length ? 'Dès ' : ''}
-                      {formatMoney(getProductStartingPriceCents(product))}
-                    </div>
-                    <div
-                      className={`text-sm font-bold ${product.active ? 'text-emerald-800' : 'text-stone-500'}`}
+                  Ajouter un produit
+                </Button>
+              </div>
+
+              {!activeCategories.length ? (
+                <p role="status" className="py-3 font-bold">
+                  Aucune catégorie active. Créez ou réactivez une catégorie dans Catégories avant
+                  d’ajouter un produit.
+                </p>
+              ) : null}
+              {error && !editor ? (
+                <p
+                  className="mt-4 border border-red-300 bg-red-50 p-3 font-bold text-red-900"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
+
+              {products.length === 0 ? (
+                <p className="py-12 text-center font-bold text-stone-600">
+                  Aucun produit enregistré.
+                </p>
+              ) : (
+                <div className="divide-y divide-stone-300">
+                  {sortedProducts.map((product) => (
+                    <article
+                      key={product.id}
+                      className="grid items-center gap-3 py-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto]"
                     >
-                      {!product.active
-                        ? 'Désactivé'
-                        : product.availability === 'sold-out'
-                          ? 'En rupture'
-                          : 'Disponible'}
-                    </div>
-                  </div>
-                  <Button onClick={() => setEditor(editableProduct(product))}>Modifier</Button>
-                  <Button
-                    variant={product.active ? 'danger' : 'secondary'}
-                    disabled={busyId === product.id}
-                    onClick={() => void toggleActive(product)}
-                  >
-                    {product.active ? 'Désactiver' : 'Réactiver'}
-                  </Button>
-                </article>
-              ))}
-            </div>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-lg font-black">{product.name}</h3>
+                        <p className="font-semibold text-stone-600">
+                          {categories.find(({ id }) => id === product.categoryId)?.label} · TVA{' '}
+                          {product.vatRate} %
+                        </p>
+                      </div>
+                      <div>
+                        <div className="font-black tabular-nums">
+                          {product.variants?.length ? 'Dès ' : ''}
+                          {formatMoney(getProductStartingPriceCents(product))}
+                        </div>
+                        <div
+                          className={`text-sm font-bold ${product.active ? 'text-emerald-800' : 'text-stone-500'}`}
+                        >
+                          {!product.active
+                            ? 'Désactivé'
+                            : product.availability === 'sold-out'
+                              ? 'En rupture'
+                              : 'Disponible'}
+                        </div>
+                      </div>
+                      <Button
+                        disabled={busyId !== null}
+                        onClick={() => setEditor(editableProduct(product))}
+                      >
+                        Modifier
+                      </Button>
+                      <Button
+                        variant={product.active ? 'danger' : 'secondary'}
+                        disabled={busyId !== null}
+                        onClick={() => void toggleActive(product)}
+                      >
+                        {product.active ? 'Désactiver' : 'Réactiver'}
+                      </Button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -241,6 +307,8 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
       {editor ? (
         <ProductEditor
           editor={editor}
+          categories={categories}
+          error={error}
           busy={busyId === editor.product.id}
           onChange={setEditor}
           onCancel={() => {
@@ -256,13 +324,23 @@ export function ProductManagementDialog({ products, service, onProductsChanged, 
 
 type ProductEditorProps = {
   editor: EditorState
+  categories: Category[]
+  error: string | null
   busy: boolean
   onChange: (state: EditorState) => void
   onCancel: () => void
   onSave: () => void
 }
 
-function ProductEditor({ editor, busy, onChange, onCancel, onSave }: ProductEditorProps) {
+function ProductEditor({
+  editor,
+  categories,
+  error,
+  busy,
+  onChange,
+  onCancel,
+  onSave,
+}: ProductEditorProps) {
   const updateProduct = (update: Partial<Product>) =>
     onChange({ ...editor, product: { ...editor.product, ...update } })
   const updateVariant = (index: number, update: Partial<ProductVariant>) =>
@@ -288,7 +366,12 @@ function ProductEditor({ editor, busy, onChange, onCancel, onSave }: ProductEdit
           {editor.isNew ? 'Ajouter un produit' : `Modifier ${editor.product.name}`}
         </h3>
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        {error ? (
+          <p role="alert" className="mt-3 font-bold text-red-900">
+            {error}
+          </p>
+        ) : null}
+        <fieldset disabled={busy} className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="font-bold sm:col-span-2">
             Nom
             <input
@@ -303,13 +386,19 @@ function ProductEditor({ editor, busy, onChange, onCancel, onSave }: ProductEdit
             <select
               className="mt-1 min-h-12 w-full rounded-[8px] border border-stone-400 bg-white px-3"
               value={editor.product.categoryId}
-              onChange={(event) => updateProduct({ categoryId: event.target.value as CategoryId })}
+              onChange={(event) => updateProduct({ categoryId: event.target.value })}
             >
-              {productCategories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.label}
-                </option>
-              ))}
+              {categories
+                .filter(
+                  (category) =>
+                    category.active || (!editor.isNew && category.id === editor.product.categoryId),
+                )
+                .map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.label}
+                    {category.active ? '' : ' (inactive)'}
+                  </option>
+                ))}
             </select>
           </label>
           <label className="font-bold">
@@ -356,7 +445,7 @@ function ProductEditor({ editor, busy, onChange, onCancel, onSave }: ProductEdit
               />
             </label>
           ) : null}
-        </div>
+        </fieldset>
 
         <fieldset className="mt-5 border-t border-stone-300 pt-4">
           <legend className="font-black">État et préparation</legend>

@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import { initialCatalogProducts } from '../data/initialCatalog'
 import { catalogStorage } from '../native/catalogStorage'
 import {
-  categoryIds,
+  type Category,
   type Product,
   type ProductOptionGroup,
   type ProductVariant,
@@ -80,7 +80,7 @@ function validateOptionGroups(
 }
 
 export function validateProduct(product: Product): Product {
-  if (!categoryIds.includes(product.categoryId)) throw new Error('La catégorie est invalide.')
+  requireId(product.categoryId, 'La catégorie')
   if (![10, 20].includes(product.vatRate)) throw new Error('Le taux de TVA est invalide.')
   if (!Number.isSafeInteger(product.displayOrder) || product.displayOrder < 0) {
     throw new Error('L’ordre d’affichage doit être un entier positif.')
@@ -131,6 +131,25 @@ export class CatalogService {
     }
 
     return migratedProducts
+  }
+
+  getCategories(): Promise<Category[]> {
+    return this.repository.getCategories()
+  }
+  getActiveCategories(): Promise<Category[]> {
+    return this.repository.getActiveCategories()
+  }
+  createCategory(label: string): Promise<Category> {
+    return this.repository.createCategory({ id: globalThis.crypto.randomUUID(), label })
+  }
+  updateCategory(id: string, label: string): Promise<Category> {
+    return this.repository.updateCategory(id, label)
+  }
+  setCategoryActive(id: string, active: boolean): Promise<Category> {
+    return this.repository.setCategoryActive(id, active)
+  }
+  reorderCategories(ids: readonly string[]): Promise<Category[]> {
+    return this.repository.reorderCategories(ids)
   }
 
   async getProducts(): Promise<Product[]> {

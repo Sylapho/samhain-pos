@@ -1,27 +1,11 @@
-export const categoryIds = [
-  'menus',
-  'assiettes',
-  'desserts',
-  'boissons-chaudes',
-  'bieres',
-  'sans-alcool',
-] as const
-
-export type CategoryId = (typeof categoryIds)[number]
+export type CategoryId = string
 
 export type Category = {
   id: CategoryId
   label: string
+  active: boolean
+  displayOrder: number
 }
-
-export const productCategories: Category[] = [
-  { id: 'menus', label: 'Menus' },
-  { id: 'assiettes', label: 'Assiettes' },
-  { id: 'desserts', label: 'Desserts' },
-  { id: 'boissons-chaudes', label: 'Boissons chaudes' },
-  { id: 'bieres', label: 'Bières' },
-  { id: 'sans-alcool', label: 'Sans alcool' },
-]
 
 export type ProductAvailability = 'available' | 'sold-out'
 export type DataConfidence = 'confirmed' | 'temporary'
