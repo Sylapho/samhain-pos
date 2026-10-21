@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { Category, Product } from '../types/catalog'
+import type { CatalogSnapshot, CatalogCommit, CatalogVersion } from '../types/catalogDistribution'
 
 export type CatalogInitializationResult = {
   initialized: boolean
@@ -7,6 +8,24 @@ export type CatalogInitializationResult = {
 }
 
 export interface NativeCatalogStorageBridge {
+  getCatalogSnapshot(): Promise<CatalogSnapshot>
+  commitCatalogSnapshot(options: { snapshot: CatalogCommit }): Promise<{ updated: boolean }>
+  downloadCatalog(): Promise<{
+    version: CatalogVersion | null
+    organizationId: string
+    festivalId: string
+  }>
+  publishCatalog(options: {
+    email: string
+    password: string
+    body: {
+      organizationId: string
+      festivalId: string
+      expectedRevision: number
+      products: Product[]
+      categories: Category[]
+    }
+  }): Promise<{ version: CatalogVersion }>
   getCatalogCategories(): Promise<{ categories: Category[] }>
   createCatalogCategory(options: { category: Pick<Category, 'id' | 'label'> }): Promise<Category>
   updateCatalogCategory(options: { id: string; label: string }): Promise<Category>
@@ -22,6 +41,12 @@ export interface NativeCatalogStorageBridge {
 const nativePlugin = registerPlugin<NativeCatalogStorageBridge>('CatalogStorage')
 
 export const catalogStorage = {
+  getCatalogSnapshot: () => nativePlugin.getCatalogSnapshot(),
+  commitCatalogSnapshot: (options: { snapshot: CatalogCommit }) =>
+    nativePlugin.commitCatalogSnapshot(options),
+  downloadCatalog: () => nativePlugin.downloadCatalog(),
+  publishCatalog: (options: Parameters<NativeCatalogStorageBridge['publishCatalog']>[0]) =>
+    nativePlugin.publishCatalog(options),
   getCatalogCategories: () => nativePlugin.getCatalogCategories(),
   createCatalogCategory: (options: { category: Pick<Category, 'id' | 'label'> }) =>
     nativePlugin.createCatalogCategory(options),

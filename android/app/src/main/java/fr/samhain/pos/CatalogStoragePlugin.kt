@@ -12,7 +12,34 @@ import org.json.JSONObject
 @CapacitorPlugin(name = "CatalogStorage")
 class CatalogStoragePlugin : Plugin() {
     private val databaseExecutor = Executors.newSingleThreadExecutor()
+    private val networkExecutor = Executors.newSingleThreadExecutor()
     private val store: RoomCatalogStore by lazy { RoomCatalogStore(SamhainPosDatabase.getInstance(context)) }
+
+    @PluginMethod
+    fun getCatalogSnapshot(call: PluginCall) = execute(call) { store.snapshot() }
+
+    @PluginMethod
+    fun commitCatalogSnapshot(call: PluginCall) = execute(call) { store.commit(call.requiredObject("snapshot")) }
+
+    // Network work cannot occupy the Room administration executor.
+    @PluginMethod
+    fun downloadCatalog(call: PluginCall) {
+        networkExecutor.execute {
+            try { call.resolve(JSObject(TabletAuthService.get(context).downloadCatalog().toString())) }
+            catch (_: Exception) { call.reject("Catalogue distant inaccessible. Le catalogue local reste disponible.", "CATALOG_SYNC_ERROR") }
+        }
+    }
+
+    @PluginMethod
+    fun publishCatalog(call: PluginCall) {
+        networkExecutor.execute {
+            try {
+                call.resolve(JSObject(TabletAuthService.get(context).publishCatalog(
+                    call.getString("email") ?: error("Compte requis"), call.getString("password") ?: error("Compte requis"), call.requiredObject("body")
+                ).toString()))
+            } catch (_: Exception) { call.reject("Publication refusée ou révision dépassée. Rechargez la version publiée.", "CATALOG_PUBLISH_ERROR") }
+        }
+    }
 
     @PluginMethod
     fun initializeCatalog(call: PluginCall) = execute(call) { store.initialize(call.requiredArray("products")) }
@@ -66,6 +93,7 @@ class CatalogStoragePlugin : Plugin() {
 
     override fun handleOnDestroy() {
         databaseExecutor.shutdown()
+        networkExecutor.shutdown()
         super.handleOnDestroy()
     }
 }

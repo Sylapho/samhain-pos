@@ -11,6 +11,7 @@ import {
 import { getProductStartingPriceCents } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
 import { CategoryManagement } from './CategoryManagement'
+import { CatalogSynchronization } from './CatalogSynchronization'
 
 type Props = {
   products: Product[]
@@ -19,6 +20,7 @@ type Props = {
   service: CatalogService
   onProductsChanged: (products: Product[]) => void
   onClose: () => void
+  onApplyCatalog?: (choice?: 'local' | 'remote') => Promise<void>
 }
 
 type EditorState = {
@@ -98,8 +100,9 @@ export function ProductManagementDialog({
   service,
   onProductsChanged,
   onClose,
+  onApplyCatalog,
 }: Props) {
-  const [section, setSection] = useState<'products' | 'categories'>('products')
+  const [section, setSection] = useState<'products' | 'categories' | 'sync'>('products')
   const [categoryBusy, setCategoryBusy] = useState(false)
   const pending = useRef(false)
   const activeCategories = categories.filter(({ active }) => active)
@@ -179,7 +182,11 @@ export function ProductManagementDialog({
               Administration
             </div>
             <h2 id="catalog-admin-title" className="text-2xl font-black">
-              {section === 'products' ? 'Produits' : 'Catégories'}
+              {section === 'products'
+                ? 'Produits'
+                : section === 'categories'
+                  ? 'Catégories'
+                  : 'Catalogue partagé'}
             </h2>
           </div>
           <Button disabled={busyId !== null || categoryBusy} onClick={onClose}>
@@ -202,9 +209,26 @@ export function ProductManagementDialog({
           >
             Catégories
           </Button>
+          {onApplyCatalog && (
+            <Button
+              aria-pressed={section === 'sync'}
+              disabled={busyId !== null || categoryBusy || editor !== null}
+              onClick={() => setSection('sync')}
+            >
+              Catalogue partagé
+            </Button>
+          )}
         </nav>
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-          {section === 'categories' ? (
+          {section === 'sync' && onApplyCatalog ? (
+            <CatalogSynchronization
+              service={service}
+              products={products}
+              categories={categories}
+              onApply={onApplyCatalog}
+              onBusyChanged={setCategoryBusy}
+            />
+          ) : section === 'categories' ? (
             <CategoryManagement
               categories={categories}
               service={service}
@@ -456,16 +480,46 @@ function ProductEditor({
               onChange={(active) => updateProduct({ active })}
             />
             <CheckBox
-              label="Disponible"
-              checked={editor.product.availability === 'available'}
+              label="Disponible sur cette tablette"
+              checked={
+                (editor.product.localAvailability ?? editor.product.availability) === 'available'
+              }
               onChange={(available) =>
-                updateProduct({ availability: available ? 'available' : 'sold-out' })
+                updateProduct({
+                  availability: available ? 'available' : 'sold-out',
+                  localAvailability: available ? 'available' : 'sold-out',
+                })
               }
             />
             <CheckBox
               label="À préparer"
               checked={editor.product.requiresPreparation}
               onChange={(requiresPreparation) => updateProduct({ requiresPreparation })}
+            />
+          </div>
+          {editor.product.centralAvailability === 'sold-out' && (
+            <p className="mt-2 font-bold">
+              Indisponibilité centrale : une remise en stock locale ne la lève pas.
+            </p>
+          )}
+          <div className="mt-3">
+            <CheckBox
+              label="Prix, TVA et composition vérifiés pour publication"
+              checked={
+                editor.product.dataConfidence === 'confirmed' &&
+                (editor.product.variants ?? []).every(
+                  (variant) => variant.dataConfidence === 'confirmed',
+                )
+              }
+              onChange={(confirmed) =>
+                updateProduct({
+                  dataConfidence: confirmed ? 'confirmed' : 'temporary',
+                  variants: editor.product.variants?.map((variant) => ({
+                    ...variant,
+                    dataConfidence: confirmed ? 'confirmed' : 'temporary',
+                  })),
+                })
+              }
             />
           </div>
         </fieldset>

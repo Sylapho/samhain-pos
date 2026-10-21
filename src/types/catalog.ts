@@ -48,6 +48,9 @@ export type Product = {
   displayOrder: number
   requiresPreparation: boolean
   availability: ProductAvailability
+  // Derived presentation fields, never persisted or published. Availability is effective for sale.
+  localAvailability?: ProductAvailability
+  centralAvailability?: ProductAvailability
   priceCents?: number
   description?: string
   variants?: ProductVariant[]

@@ -15,6 +15,8 @@ IndexedDB reste volontairement présent pour le navigateur et comme source de la
 
 Le catalogue suit la même frontière : `CatalogService` dépend de `CatalogRepository`, qui sélectionne `RoomCatalogRepository`/`CatalogStorage` sur Android et `IndexedDbCatalogRepository` sur le web. Le seed initial est écrit dans une transaction seulement si le marqueur d'initialisation est absent et si la table produit est vide. Les démarrages suivants ne réappliquent jamais le seed.
 
+Room v9 ajoute `catalog_distribution` par migration 8→9 non destructive pour le staging, les bases de fusion, conflits et décisions du [catalogue versionné #115](catalog-distribution.md). Le compteur de révision local, les produits, catégories et marqueurs d'activation sont écrits ensemble ; les commandes et le journal ne sont pas modifiés. L'activation recontrôle les intentions de paiement persistées dans sa transaction.
+
 ## Politique Android Backup
 
 Android Backup n'est pas un mécanisme de sauvegarde supporté pour Samhain POS. Le manifeste impose `android:allowBackup="false"` et référence deux politiques complémentaires :

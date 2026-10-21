@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
+import { flushSync } from 'react-dom'
 import { Button } from '../components/ui/Button'
 import { CartPanel } from '../features/cart/CartPanel'
 import { CategoryTabs } from '../features/catalog/CategoryTabs'
@@ -17,6 +18,7 @@ import { TerminalConfigurationDialog } from '../features/terminal/TerminalConfig
 import { usePrinterStatus, type PrinterStatusProbe } from '../features/status/usePrinterStatus'
 import { shouldEnableDevPanel } from '../config/buildMode'
 import { getCatalogService, type CatalogService } from '../services/catalogService'
+import { catalogStorage } from '../native/catalogStorage'
 import { getPersistedOrders, getRecoverableOrders } from '../services/orderService'
 import { checkoutService } from '../services/checkoutService'
 import { getCashSessionService, type CashSessionService } from '../services/cashSessionService'
@@ -179,6 +181,8 @@ export function App({
   const printer = devPanelEnabled && printerOverride ? printerOverride : realPrinterStatus
   const feedbackTimer = useRef<number | null>(null)
   const items = useCartStore((state) => state.items)
+  const [catalogApplying, setCatalogApplying] = useState(false)
+  const catalogGate = useRef(false)
   const addItem = useCartStore((state) => state.addItem)
   const clearCart = useCartStore((state) => state.clearCart)
   const recoverableIntentLoader = useMemo(
@@ -211,6 +215,29 @@ export function App({
       active = false
     }
   }, [catalogManagement, initialCatalog])
+
+  useEffect(() => {
+    if (!catalogManagement || catalogStatus !== 'ready' || !catalogStorage.isAndroidNative()) return
+    // Download only. Even a successful background check never activates a publication.
+    let running = false
+    const check = () => {
+      if (running || !navigator.onLine) return
+      running = true
+      void catalogManagement.distribution
+        .download()
+        .catch(() => undefined)
+        .finally(() => {
+          running = false
+        })
+    }
+    check()
+    window.addEventListener('online', check)
+    const timer = window.setInterval(check, 15 * 60 * 1000)
+    return () => {
+      window.removeEventListener('online', check)
+      window.clearInterval(timer)
+    }
+  }, [catalogManagement, catalogStatus])
 
   const loadCashSession = useCallback(async () => {
     if (!terminalConfiguration) return
@@ -313,11 +340,13 @@ export function App({
     selection: ProductSelection,
     removedIngredientIds: string[] = [],
   ) => {
+    if (catalogGate.current) return
     addItem(createCartItemDraft(product, selection, removedIngredientIds))
     showAddedFeedback(product.id)
   }
 
   const selectProduct = (product: Product) => {
+    if (catalogGate.current) return
     if (product.availability !== 'available') return
     if (requiresProductConfiguration(product)) {
       setOptionsProduct(product)
@@ -330,8 +359,48 @@ export function App({
   }
 
   const validateOrder = () => {
+    if (catalogGate.current) return
     if (!items.length) return
     setCheckoutOpen(true)
+  }
+
+  const applyCatalog = async (choice?: 'local' | 'remote') => {
+    if (!catalogManagement || catalogGate.current) return
+    responsibleMode.requireUnlocked()
+    const isSafe = () =>
+      !useCartStore.getState().items.length &&
+      !optionsProduct &&
+      !checkoutOpen &&
+      !resumingIntent &&
+      !recoveryIntents.length &&
+      !recoveryError &&
+      recoveryCheckedTerminalId === terminalConfiguration?.terminalId
+    if (!isSafe())
+      throw new Error(
+        'Terminez le panier, les options et les paiements avant d’activer le catalogue.',
+      )
+    catalogGate.current = true
+    flushSync(() => setCatalogApplying(true))
+    try {
+      if (choice) await catalogManagement.distribution.resolve(choice, isSafe)
+      else await catalogManagement.distribution.activate(isSafe)
+      const [nextProducts, nextCategories] = await Promise.all([
+        catalogManagement.getProducts(),
+        catalogManagement.getCategories(),
+      ])
+      flushSync(() => {
+        setProducts(nextProducts)
+        setCategories(nextCategories)
+        setCatalogStatus('ready')
+      })
+    } catch (error) {
+      // A commit may have succeeded before a read failed: prevent new selections from a stale UI.
+      flushSync(() => setCatalogStatus('error'))
+      throw error
+    } finally {
+      flushSync(() => setCatalogApplying(false))
+      catalogGate.current = false
+    }
   }
 
   const startNewOrder = () => {
@@ -513,7 +582,11 @@ export function App({
   }
 
   return (
-    <div className="flex h-dvh min-h-[600px] flex-col bg-[#f2eee5] text-stone-950">
+    <div
+      inert={catalogApplying}
+      aria-busy={catalogApplying}
+      className="flex h-dvh min-h-[600px] flex-col bg-[#f2eee5] text-stone-950"
+    >
       <header className="flex min-h-16 items-center justify-between gap-4 bg-[#18231e] px-5 py-2 text-white">
         <div className="flex items-baseline gap-3">
           <div className="text-xl font-black">Samhain POS</div>
@@ -723,6 +796,7 @@ export function App({
           categories={categories}
           onCategoriesChanged={setCategories}
           service={catalogManagement}
+          onApplyCatalog={applyCatalog}
           onProductsChanged={(updatedProducts) => {
             setProducts(updatedProducts)
             setCatalogStatus('ready')

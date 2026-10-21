@@ -186,6 +186,19 @@ data class CatalogMetadataEntity(
     }
 }
 
+@Entity(tableName = "catalog_distribution")
+data class CatalogDistributionEntity(
+    @PrimaryKey val id: Int = 1,
+    val revision: Long = 0,
+    @ColumnInfo(name = "state_json") val stateJson: String? = null,
+)
+
+@Dao
+interface CatalogDistributionDao {
+    @Query("SELECT * FROM catalog_distribution WHERE id = 1") fun get(): CatalogDistributionEntity?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun put(state: CatalogDistributionEntity)
+}
+
 @Dao
 interface OrderDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
@@ -326,14 +339,16 @@ interface SyncIdentityDao {
         ProductEntity::class,
         CategoryEntity::class,
         CatalogMetadataEntity::class,
+        CatalogDistributionEntity::class,
         SyncIdentityEntity::class,
         OutboxEntry::class,
         OutboxBackfill::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
+    abstract fun catalogDistributionDao(): CatalogDistributionDao
     abstract fun outboxDao(): OutboxDao
     abstract fun syncIdentityDao(): SyncIdentityDao
     abstract fun orderDao(): OrderDao
@@ -354,6 +369,12 @@ abstract class SamhainPosDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS catalog_distribution (id INTEGER NOT NULL PRIMARY KEY, revision INTEGER NOT NULL, state_json TEXT)")
+            }
+        }
 
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -487,7 +508,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                     .also { instance = it }
             }

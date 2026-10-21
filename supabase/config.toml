@@ -50,3 +50,6 @@ verify_jwt = true
 
 [functions.ledger-prefix-v1]
 verify_jwt = true
+
+[functions.catalog-v1]
+verify_jwt = true

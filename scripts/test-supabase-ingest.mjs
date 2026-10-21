@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID, generateKeyPairSync, sign } from 'node:crypto'
 import { canonicalJson, sha256Hex } from '../src/utils/integrity.ts'
+import { readCatalogVersion } from '../src/services/catalogDistribution.ts'
 
 // Real local Auth, Edge, PostgREST and PostgreSQL. Never accepts hosted URLs/keys.
 const origin = 'http://127.0.0.1:54321'
@@ -936,7 +937,146 @@ check(
   (await state(independent)).events === 1,
   'Revoked/replaced installation cannot modify history',
 )
+// #115 uses the same live Auth/proof infrastructure, with an independent catalogue RPC.
+const catalogDevice = await device()
+const catalogContext = {
+  action: 'read',
+  organizationId: organization,
+  festivalId: festival,
+  chainId: catalogDevice.chain,
+  installationId: catalogDevice.installation,
+  enrollmentGeneration: 1,
+}
+let catalogue = await send(catalogDevice, catalogContext, 'catalog-v1')
+check(
+  catalogue.status === 200 && catalogue.data.version === null,
+  `No fabricated catalogue before first publication (HTTP ${catalogue.status}, ${catalogue.data.code ?? 'no code'})`,
+)
+const email = `catalog-${randomUUID()}@example.invalid`
+const password = randomUUID() + randomUUID()
+const created = await fetch(`${origin}/auth/v1/admin/users`, {
+  method: 'POST',
+  headers: {
+    apikey: values.SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${values.SERVICE_ROLE_KEY}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ email, password, email_confirm: true }),
+})
+assert.equal(created.status, 200, 'Local manager setup failed')
+const manager = await created.json()
+const loggedIn = await fetch(`${origin}/auth/v1/token?grant_type=password`, {
+  method: 'POST',
+  headers: { apikey: publishable, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email, password }),
+})
+assert.equal(loggedIn.status, 200, 'Local manager login failed')
+const managerAuth = await loggedIn.json()
+const catalogBody = {
+  action: 'publish',
+  organizationId: organization,
+  festivalId: festival,
+  expectedRevision: 0,
+  products: [
+    {
+      id: 'fixture-product',
+      name: 'Synthetic catalogue é😀 / fixture',
+      priceCents: 500,
+      vatRate: 10,
+      categoryId: 'fixture-category',
+      active: true,
+      displayOrder: 0,
+      requiresPreparation: false,
+      availability: 'available',
+      dataConfidence: 'confirmed',
+    },
+  ],
+  categories: [
+    { id: 'fixture-category', label: 'Synthetic fixture', active: true, displayOrder: 0 },
+  ],
+}
+const publishCatalog = async (body) => {
+  const response = await fetch(`${origin}/functions/v1/catalog-v1`, {
+    method: 'POST',
+    headers: {
+      apikey: publishable,
+      Authorization: `Bearer ${managerAuth.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  return { status: response.status, data: await response.json() }
+}
+check(
+  (await publishCatalog(catalogBody)).status === 403,
+  'Unprivileged live manager cannot publish',
+)
+await sql(
+  `insert into pos_private.scope_grants values('${organization}','${festival}','${manager.id}','publish_catalog',true)`,
+)
+const publication = await publishCatalog(catalogBody)
+check(publication.status === 200, 'Scoped manager publishes a complete version')
+const publicationDocument = readCatalogVersion(publication.data.version, {
+  organizationId: organization,
+  festivalId: festival,
+})
+check(
+  publicationDocument.revision === 1 && publicationDocument.origin === `supabase:${manager.id}`,
+  'Server generates revision and origin; SHA-256 verifies on client',
+)
+check((await publishCatalog(catalogBody)).status === 409, 'Stale manager publication rejected')
+check(
+  (
+    await publishCatalog({
+      ...catalogBody,
+      expectedRevision: 1,
+      products: [{ ...catalogBody.products[0], categoryId: 'absent' }],
+    })
+  ).status === 400,
+  'Invalid references rejected through real Edge',
+)
+catalogue = await send(catalogDevice, catalogContext, 'catalog-v1')
+check(
+  catalogue.status === 200 && catalogue.data.version.sha256 === publication.data.version.sha256,
+  'Second device downloads exact published document',
+)
+const simultaneous = await Promise.all([
+  publishCatalog({ ...catalogBody, expectedRevision: 1 }),
+  publishCatalog({ ...catalogBody, expectedRevision: 1 }),
+])
+check(
+  simultaneous
+    .map((response) => response.status)
+    .sort()
+    .join(',') === '200,409',
+  'Concurrent catalogue publications have exactly one winner',
+)
+const forgedCatalog = await send(
+  catalogDevice,
+  { ...catalogContext, festivalId: randomUUID() },
+  'catalog-v1',
+)
+check(forgedCatalog.status === 403, 'Signed forged catalogue scope denied')
+await sql(
+  `update pos_private.scope_grants set active=false where auth_subject='${manager.id}' and capability='publish_catalog'`,
+)
+check(
+  (await publishCatalog({ ...catalogBody, expectedRevision: 2 })).status === 403,
+  'Publisher revocation applies with unexpired token',
+)
+const beforeCatalogRevoke = await signed(catalogDevice, catalogContext, 'catalog-v1')
+await sql(
+  `update pos_private.installations set active=false,revoked_at=now() where installation_id='${catalogDevice.installation}'`,
+)
+check(
+  (await sendSigned(beforeCatalogRevoke, 'catalog-v1')).status === 403,
+  'Tablet revocation applies to a previously signed catalogue download',
+)
+check(
+  (await state(independent)).events === 1,
+  'Catalogue publication never rewrites financial history',
+)
 console.log(
-  `PASS: ${checks} real local Auth/Edge/PostgreSQL checks; all five kinds, rollback, replay, legacy, prefix, security and concurrency.`,
+  `PASS: ${checks} real local Auth/Edge/PostgreSQL checks; ledger and catalogue, rollback, replay, security and concurrency.`,
 )
 // Immutable fixtures stay in this explicitly disposable stack until the next local reset.

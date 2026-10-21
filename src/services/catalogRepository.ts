@@ -1,5 +1,6 @@
 import { initialCategories } from '../data/initialCategories'
 import type { Category, Product } from '../types/catalog'
+import type { CatalogSnapshot, CatalogCommit } from '../types/catalogDistribution'
 import type {
   CatalogInitializationResult,
   NativeCatalogStorageBridge,
@@ -16,6 +17,8 @@ import {
 const CATALOG_INITIALIZED_KEY = 'catalog-initialized-v1'
 
 export interface CatalogRepository {
+  readSnapshot(): Promise<CatalogSnapshot>
+  commitSnapshot(snapshot: CatalogCommit): Promise<void>
   initialize(seed: readonly Product[]): Promise<CatalogInitializationResult>
   getProducts(): Promise<Product[]>
   getSellableProducts(): Promise<Product[]>
@@ -29,7 +32,7 @@ export interface CatalogRepository {
   reorderCategories(ids: readonly string[]): Promise<Category[]>
 }
 
-function sorted(products: Product[]): Product[] {
+export function sorted(products: Product[]): Product[] {
   return products.sort(
     (a, b) =>
       a.displayOrder - b.displayOrder ||
@@ -79,14 +82,19 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
               categories.add(added)
               existing.push(added)
             }
-            for (const category of initialCategories) ensure(structuredClone(category))
-            for (const product of allProducts)
-              ensure({
-                id: product.categoryId,
-                label: product.categoryId,
-                active: false,
-                displayOrder: Math.max(-1, ...existing.map(({ displayOrder }) => displayOrder)) + 1,
-              })
+            const distribution = metadata.get('distribution-v1')
+            distribution.onsuccess = () => {
+              if (!distribution.result)
+                for (const category of initialCategories) ensure(structuredClone(category))
+              for (const product of allProducts)
+                ensure({
+                  id: product.categoryId,
+                  label: product.categoryId,
+                  active: false,
+                  displayOrder:
+                    Math.max(-1, ...existing.map(({ displayOrder }) => displayOrder)) + 1,
+                })
+            }
           }
         }
       }
@@ -96,6 +104,56 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
 
   async getProducts(): Promise<Product[]> {
     return sorted(await this.readAll<Product>(indexedDbStores.products))
+  }
+
+  async readSnapshot(): Promise<CatalogSnapshot> {
+    const db = await this.openDatabase()
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([
+        indexedDbStores.products,
+        indexedDbStores.categories,
+        indexedDbStores.catalogMetadata,
+      ])
+      const products = tx.objectStore(indexedDbStores.products).getAll()
+      const categories = tx.objectStore(indexedDbStores.categories).getAll()
+      const state = tx.objectStore(indexedDbStores.catalogMetadata).get('distribution-v1')
+      const revision = tx.objectStore(indexedDbStores.catalogMetadata).get('local-revision')
+      tx.oncomplete = () =>
+        resolve({
+          products: products.result,
+          categories: categories.result,
+          distribution: state.result?.value ?? null,
+          revision: revision.result?.value ?? 0,
+        })
+      tx.onabort = () => reject(tx.error)
+    })
+  }
+
+  async commitSnapshot(snapshot: CatalogCommit): Promise<void> {
+    await this.catalogTransaction((products, categories, metadata, fail, tx) => {
+      const revision = metadata.get('local-revision')
+      revision.onsuccess = () => {
+        // catalogTransaction has already queued the revision increment, invisible until commit.
+        if ((revision.result?.value ?? 0) !== snapshot.revision + 1)
+          return fail(new Error('CATALOG_CHANGED'))
+        const apply = () => {
+          for (const category of snapshot.categories) categories.put(structuredClone(category))
+          for (const product of snapshot.products) products.put(structuredClone(product))
+          metadata.put({ key: 'distribution-v1', value: structuredClone(snapshot.distribution) })
+        }
+        if (!snapshot.activation) return apply()
+        const intents = tx.objectStore(indexedDbStores.checkoutIntents).getAll()
+        intents.onsuccess = () => {
+          if (
+            intents.result.some(
+              (intent: { status: string }) => !['finalized', 'abandoned'].includes(intent.status),
+            )
+          )
+            return fail(new Error('Un paiement doit être terminé avant l’activation.'))
+          apply()
+        }
+      }
+    })
   }
 
   async getSellableProducts(): Promise<Product[]> {
@@ -219,12 +277,18 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
       categories: IDBObjectStore,
       metadata: IDBObjectStore,
       fail: (error: unknown) => void,
+      transaction: IDBTransaction,
     ) => void,
   ): Promise<void> {
     const database = await this.openDatabase()
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(
-        [indexedDbStores.products, indexedDbStores.categories, indexedDbStores.catalogMetadata],
+        [
+          indexedDbStores.products,
+          indexedDbStores.categories,
+          indexedDbStores.catalogMetadata,
+          indexedDbStores.checkoutIntents,
+        ],
         'readwrite',
       )
       let operationError: unknown
@@ -241,12 +305,18 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
           operationError ?? transaction.error ?? new Error('Enregistrement du catalogue annulé.'),
         )
       try {
-        operation(
-          transaction.objectStore(indexedDbStores.products),
-          transaction.objectStore(indexedDbStores.categories),
-          transaction.objectStore(indexedDbStores.catalogMetadata),
-          fail,
-        )
+        const metadata = transaction.objectStore(indexedDbStores.catalogMetadata)
+        const revision = metadata.get('local-revision')
+        revision.onsuccess = () => {
+          metadata.put({ key: 'local-revision', value: (revision.result?.value ?? 0) + 1 })
+          operation(
+            transaction.objectStore(indexedDbStores.products),
+            transaction.objectStore(indexedDbStores.categories),
+            transaction.objectStore(indexedDbStores.catalogMetadata),
+            fail,
+            transaction,
+          )
+        }
       } catch (error) {
         fail(error)
       }
@@ -266,6 +336,12 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
 
 export class RoomCatalogRepository implements CatalogRepository {
   constructor(private readonly bridge: NativeCatalogStorageBridge) {}
+  readSnapshot(): Promise<CatalogSnapshot> {
+    return this.bridge.getCatalogSnapshot()
+  }
+  commitSnapshot(snapshot: CatalogCommit): Promise<void> {
+    return this.bridge.commitCatalogSnapshot({ snapshot }).then(() => undefined)
+  }
   initialize(seed: readonly Product[]): Promise<CatalogInitializationResult> {
     return this.bridge.initializeCatalog({ products: structuredClone([...seed]) })
   }
