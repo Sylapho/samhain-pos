@@ -89,7 +89,9 @@ IndexedDB n'est ni vidé ni supprimé après succès. Une installation sans comm
 
 ## Versioning et migrations Room
 
-La version courante est `7`. La migration `6 → 7` ajoute les tables techniques `outbox` et `outbox_backfill`, sans modifier les événements existants. La migration `4 → 5` ajoute `products` et `catalog_metadata` ; `5 → 6` ajoute seulement `sync_identity` (chaîne durable, marqueur de restauration et liaison serveur). Ces migrations ne modifient aucune commande existante. `sync_identity` reste extérieur aux snapshots financiers/archives v1 et ne contient aucun token. Les [credentials Auth #114](tablet-enrollment.md) sont dans un fichier natif distinct chiffré par Keystore. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
+La version courante est `8`. La migration `7 → 8` ajoute `categories` et son index unique de nom normalisé, initialise les six identifiants historiques et conserve les références produit inconnues dans des catégories inactives. Elle ne réécrit ni produits ni ventes. Voir [la gestion du catalogue local](local-categories.md).
+
+La migration `6 → 7` ajoute les tables techniques `outbox` et `outbox_backfill`, sans modifier les événements existants. La migration `4 → 5` ajoute `products` et `catalog_metadata` ; `5 → 6` ajoute seulement `sync_identity` (chaîne durable, marqueur de restauration et liaison serveur). Ces migrations ne modifient aucune commande existante. `sync_identity` reste extérieur aux snapshots financiers/archives v1 et ne contient aucun token. Les [credentials Auth #114](tablet-enrollment.md) sont dans un fichier natif distinct chiffré par Keystore. Le schéma exporté par KSP est versionné dans `android/app/schemas/fr.samhain.pos.SamhainPosDatabase/`.
 
 Pour une évolution future :
 

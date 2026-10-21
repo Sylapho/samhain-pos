@@ -15,9 +15,11 @@ import {
   LocalStorageResponsibleCredentialRepository,
   ResponsibleModeService,
 } from '../services/responsibleModeService'
-import type { CatalogRepository } from '../services/catalogRepository'
+import { IndexedDbCatalogRepository } from '../services/catalogRepository'
+import { IDBFactory } from 'fake-indexeddb'
+import { initialCategories } from '../data/initialCategories'
+import { createCartItemDraft } from '../utils/cart'
 import { CatalogService } from '../services/catalogService'
-import type { Product } from '../types/catalog'
 
 function App(props: ComponentProps<typeof ProductionApp>) {
   const cashSession = {
@@ -30,6 +32,7 @@ function App(props: ComponentProps<typeof ProductionApp>) {
   return (
     <ProductionApp
       initialCatalog={initialCatalogProducts}
+      initialCategories={[...initialCategories]}
       cashSessionService={{
         getActiveSession: vi.fn(async () => cashSession),
         openSession: vi.fn(async (amountCents: number) => ({
@@ -124,6 +127,7 @@ describe('caisse', () => {
     render(
       <ProductionApp
         initialCatalog={initialCatalogProducts}
+        initialCategories={[...initialCategories]}
         loadRecoverableOrders={vi.fn(async () => [])}
         loadRecoverableIntents={vi.fn(async () => [])}
         cashSessionService={{
@@ -255,23 +259,8 @@ describe('caisse', () => {
     )
     await responsibleMode.setupPin('4826', '4826')
     await responsibleMode.unlock('4826')
-    let catalog = structuredClone(initialCatalogProducts)
-    const repository: CatalogRepository = {
-      initialize: async () => ({ initialized: false, products: structuredClone(catalog) }),
-      getProducts: async () => structuredClone(catalog),
-      getSellableProducts: async () =>
-        structuredClone(
-          catalog.filter(({ active, availability }) => active && availability === 'available'),
-        ),
-      createProduct: async (product: Product) => {
-        catalog.push(product)
-        return product
-      },
-      updateProduct: async (product: Product) => {
-        catalog = catalog.map((candidate) => (candidate.id === product.id ? product : candidate))
-        return product
-      },
-    }
+    const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'app-admin')
+    await repository.initialize(initialCatalogProducts)
 
     render(
       <App
@@ -284,6 +273,90 @@ describe('caisse', () => {
     const administration = await screen.findByRole('dialog', { name: 'Produits' })
     expect(within(administration).getByText('Administration')).toBeInTheDocument()
     fireEvent.click(within(administration).getByRole('button', { name: 'Fermer' }))
+    expect(responsibleMode.isUnlocked()).toBe(false)
+  })
+
+  it('protège les catégories et conserve la caisse même sans catégorie active', async () => {
+    const responsibleMode = new ResponsibleModeService(
+      new LocalStorageResponsibleCredentialRepository(localStorage),
+    )
+    await responsibleMode.setupPin('4826', '4826')
+    responsibleMode.lock()
+    const service = new CatalogService(
+      new IndexedDbCatalogRepository(new IDBFactory(), 'app-categories'),
+    )
+    await service.loadCatalog()
+    for (const category of await service.getCategories()) {
+      if (!['menus', 'desserts'].includes(category.id))
+        await service.setCategoryActive(category.id, false)
+    }
+    useCartStore
+      .getState()
+      .addItem(createCartItemDraft(initialCatalogProducts.find(({ id }) => id === 'crepe-sucre')!))
+    const cartBefore = structuredClone(useCartStore.getState().items)
+    render(
+      <App
+        initialCatalog={undefined}
+        initialCategories={undefined}
+        catalogService={service}
+        responsibleMode={responsibleMode}
+        loadRecoverableOrders={vi.fn(async () => [])}
+      />,
+    )
+    const navigation = await screen.findByRole('navigation', { name: 'Catégories de produits' })
+    await waitFor(() =>
+      expect(within(navigation).getByRole('button', { name: 'Menus' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Administration' }))
+    expect(await screen.findByRole('dialog', { name: 'Mode responsable' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Catégories' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('PIN responsable'), { target: { value: '4826' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Déverrouiller' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Catégories' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ajouter une catégorie' }))
+    fireEvent.change(screen.getByLabelText('Nom de la catégorie'), { target: { value: 'Du jour' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await screen.findByRole('listitem', { name: 'Du jour' })
+    expect(within(navigation).getByRole('button', { name: 'Du jour' })).toBeInTheDocument()
+    fireEvent.click(
+      within(screen.getByRole('listitem', { name: 'Menus' })).getByRole('button', {
+        name: 'Désactiver',
+      }),
+    )
+    await waitFor(() =>
+      expect(within(navigation).queryByRole('button', { name: 'Menus' })).not.toBeInTheDocument(),
+    )
+    expect(within(navigation).getByRole('button', { name: 'Desserts' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    fireEvent.click(
+      within(screen.getByRole('listitem', { name: 'Desserts' })).getByRole('button', {
+        name: 'Renommer',
+      }),
+    )
+    fireEvent.change(screen.getByLabelText('Nom de la catégorie'), {
+      target: { value: 'Douceurs' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() =>
+      expect(within(navigation).getByRole('button', { name: 'Douceurs' })).toBeInTheDocument(),
+    )
+    for (const name of ['Douceurs', 'Du jour']) {
+      fireEvent.click(
+        within(screen.getByRole('listitem', { name })).getByRole('button', { name: 'Désactiver' }),
+      )
+      await waitFor(() =>
+        expect(within(navigation).queryByRole('button', { name })).not.toBeInTheDocument(),
+      )
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
+    expect(screen.getByText(/Aucune catégorie active/)).toBeInTheDocument()
+    expect(useCartStore.getState().items).toEqual(cartBefore)
+    expect(screen.getByRole('button', { name: /Valider la commande/ })).toBeInTheDocument()
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
 

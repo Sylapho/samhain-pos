@@ -1,4 +1,4 @@
-export const SAMHAIN_DATABASE_VERSION = 5
+export const SAMHAIN_DATABASE_VERSION = 6
 
 export const indexedDbStores = {
   outbox: 'outbox',
@@ -9,6 +9,7 @@ export const indexedDbStores = {
   metadata: 'metadata',
   checkoutIntents: 'checkoutIntents',
   products: 'products',
+  categories: 'categories',
   catalogMetadata: 'catalogMetadata',
 } as const
 
@@ -50,6 +51,9 @@ export function openSamhainDatabase(
         })
         intents.createIndex('status', 'status', { unique: false })
         intents.createIndex('updatedAt', 'updatedAt', { unique: false })
+      }
+      if (!database.objectStoreNames.contains(indexedDbStores.categories)) {
+        database.createObjectStore(indexedDbStores.categories, { keyPath: 'id' })
       }
       if (!database.objectStoreNames.contains(indexedDbStores.products)) {
         const products = database.createObjectStore(indexedDbStores.products, { keyPath: 'id' })

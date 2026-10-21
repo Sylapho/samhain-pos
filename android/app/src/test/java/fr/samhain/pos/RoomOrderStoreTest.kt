@@ -60,16 +60,58 @@ class RoomOrderStoreTest {
             sqlite.execSQL("DROP TABLE outbox")
             sqlite.execSQL("DROP TABLE outbox_backfill")
             sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42",arrayOf(hash))
+            sqlite.execSQL("DROP TABLE categories")
             sqlite.version = 5
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8).build()
         try {
             val reopenedStore = RoomOrderStore(migrated)
             assertEquals(before,reopenedStore.snapshot().toString())
             val identity = reopenedStore.syncIdentity()
             assertEquals(identity,reopenedStore.syncIdentity())
             assertFalse(identity.restored)
+        } finally { migrated.close(); context.deleteDatabase(name) }
+    }
+
+    @Test
+    fun migrationSevenToEightKeepsFinancialHistoryAndProducts() = onDatabaseThread {
+        val name = "categories-migration-${UUID.randomUUID()}.db"
+        val original = Room.databaseBuilder(context, SamhainPosDatabase::class.java, name).build()
+        val financial: String
+        try {
+            val sales = RoomOrderStore(original)
+            sales.createOrder(request("category-migration-sale"), source())
+            financial = sales.snapshot().toString()
+            val product = JSONObject().put("id", "legacy-product").put("name", "Historique")
+                .put("categoryId", "ancienne").put("active", true).put("displayOrder", 0)
+                .put("requiresPreparation", false).put("availability", "available")
+                .put("priceCents", 500).put("vatRate", 10)
+            RoomCatalogStore(original).initialize(JSONArray().put(product))
+            val path = "schemas/fr.samhain.pos.SamhainPosDatabase/7.json"
+            val schema = listOf(File(path),File("app/$path"),File("android/app/$path")).first { it.exists() }
+            val hash = JSONObject(schema.readText()).getJSONObject("database").getString("identityHash")
+            val sqlite = original.openHelper.writableDatabase
+            sqlite.execSQL("DROP TABLE categories")
+            sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42", arrayOf(hash))
+            sqlite.version = 7
+        } finally { original.close() }
+        val migrated = Room.databaseBuilder(context, SamhainPosDatabase::class.java, name)
+            .addMigrations(SamhainPosDatabase.MIGRATION_7_8).build()
+        try {
+            assertEquals(financial, RoomOrderStore(migrated).snapshot().toString())
+            val catalog = RoomCatalogStore(migrated)
+            catalog.initialize(JSONArray())
+            assertEquals(1, catalog.getAll().getJSONArray("products").length())
+            assertEquals("ancienne", catalog.getAll().getJSONArray("products").getJSONObject(0).getString("categoryId"))
+            assertEquals(7, migrated.categoryDao().getAll().size)
+            assertFalse(migrated.categoryDao().findById("ancienne")!!.active)
+            catalog.updateCategory("menus", "Personnalisé")
+            catalog.setCategoryActive("menus", false)
+            catalog.initialize(JSONArray())
+            assertEquals("Personnalisé", migrated.categoryDao().findById("menus")!!.label)
+            assertFalse(migrated.categoryDao().findById("menus")!!.active)
+            assertEquals(financial, RoomOrderStore(migrated).snapshot().toString())
         } finally { migrated.close(); context.deleteDatabase(name) }
     }
 

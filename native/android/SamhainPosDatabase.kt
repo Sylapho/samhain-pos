@@ -158,6 +158,24 @@ data class ProductEntity(
     @ColumnInfo(name = "product_json") val productJson: String,
 )
 
+@Entity(tableName = "categories", indices = [Index(value = ["normalized_label"], unique = true)])
+data class CategoryEntity(
+    @PrimaryKey val id: String,
+    val label: String,
+    @ColumnInfo(name = "normalized_label") val normalizedLabel: String,
+    val active: Boolean,
+    @ColumnInfo(name = "display_order") val displayOrder: Int,
+)
+
+@Dao
+interface CategoryDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) fun insert(category: CategoryEntity)
+    @Update fun update(category: CategoryEntity): Int
+    @Query("SELECT * FROM categories ORDER BY display_order ASC, id ASC") fun getAll(): List<CategoryEntity>
+    @Query("SELECT * FROM categories WHERE active = 1 ORDER BY display_order ASC, id ASC") fun getActive(): List<CategoryEntity>
+    @Query("SELECT * FROM categories WHERE id = :id") fun findById(id: String): CategoryEntity?
+}
+
 @Entity(tableName = "catalog_metadata")
 data class CatalogMetadataEntity(
     @PrimaryKey val id: Int = SINGLETON_ID,
@@ -306,12 +324,13 @@ interface SyncIdentityDao {
         PosMetadataEntity::class,
         CheckoutIntentEntity::class,
         ProductEntity::class,
+        CategoryEntity::class,
         CatalogMetadataEntity::class,
         SyncIdentityEntity::class,
         OutboxEntry::class,
         OutboxBackfill::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
@@ -327,12 +346,22 @@ abstract class SamhainPosDatabase : RoomDatabase() {
 
     abstract fun checkoutIntentDao(): CheckoutIntentDao
 
+    abstract fun categoryDao(): CategoryDao
+
     abstract fun productDao(): ProductDao
 
     abstract fun catalogMetadataDao(): CatalogMetadataDao
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS categories (id TEXT NOT NULL PRIMARY KEY, label TEXT NOT NULL, normalized_label TEXT NOT NULL, active INTEGER NOT NULL, display_order INTEGER NOT NULL)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_categories_normalized_label ON categories(normalized_label)")
+                seedMissingCategories(db)
+            }
+        }
 
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -458,7 +487,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                     .also { instance = it }
             }

@@ -29,6 +29,25 @@ class CatalogStoragePlugin : Plugin() {
     @PluginMethod
     fun updateCatalogProduct(call: PluginCall) = execute(call) { store.update(call.requiredObject("product")) }
 
+    @PluginMethod
+    fun getCatalogCategories(call: PluginCall) = execute(call) { store.getCategories() }
+
+    @PluginMethod
+    fun createCatalogCategory(call: PluginCall) = execute(call) { store.createCategory(call.requiredObject("category")) }
+
+    @PluginMethod
+    fun updateCatalogCategory(call: PluginCall) = execute(call) {
+        store.updateCategory(call.getString("id") ?: error("Identifiant requis."), call.getString("label") ?: error("Nom requis."))
+    }
+
+    @PluginMethod
+    fun setCatalogCategoryActive(call: PluginCall) = execute(call) {
+        store.setCategoryActive(call.getString("id") ?: error("Identifiant requis."), call.getBoolean("active") ?: error("Statut requis."))
+    }
+
+    @PluginMethod
+    fun reorderCatalogCategories(call: PluginCall) = execute(call) { store.reorderCategories(call.requiredArray("ids")) }
+
     private fun execute(call: PluginCall, operation: () -> JSONObject) {
         databaseExecutor.execute {
             try {

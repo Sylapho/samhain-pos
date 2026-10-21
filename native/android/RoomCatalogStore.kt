@@ -7,17 +7,18 @@ import org.json.JSONObject
 
 class RoomCatalogStore(private val database: SamhainPosDatabase) {
     private val products = database.productDao()
+    private val categories = database.categoryDao()
     private val metadata = database.catalogMetadataDao()
 
     fun initialize(seed: JSONArray): JSONObject =
         transaction {
-            if (metadata.get() != null) return@transaction initializationResult(false)
             var seeded = false
-            if (products.count() == 0) {
+            if (metadata.get() == null && products.count() == 0) {
                 for (index in 0 until seed.length()) products.insert(toEntity(seed.getJSONObject(index)))
                 seeded = true
             }
-            metadata.insert(CatalogMetadataEntity(initializedAt = Instant.now().toString()))
+            if (metadata.get() == null) metadata.insert(CatalogMetadataEntity(initializedAt = Instant.now().toString()))
+            seedMissingCategories(database.openHelper.writableDatabase)
             initializationResult(seeded)
         }
 
@@ -31,17 +32,80 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
             },
         )
 
-    fun create(product: JSONObject): JSONObject {
+    fun create(product: JSONObject): JSONObject = transaction {
         val entity = toEntity(product)
+        validateCategoryReference(entity, null)
         products.insert(entity)
-        return JSONObject(entity.productJson)
+        JSONObject(entity.productJson)
     }
 
-    fun update(product: JSONObject): JSONObject {
+    fun update(product: JSONObject): JSONObject = transaction {
         val entity = toEntity(product)
-        require(products.findById(entity.id) != null) { "Ce produit n’existe plus dans le catalogue." }
+        val previous = products.findById(entity.id) ?: throw IllegalArgumentException("Ce produit n’existe plus dans le catalogue.")
+        validateCategoryReference(entity, previous)
         check(products.update(entity) == 1) { "Le produit n’a pas pu être modifié." }
-        return JSONObject(entity.productJson)
+        JSONObject(entity.productJson)
+    }
+
+    fun getCategories(): JSONObject = JSONObject().put("categories", JSONArray().apply {
+        categories.getAll().forEach { put(categoryJson(it)) }
+    })
+
+    fun createCategory(source: JSONObject): JSONObject = transaction {
+        val id = source.requireCatalogText("id")
+        require(categories.findById(id) == null) { "Cet identifiant de catégorie existe déjà." }
+        val label = checkedLabel(source.getString("label"), id)
+        val entity = CategoryEntity(id, label, normalizedCategoryLabel(label), true,
+            (categories.getAll().maxOfOrNull { it.displayOrder } ?: -1) + 1)
+        categories.insert(entity)
+        categoryJson(entity)
+    }
+
+    fun updateCategory(id: String, label: String): JSONObject = transaction {
+        val previous = categories.findById(id) ?: throw IllegalArgumentException("Cette catégorie n’existe plus.")
+        val name = checkedLabel(label, id)
+        val updated = previous.copy(label = name, normalizedLabel = normalizedCategoryLabel(name))
+        check(categories.update(updated) == 1)
+        categoryJson(updated)
+    }
+
+    fun setCategoryActive(id: String, active: Boolean): JSONObject = transaction {
+        val previous = categories.findById(id) ?: throw IllegalArgumentException("Cette catégorie n’existe plus.")
+        val updated = previous.copy(active = active)
+        check(categories.update(updated) == 1)
+        categoryJson(updated)
+    }
+
+    fun reorderCategories(ids: JSONArray): JSONObject = transaction {
+        val existing = categories.getAll()
+        val orderedIds = (0 until ids.length()).map { ids.getString(it) }
+        require(orderedIds.size == existing.size && orderedIds.toSet() == existing.map { it.id }.toSet()) {
+            "La liste des catégories a changé. Rechargez-la avant de réorganiser."
+        }
+        orderedIds.forEachIndexed { index, id ->
+            check(categories.update(existing.first { it.id == id }.copy(displayOrder = index)) == 1)
+        }
+        getCategories()
+    }
+
+    private fun checkedLabel(value: String, id: String): String {
+        val label = value.trim().replace(Regex("[\\s\\p{Z}]+"), " ")
+        require(label.isNotEmpty()) { "Le nom de la catégorie est requis." }
+        require(categories.getAll().none { it.id != id && it.normalizedLabel == normalizedCategoryLabel(label) }) {
+            "Une catégorie porte déjà ce nom."
+        }
+        return label
+    }
+
+    private fun categoryJson(category: CategoryEntity): JSONObject = JSONObject()
+        .put("id", category.id).put("label", category.label)
+        .put("active", category.active).put("displayOrder", category.displayOrder)
+
+    private fun validateCategoryReference(product: ProductEntity, previous: ProductEntity?) {
+        val category = categories.findById(product.categoryId) ?: throw IllegalArgumentException("La catégorie n’existe pas.")
+        require(category.active || previous?.categoryId == product.categoryId) {
+            "Choisissez une catégorie active pour cette affectation."
+        }
     }
 
     private fun initializationResult(initialized: Boolean): JSONObject =

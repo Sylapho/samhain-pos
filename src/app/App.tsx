@@ -34,7 +34,7 @@ import {
   reprovisionTerminal,
 } from '../services/terminalConfigurationService'
 import { useCartStore } from '../store/cartStore'
-import type { CategoryId, Product, ProductSelection } from '../types/catalog'
+import type { Category, CategoryId, Product, ProductSelection } from '../types/catalog'
 import type { CheckoutIntent } from '../types/checkout'
 import type { Order } from '../types/order'
 import type { CashSession } from '../types/salesLedger'
@@ -70,6 +70,7 @@ type Props = {
   initialCashSession?: CashSession
   catalogService?: CatalogService
   initialCatalog?: Product[]
+  initialCategories?: Category[]
 }
 
 const defaultTerminalManagement = {
@@ -93,6 +94,7 @@ export function App({
   initialCashSession,
   catalogService,
   initialCatalog,
+  initialCategories,
 }: Props = {}) {
   const catalogManagement = useMemo(
     () => catalogService ?? (initialCatalog ? null : getCatalogService()),
@@ -102,7 +104,13 @@ export function App({
   const [catalogStatus, setCatalogStatus] = useState<'loading' | 'ready' | 'error'>(
     initialCatalog ? 'ready' : 'loading',
   )
-  const [category, setCategory] = useState<CategoryId>('menus')
+  const [categories, setCategories] = useState<Category[]>(initialCategories ?? [])
+  const [requestedCategory, setCategory] = useState<CategoryId | null>(null)
+  const activeCategories = categories.filter(({ active }) => active)
+  const category =
+    activeCategories.find(({ id }) => id === requestedCategory)?.id ??
+    activeCategories[0]?.id ??
+    null
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null)
   const [lastAddedProductId, setLastAddedProductId] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
@@ -183,12 +191,16 @@ export function App({
   )
 
   useEffect(() => {
-    if (initialCatalog || !catalogManagement) return
+    if (!catalogManagement) return
     let active = true
-    void catalogManagement.loadCatalog().then(
-      (loadedProducts) => {
+    void (async () => {
+      const loadedProducts = initialCatalog ?? (await catalogManagement.loadCatalog())
+      return { loadedProducts, loadedCategories: await catalogManagement.getCategories() }
+    })().then(
+      ({ loadedProducts, loadedCategories }) => {
         if (!active) return
         setProducts(loadedProducts)
+        setCategories(loadedCategories)
         setCatalogStatus('ready')
       },
       () => {
@@ -327,7 +339,7 @@ export function App({
     setCheckoutOpen(false)
     setResumingOrder(null)
     setResumingIntent(null)
-    setCategory('menus')
+    setCategory(activeCategories[0]?.id ?? null)
   }
 
   const updateRecoveryOrder = (updatedOrder: Order) => {
@@ -614,23 +626,36 @@ export function App({
 
       <main className="pos-layout min-h-0 flex-1">
         <aside className="category-zone border-b border-stone-300 bg-[#e9e2d5] lg:border-r lg:border-b-0">
-          <CategoryTabs activeCategory={category} onChange={setCategory} />
+          <CategoryTabs
+            categories={activeCategories}
+            activeCategory={category}
+            onChange={setCategory}
+          />
         </aside>
         <section
           className="catalog-zone min-h-0 overflow-y-auto p-4"
           aria-label="Catalogue produits"
         >
           <div className="mb-4 flex items-baseline justify-between gap-3 border-b border-stone-300 pb-3">
-            <h1 className="text-2xl font-black">{productCategoriesLabel(category)}</h1>
+            <h1 className="text-2xl font-black">
+              {categories.find(({ id }) => id === category)?.label ?? 'Catalogue'}
+            </h1>
             <span className="text-sm font-bold text-stone-600">Touchez pour ajouter</span>
           </div>
-          <ProductGrid
-            products={filteredProducts}
-            onSelect={selectProduct}
-            lastAddedProductId={lastAddedProductId}
-            status={catalogStatus}
-            errorMessage="Le catalogue est momentanément indisponible. Redémarrez l’application, puis réessayez."
-          />
+          {catalogStatus === 'ready' && !activeCategories.length ? (
+            <p role="status" className="border-y border-stone-300 py-8 text-lg font-bold">
+              Aucune catégorie active. Un responsable peut en créer ou en réactiver dans
+              Administration → Catégories. Le panier en cours reste disponible.
+            </p>
+          ) : (
+            <ProductGrid
+              products={filteredProducts}
+              onSelect={selectProduct}
+              lastAddedProductId={lastAddedProductId}
+              status={catalogStatus}
+              errorMessage="Le catalogue est momentanément indisponible. Redémarrez l’application, puis réessayez."
+            />
+          )}
         </section>
         <CartPanel onCheckout={validateOrder} products={products} />
       </main>
@@ -695,6 +720,8 @@ export function App({
       {productManagementOpen && catalogManagement ? (
         <ProductManagementDialog
           products={products}
+          categories={categories}
+          onCategoriesChanged={setCategories}
           service={catalogManagement}
           onProductsChanged={(updatedProducts) => {
             setProducts(updatedProducts)
@@ -747,16 +774,4 @@ export function App({
       ) : null}
     </div>
   )
-}
-
-function productCategoriesLabel(categoryId: CategoryId): string {
-  const labels: Record<CategoryId, string> = {
-    menus: 'Menus',
-    assiettes: 'Assiettes',
-    desserts: 'Desserts',
-    'boissons-chaudes': 'Boissons chaudes',
-    bieres: 'Bières et cidre',
-    'sans-alcool': 'Sans alcool',
-  }
-  return labels[categoryId]
 }
