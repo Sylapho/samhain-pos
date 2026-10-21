@@ -44,6 +44,68 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun exportedHistoricalSchemasUpgradeToCurrentWithoutChangingFinancialProofs() = onDatabaseThread {
+        store.createOrder(request("historical-sale"), source())
+        val before = store.snapshot().toString()
+        for (version in 2..8) {
+            val name = "full-migration-$version-${UUID.randomUUID()}.db"
+            val path = "schemas/fr.samhain.pos.SamhainPosDatabase/$version.json"
+            val schema = JSONObject(listOf(File(path),File("app/$path"),File("android/app/$path"))
+                .first { it.exists() }.readText()).getJSONObject("database")
+            val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(name).callback(object : SupportSQLiteOpenHelper.Callback(version) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        val entities = schema.getJSONArray("entities")
+                        for (i in 0 until entities.length()) {
+                            val entity = entities.getJSONObject(i)
+                            val table = entity.getString("tableName")
+                            db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}",table))
+                            val indices = entity.optJSONArray("indices") ?: JSONArray()
+                            for (j in 0 until indices.length()) db.execSQL(indices.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}",table))
+                            val columns = (0 until entity.getJSONArray("fields").length()).map {
+                                entity.getJSONArray("fields").getJSONObject(it).getString("columnName")
+                            }
+                            // Copy authentic immutable sale, ledger, metadata and print rows
+                            // using only columns that existed in this exported historical schema.
+                            database.openHelper.readableDatabase.query("SELECT ${columns.joinToString(",") { "`$it`" }} FROM `$table`").use { cursor ->
+                                while(cursor.moveToNext()) {
+                                    val values: Array<Any?> = Array(columns.size) { column ->
+                                        when(cursor.getType(column)) {
+                                            android.database.Cursor.FIELD_TYPE_NULL -> null
+                                            android.database.Cursor.FIELD_TYPE_INTEGER -> cursor.getLong(column)
+                                            android.database.Cursor.FIELD_TYPE_FLOAT -> cursor.getDouble(column)
+                                            android.database.Cursor.FIELD_TYPE_BLOB -> cursor.getBlob(column)
+                                            else -> cursor.getString(column)
+                                        }
+                                    }
+                                    db.execSQL("INSERT INTO `$table` (${columns.joinToString(",") { "`$it`" }}) VALUES (${columns.joinToString(",") { "?" }})",values)
+                                }
+                            }
+                        }
+                        val setup = schema.getJSONArray("setupQueries")
+                        for(i in 0 until setup.length()) db.execSQL(setup.getString(i))
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                }).build())
+            try { helper.writableDatabase } finally { helper.close() }
+            val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
+                .addMigrations(SamhainPosDatabase.MIGRATION_2_3,SamhainPosDatabase.MIGRATION_3_4,
+                    SamhainPosDatabase.MIGRATION_4_5,SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,
+                    SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
+            try {
+                assertEquals("Financial snapshot changed from schema $version",before,RoomOrderStore(migrated).snapshot().toString())
+                assertTrue(OutboxStore(migrated).backfillBatch())
+                val rows = migrated.outboxDao().all(RoomOrderStore(migrated).syncIdentity().chainId)
+                assertEquals(1,rows.size)
+                val original = JSONObject(before).getJSONArray("entries").getJSONObject(0)
+                assertEquals(original.getString("id"),rows.single().eventId)
+                assertEquals(original.getLong("sequence"),rows.single().sequence)
+                assertEquals(original.getString("hash"),rows.single().hash)
+            } finally { migrated.close(); context.deleteDatabase(name) }
+        }
+    }
+
+    @Test
     fun migrationFiveToSixPreservesACompleteFinancialSnapshot() = onDatabaseThread {
         val name = "sync-migration-${UUID.randomUUID()}.db"
         val schemaPath = "schemas/fr.samhain.pos.SamhainPosDatabase/5.json"

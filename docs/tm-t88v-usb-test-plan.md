@@ -79,3 +79,59 @@ Epson TM-T88V, le câble et l’alimentation prévus en production. Ne pas utili
 - Une panne avant le premier octet reste récupérable comme `failed`.
 - Après chaque scénario, une nouvelle impression normale fonctionne, ce qui confirme la libération
   de l’interface et la fermeture de la connexion USB.
+
+## Campagne Supabase/USB #117 (complément #19)
+
+**Statut : non exécutée.** Ce protocole complète la campagne quatre caisses #19 ;
+les tests automatiques Room/transport simulé ne prouvent pas la sortie du papier.
+Utiliser un projet Supabase hébergé de test isolé, une tablette réelle et une Epson
+TM-T88V USB alimentée, avec papier et configuration légale de test identifiée.
+Préparer les identifiants de chaîne/installation, les diagnostics responsable et
+une archive vérifiée hors appareil. Ne pas collecter les JWT, codes ou clés.
+
+1. Noter les états et compteurs initiaux, les têtes locale/serveur et le nombre de
+   documents demandés. Garder les paramètres habituels reçu/retrait/préparation.
+2. Couper Internet **avant** l'ouverture de l'app ; vendre et imprimer trois ventes
+   identifiées, avec leurs numéros d'origine. Vérifier Room/historique, état payé,
+   outbox pending et compter chaque document réellement sorti.
+3. Rétablir Internet, demander une relance et observer le drain. Vérifier chaque
+   tuple ID/séquence/hash/fingerprint et le reçu ; aucun papier supplémentaire.
+4. Accumuler un nouveau lot hors ligne. Rétablir puis couper le réseau pendant
+   l'envoi ; si la fenêtre n'est pas atteinte, noter « injection non obtenue » et
+   recommencer avec un lot plus long, sans déclarer le cas exécuté.
+5. Pendant que le drain échoue/attend, effectuer une nouvelle vente et imprimer.
+   La vente, le paiement et l'USB doivent réussir localement sans attendre un ACK.
+6. Rétablir le réseau ; attendre les ACK conformes, relancer deux fois, fermer et
+   rouvrir l'app. Vérifier file persistante, mêmes reçus, aucun nouveau paiement,
+   aucune renumérotation et aucun document supplémentaire.
+7. Répéter avec session expirée/révocation depuis le projet test. Vérifier la pause
+   Auth et une nouvelle vente/impression locale. Ne pas réenrôler pour masquer une
+   erreur : suivre le runbook et conserver l'ancienne identité dans les preuves.
+8. Pendant un autre essai, provoquer une impression partielle (`unknown`) puis une
+   reprise réseau. Le document reste à vérifier manuellement, sans réimpression
+   automatique. Compter le papier incomplet séparément des tickets terminés.
+9. Tester reboot, force-stop, réouverture et, sur chaque modèle déployé, délai
+   WorkManager/Doze et Keystore. Ne pas supposer un délai maximum de reprise.
+10. Exporter/vérifier l'archive finale. Rapprocher ventes/ledger/serveur par ID/hash,
+    et documents demandés/sorties papier par commande et type. Tout écart bloque
+    le GO de cette fonction jusqu'au diagnostic.
+
+### Rapport matériel à compléter
+
+| Champ                                                                   | Valeur réelle à renseigner |
+| ----------------------------------------------------------------------- | -------------------------- |
+| Date, début/fin, fuseau, opérateur                                      | Non exécuté                |
+| Modèle/identifiant tablette, Android/API, restrictions batterie         | À renseigner               |
+| Epson, firmware, USB/câble/alimentation, papier                         | À renseigner               |
+| APK versionName/versionCode, signature, commit et modifications locales | À renseigner               |
+| Projet test, chaîne/installation/génération (sans secrets)              | À renseigner               |
+| État initial, archiveId/archiveHash et support hors tablette            | À renseigner               |
+
+| Étape / panne réellement obtenue   | Commande / documents demandés | Paiement/Room/ledger | Outbox et tête avant→après | ACK ID/hash/fingerprint/reçu | Papier client/retrait/préparation, dont incomplets | Reprise manuelle / écart / verdict |
+| ---------------------------------- | ----------------------------- | -------------------- | -------------------------- | ---------------------------- | -------------------------------------------------- | ---------------------------------- |
+| À compléter pour chaque étape 1–10 | —                             | —                    | —                          | —                            | —                                                  | Non exécuté                        |
+
+Conclusion à signer : incidents et divergences, critères non obtenus, archive
+finale vérifiée, décision GO/NO-GO et version concernée. Une case vide n'est pas
+une réussite. Voir [runbook](supabase-deployment-runbook.md) et
+[matrice de preuves](supabase-integration-validation.md).
