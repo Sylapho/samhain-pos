@@ -43,7 +43,7 @@ class SupabaseSyncHttpTest {
         assertTrue(connection.released)
     }
     @Test fun structuredErrorsRetainOnlySafeCodesAndRetryAfter() {
-        for(status in listOf(429,500,503)) {
+        for(status in listOf(408,429,500,502,503,504)) {
             val connection = Connection(status,"{\"error\":{\"code\":\"SERVER_UNAVAILABLE\"}}","60")
             val error = assertThrows(SyncHttpFailure::class.java) { send(connection) }
             assertEquals(status,error.httpStatus)

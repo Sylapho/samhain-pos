@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const project = 'samhain-pos'
+const cli = process.env.SAMHAIN_SUPABASE_CLI ?? 'supabase'
 const tables = [
   'organizations',
   'festivals',
@@ -20,7 +21,7 @@ function run(command, args, input) {
   const result = spawnSync(command, args, { cwd: root, input, encoding: 'utf8', shell: false })
   if (result.error) throw result.error
   if (result.status !== 0) {
-    throw new Error(`${command} ${args[0]} failed:\n${result.stdout}\n${result.stderr}`)
+    throw new Error(`Local ${args[0]} failed (credential-bearing output suppressed).`)
   }
   return result.stdout.trim()
 }
@@ -57,7 +58,7 @@ try {
   }
   const first = readdirSync(new URL('../supabase/migrations/', import.meta.url)).sort()[0]
   console.log('Resetting the disposable LOCAL database to the initial migration.')
-  run('supabase', ['db', 'reset', '--local', '--no-seed', '--version', first.split('_')[0]])
+  run(cli, ['db', 'reset', '--local', '--no-seed', '--version', first.split('_')[0]])
   const fixture = readFileSync(
     new URL('../supabase/tests/fixtures/pos.psql', import.meta.url),
     'utf8',
@@ -70,12 +71,12 @@ try {
     )
     .join(',')})::text;`
   const before = sql(snapshot)
-  run('supabase', ['migration', 'up', '--local'])
+  run(cli, ['migration', 'up', '--local'])
   if (sql(snapshot) !== before) throw new Error('Additive migration changed existing records.')
   console.log(
     'PASS: every financial payload, receipt, head and enrollment preserved byte-for-byte in its SQL representation.',
   )
-  run('supabase', ['db', 'reset', '--local', '--no-seed'])
+  run(cli, ['db', 'reset', '--local', '--no-seed'])
   console.log('PASS: all migrations reconstructed the empty local database; ready for pgTAP.')
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))

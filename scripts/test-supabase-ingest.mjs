@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { randomUUID, generateKeyPairSync, sign } from 'node:crypto'
+import { randomUUID, sign } from 'node:crypto'
 import { canonicalJson, sha256Hex } from '../src/utils/integrity.ts'
+import { enroll, jsonRequest, managerFixture, scopeFixture } from './lib/supabase-local.mjs'
 import { readCatalogVersion } from '../src/services/catalogDistribution.ts'
 
 // Real local Auth, Edge, PostgREST and PostgreSQL. Never accepts hosted URLs/keys.
@@ -27,18 +28,15 @@ function sql(input, onOutput = () => {}) {
       ],
       { shell: false },
     )
-    let out = '',
-      err = ''
+    let out = ''
     child.stdout.on('data', (c) => {
       out += c
       onOutput(String(c))
     })
-    child.stderr.on('data', (c) => {
-      err += c
-    })
+    child.stderr.resume()
     child.on('error', reject)
     child.on('close', (code) =>
-      code === 0 ? resolve(out.trim()) : reject(new Error(`Local SQL failed: ${err}`)),
+      code === 0 ? resolve(out.trim()) : reject(new Error('Local SQL failed (details suppressed)')),
     )
     child.stdin.end(input)
   })
@@ -63,45 +61,21 @@ const organization = randomUUID(),
 await sql(`insert into pos_private.organizations values('${organization}',true);
 insert into pos_private.festivals values('${organization}','${festival}',true);`)
 
-async function device() {
-  const keys = generateKeyPairSync('rsa', { modulusLength: 2048 })
-  const publicKey = keys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
-  const signup = await fetch(`${origin}/auth/v1/signup`, {
-    method: 'POST',
-    headers: { apikey: publishable, 'Content-Type': 'application/json' },
-    body: '{}',
-  })
-  assert.equal(signup.status, 200, 'Local anonymous Auth signup failed')
-  const auth = await signup.json()
-  const chain = randomUUID(),
-    installation = randomUUID(),
-    terminal = `fixture-${randomUUID()}`
-  const session = JSON.parse(
-    Buffer.from(auth.access_token.split('.')[1], 'base64url').toString(),
-  ).session_id
-  const subject = auth.user.id
-  const requestId = randomUUID()
-  // Administrative setup confined to this disposable local database. No fake JWT/session.
-  await sql(`begin;
-  insert into pos_private.chains(organization_id,festival_id,chain_id) values('${organization}','${festival}','${chain}');
-  insert into pos_private.enrollment_requests(request_id,auth_subject,installation_id,public_key,dossier,consumed_at)
-    values('${requestId}','${subject}','${installation}','${publicKey}','{}',now());
-  insert into pos_private.installations(installation_id,organization_id,festival_id,chain_id,auth_subject,enrollment_generation)
-    values('${installation}','${organization}','${festival}','${chain}','${subject}',1);
-  insert into pos_private.installation_keys values('${installation}','${publicKey}','ready','${requestId}');
-  insert into pos_private.terminal_ranges(organization_id,festival_id,chain_id,first_sequence,terminal_id,evidence_reference)
-    values('${organization}','${festival}','${chain}',1,'${terminal}','synthetic-local-ingest-test');commit;`)
-  return { chain, installation, terminal, subject, session, token: auth.access_token, keys }
+const defaultScope = { organization, festival }
+const enrollmentManager = await managerFixture(values, defaultScope)
+async function device(scope = defaultScope, manager = enrollmentManager, dossier, previous) {
+  return enroll(values, scope, manager, dossier, previous)
 }
+
 function body(d, events, head = { sequence: 0, hash: null }, endpoint = 'ledger-ingest-v1') {
   return {
     protocolVersion: 1,
     requestId: randomUUID(),
-    organizationId: organization,
-    festivalId: festival,
+    organizationId: d.organization,
+    festivalId: d.festival,
     chainId: d.chain,
     installationId: d.installation,
-    enrollmentGeneration: 1,
+    enrollmentGeneration: d.authorization.enrollmentGeneration,
     ...(endpoint === 'ledger-ingest-v1' ? { expectedHead: head } : {}),
     events,
   }
@@ -112,8 +86,8 @@ function fingerprint(d, e) {
   return sha256Hex(
     canonicalJson({
       protocolVersion: 1,
-      organizationId: organization,
-      festivalId: festival,
+      organizationId: d.organization,
+      festivalId: d.festival,
       chainId: d.chain,
       ...fields,
     }),
@@ -1075,6 +1049,190 @@ check(
 check(
   (await state(independent)).events === 1,
   'Catalogue publication never rewrites financial history',
+)
+// #117: a second real scope, authentic enrollment/replacement and session lifecycle.
+const secondScope = await scopeFixture()
+const secondManager = await managerFixture(values, secondScope)
+const scopedDevice = await device(secondScope, secondManager)
+const scopedOrder = order(scopedDevice)
+const scopedSale = event(scopedDevice, 'scope-sale', 1, null, 'sale', {
+  orderId: scopedOrder.id,
+  order: scopedOrder,
+})
+success(await send(scopedDevice, body(scopedDevice, [scopedSale])))
+const scopedBefore = await state(scopedDevice)
+const refreshed = await jsonRequest('/auth/v1/token?grant_type=refresh_token', publishable, null, {
+  refresh_token: scopedDevice.refresh,
+})
+check(
+  refreshed.status === 200 && refreshed.data.user.id === scopedDevice.subject,
+  'Real Auth refresh preserves tablet principal',
+)
+scopedDevice.token = refreshed.data.access_token
+success(await send(scopedDevice, body(scopedDevice, [scopedSale])))
+const foreignChain = { ...body(scopedDevice, [scopedSale]), chainId: historical.chain }
+const { transportFingerprint: ignoredForeignFingerprint, ...foreignFields } = scopedSale
+void ignoredForeignFingerprint
+foreignChain.events = [
+  {
+    ...scopedSale,
+    transportFingerprint: sha256Hex(
+      canonicalJson({
+        protocolVersion: 1,
+        organizationId: scopedDevice.organization,
+        festivalId: scopedDevice.festival,
+        chainId: historical.chain,
+        ...foreignFields,
+      }),
+    ),
+  },
+]
+failure(await send(scopedDevice, foreignChain), 'SCOPE_DENIED')
+failure(
+  await send(scopedDevice, {
+    ...body(scopedDevice, [scopedSale]),
+    installationId: historical.installation,
+  }),
+  'ACCESS_REVOKED',
+)
+const forbiddenApproval = await fetch(`${origin}/functions/v1/tablet-auth-v1`, {
+  method: 'POST',
+  headers: {
+    apikey: publishable,
+    Authorization: `Bearer ${secondManager.token}`,
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    action: 'revoke',
+    body: { chainId: historical.chain, installationId: historical.installation },
+  }),
+})
+check(forbiddenApproval.status === 403, 'Real manager of another scope cannot revoke a tablet')
+for (const token of [publishable, secondManager.token, scopedDevice.token]) {
+  for (const rpc of [
+    'tablet_auth_v1',
+    'ledger_ingest_v1',
+    'legacy_import_v1',
+    'ledger_prefix_v1',
+    'catalog_v1',
+  ]) {
+    const direct = await fetch(`${origin}/rest/v1/rpc/${rpc}`, {
+      method: 'POST',
+      headers: {
+        apikey: publishable,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(
+        rpc === 'tablet_auth_v1'
+          ? { subject: scopedDevice.subject, action: 'status', body: {}, proof_nonce: null }
+          : rpc === 'catalog_v1'
+            ? {
+                subject: scopedDevice.subject,
+                session_id: scopedDevice.session,
+                body: {},
+                proof_nonce: null,
+              }
+            : {
+                subject: scopedDevice.subject,
+                session_id: scopedDevice.session,
+                raw_body: '{}',
+                proof_nonce: null,
+              },
+      ),
+    })
+    check([401, 403].includes(direct.status), 'Direct privileged RPC denied with real API roles')
+  }
+}
+assert.deepEqual(
+  await state(scopedDevice),
+  scopedBefore,
+  'Foreign requests cannot alter the scoped chain',
+)
+checks++
+const sessionProof = await signed(scopedDevice, body(scopedDevice, [scopedSale]))
+await sql(
+  `update auth.sessions set not_after=now()-interval '1 second' where id='${scopedDevice.session}'`,
+)
+failure(await sendSigned(sessionProof), 'AUTH_REQUIRED')
+
+const replacementSource = await device()
+const replacementOrder = order(replacementSource)
+const replacementSale = event(replacementSource, 'replacement-sale', 1, null, 'sale', {
+  orderId: replacementOrder.id,
+  order: replacementOrder,
+})
+success(await send(replacementSource, body(replacementSource, [replacementSale])))
+const originalState = await state(replacementSource)
+const dossier = {
+  chainId: replacementSource.chain,
+  terminalId: replacementSource.terminal,
+  restored: true,
+  prefix: [],
+}
+const oldArchive = await device(defaultScope, enrollmentManager, dossier, replacementSource)
+check(
+  oldArchive.authorization.status === 'needs_recovery' &&
+    oldArchive.authorization.serverHead.sequence === 1,
+  'Archive older than real server head requires recovery',
+)
+failure(await send(oldArchive, body(oldArchive, [replacementSale])), 'ACCESS_REVOKED')
+failure(
+  await send(replacementSource, body(replacementSource, [replacementSale])),
+  'INSTALLATION_RETIRED',
+)
+const truePrefix = [
+  {
+    sequence: 1,
+    eventId: replacementSale.eventId,
+    hash: replacementSale.hash,
+    terminalId: replacementSource.terminal,
+  },
+]
+const forkedArchive = await device(
+  defaultScope,
+  enrollmentManager,
+  { ...dossier, prefix: [{ ...truePrefix[0], hash: 'a'.repeat(64) }] },
+  oldArchive,
+)
+check(
+  forkedArchive.authorization.status === 'needs_recovery',
+  'Divergent restored copy cannot activate uploads',
+)
+const restored = await device(
+  defaultScope,
+  enrollmentManager,
+  { ...dossier, prefix: truePrefix },
+  forkedArchive,
+)
+check(
+  restored.authorization.status === 'authorized' &&
+    restored.authorization.enrollmentGeneration === 4,
+  'Exact restored prefix permits explicitly approved reenrollment with new generation',
+)
+const restoredAck = success(await send(restored, body(restored, [replacementSale])))
+check(
+  restoredAck.acknowledgements[0].status === 'already_present',
+  'Restoration uses original receipt',
+)
+failure(
+  await send(restored, { ...body(restored, [replacementSale]), enrollmentGeneration: 1 }),
+  'INSTALLATION_RETIRED',
+)
+assert.deepEqual(
+  await state(restored),
+  originalState,
+  'Recovery never rewrites financial events, receipts, projection or head',
+)
+checks++
+// Optional financial fields remain sealed; unknown protocol extensions fail explicitly.
+failure(
+  await send(restored, { ...body(restored, [replacementSale]), futureField: true }),
+  'INVALID_ENVELOPE',
+)
+failure(
+  await send(restored, body(restored, [{ ...replacementSale, ledgerSchemaVersion: 2 }])),
+  'LEDGER_SCHEMA_UNSUPPORTED',
 )
 console.log(
   `PASS: ${checks} real local Auth/Edge/PostgreSQL checks; ledger and catalogue, rollback, replay, security and concurrency.`,

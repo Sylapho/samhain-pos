@@ -145,16 +145,17 @@ class OutboxStoreTest {
     }
     @Test fun temporaryHttpErrorsPersistBackoffAndAuthPauseDoesNotBlockSales() = run {
         orders.createOrder(request("one"),source())
-        for(code in listOf(429,500,503)) {
+        for(code in listOf(408,429,500,502,503,504)) {
             engine({ _, _ -> throw SyncHttpFailure(code,"SERVER_UNAVAILABLE",60000) }).drain()
             val row = db.outboxDao().find("sale:one")!!
             assertEquals("pending",row.status); assertTrue(row.nextAttemptAt >= clock + 60000)
             clock = row.nextAttemptAt + 1
+            orders.createOrder(request("offline-after-$code"),source())
         }
         engine({ _, _ -> throw TabletAuthFailure("authorization_denied") }).drain()
         assertEquals("paused_auth",db.outboxDao().find("sale:one")!!.status)
         orders.createOrder(request("two"),source())
-        assertEquals(2,orders.snapshot().getJSONArray("orders").length())
+        assertEquals(8,orders.snapshot().getJSONArray("orders").length())
     }
     @Test fun permanentConflictStopsSuccessorsButAllowsLocalSales() = run {
         orders.createOrder(request("one"),source())

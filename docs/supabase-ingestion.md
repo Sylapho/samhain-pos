@@ -136,6 +136,12 @@ pnpm build
 deno check supabase/functions/ledger-ingest-v1/index.ts supabase/functions/legacy-import-v1/index.ts supabase/functions/ledger-prefix-v1/index.ts
 ```
 
+La campagne complète et son job CI sont décrits dans la
+[matrice #117](supabase-integration-validation.md) : `pnpm test:supabase`
+après `pnpm android:sync:test` inclut les vrais enrôlements et le parcours
+Room→Edge→PostgreSQL. Le [runbook](supabase-deployment-runbook.md) précise
+déploiement, rollback et récupération sans purge.
+
 Le script de migrations réinitialise la **base locale jetable**, vérifie l'évolution
 avec les fixtures historiques puis reconstruit une base vide. Le test HTTP utilise
 vrais signup/session JWT locaux, signatures RSA, gateway, Edge et transactions SQL.

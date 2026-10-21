@@ -52,3 +52,44 @@ jobs:
       - name: Run Android unit tests and assemble debug APK
         working-directory: android
         run: ./gradlew testDebugUnitTest assembleDebug --no-daemon
+
+  supabase-integration:
+    name: Isolated Supabase and Room integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.22.0'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.7
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.121.0
+      - name: Install and prepare Android test sources
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm android:sync:test
+      # Uses only local Docker/Auth keys. No repository or production secret.
+      - name: Run migrations, SQL security, live Edge and Room campaigns
+        run: pnpm test:supabase
+      - name: Save sanitized campaign report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-integration-report
+          path: |
+            reports/supabase-integration.json
+            reports/supabase-room.json
+          if-no-files-found: warn
+      - name: Stop only the disposable test project
+        if: always()
+        run: supabase stop --project-id samhain-pos > /dev/null 2>&1
