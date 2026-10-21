@@ -188,6 +188,22 @@ internal class TabletAuthService(
         result
     }
 
+    fun downloadCatalog(): JSONObject = synchronized(SESSION_LOCK) {
+        val current = status(false)
+        require(current.getString("status") in setOf("authorized", "session_expired"))
+        val body = JSONObject().put("action", "read")
+        for (field in listOf("organizationId", "festivalId", "chainId", "installationId", "enrollmentGeneration")) body.put(field, current.get(field))
+        signedRequest("catalog-v1", "catalog-v1", body)
+    }
+
+    fun publishCatalog(email: String, password: String, body: JSONObject): JSONObject = synchronized(SESSION_LOCK) {
+        val session = http.post("/auth/v1/token?grant_type=password", null, JSONObject().put("email", email).put("password", password))
+        validateSession(session)
+        val token = session.getString("access_token")
+        try { http.post("/functions/v1/catalog-v1", token, JSONObject(body.toString()).put("action", "publish")) }
+        finally { try { http.post("/auth/v1/logout?scope=local", token, JSONObject()) } catch (_: Exception) { } }
+    }
+
     // No Capacitor token getter. #35 uses this method to build a signed request natively.
     fun deviceRequest(action: String, body: JSONObject): JSONObject = synchronized(SESSION_LOCK) {
         signedRequest(action,"tablet-auth-v1",body)

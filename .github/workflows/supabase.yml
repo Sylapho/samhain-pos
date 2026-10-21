@@ -3,10 +3,30 @@ name: Supabase database
 on:
   pull_request:
     branches: [main]
-    paths: ['supabase/**', 'scripts/test-supabase-*.mjs', '.github/workflows/supabase.yml']
+    paths:
+      [
+        'supabase/**',
+        'src/services/catalogDistribution.ts',
+        'src/services/productValidation.ts',
+        'src/services/categoryValidation.ts',
+        'src/types/catalog*.ts',
+        'src/utils/integrity.ts',
+        'scripts/test-supabase-*.mjs',
+        '.github/workflows/supabase.yml',
+      ]
   push:
     branches: [main]
-    paths: ['supabase/**', 'scripts/test-supabase-*.mjs', '.github/workflows/supabase.yml']
+    paths:
+      [
+        'supabase/**',
+        'src/services/catalogDistribution.ts',
+        'src/services/productValidation.ts',
+        'src/services/categoryValidation.ts',
+        'src/types/catalog*.ts',
+        'src/utils/integrity.ts',
+        'scripts/test-supabase-*.mjs',
+        '.github/workflows/supabase.yml',
+      ]
 
 permissions:
   contents: read

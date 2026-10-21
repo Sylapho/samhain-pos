@@ -9,6 +9,51 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
     private val products = database.productDao()
     private val categories = database.categoryDao()
     private val metadata = database.catalogMetadataDao()
+    private val distribution = database.catalogDistributionDao()
+
+    fun snapshot(): JSONObject = database.runInTransaction(Callable {
+        val state = distribution.get()
+        JSONObject().put("products", productsJson()).put("categories", getCategories().getJSONArray("categories"))
+            .put("revision", state?.revision ?: 0).put("distribution", state?.stateJson?.let { JSONObject(it) } ?: JSONObject.NULL)
+    })
+
+    fun commit(snapshot: JSONObject): JSONObject = transaction {
+        require((distribution.get()?.revision ?: 0) == snapshot.getLong("revision")) { "CATALOG_CHANGED" }
+        if (snapshot.optBoolean("activation")) {
+            require(database.checkoutIntentDao().getAll().none { it.status !in setOf("finalized", "abandoned") }) {
+                "Un paiement doit être terminé avant l’activation."
+            }
+        }
+        val state = snapshot.getJSONObject("distribution")
+        for (field in listOf("active", "pending")) state.optJSONObject(field)?.let { envelope ->
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(envelope.getString("payload").toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+            require(hash == envelope.getString("sha256")) { "Catalogue corrompu." }
+        }
+        val nextCategories = snapshot.getJSONArray("categories")
+        val ids = (0 until nextCategories.length()).map { nextCategories.getJSONObject(it).getString("id") }.toSet()
+        require(categories.getAll().all { it.id in ids }) { "Une catégorie locale ne peut pas être supprimée." }
+        // Release unique labels within this transaction to permit a legitimate label swap.
+        categories.getAll().forEach { categories.update(it.copy(normalizedLabel = "\u0000" + it.id)) }
+        for (index in 0 until nextCategories.length()) {
+            val row = nextCategories.getJSONObject(index)
+            val id = row.requireCatalogText("id")
+            val label = row.requireCatalogText("label")
+            val entity = CategoryEntity(id, label, normalizedCategoryLabel(label), row.getBoolean("active"), row.getInt("displayOrder"))
+            require(entity.displayOrder >= 0)
+            if (categories.findById(id) == null) categories.insert(entity) else check(categories.update(entity) == 1)
+        }
+        val nextProducts = snapshot.getJSONArray("products")
+        val productIds = (0 until nextProducts.length()).map { nextProducts.getJSONObject(it).getString("id") }.toSet()
+        require(products.getAll().all { it.id in productIds }) { "Un produit local ne peut pas être supprimé." }
+        for (index in 0 until nextProducts.length()) {
+            val entity = toEntity(nextProducts.getJSONObject(index))
+            require(entity.categoryId in ids) { "La catégorie n’existe pas." }
+            if (products.findById(entity.id) == null) products.insert(entity) else check(products.update(entity) == 1)
+        }
+        distribution.put(CatalogDistributionEntity(revision = snapshot.getLong("revision"), stateJson = state.toString()))
+        JSONObject().put("updated", true)
+    }
 
     fun initialize(seed: JSONArray): JSONObject =
         transaction {
@@ -18,7 +63,7 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
                 seeded = true
             }
             if (metadata.get() == null) metadata.insert(CatalogMetadataEntity(initializedAt = Instant.now().toString()))
-            seedMissingCategories(database.openHelper.writableDatabase)
+            if (distribution.get()?.stateJson == null) seedMissingCategories(database.openHelper.writableDatabase)
             initializationResult(seeded)
         }
 
@@ -147,7 +192,12 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
         )
     }
 
-    private fun <T> transaction(block: () -> T): T = database.runInTransaction(Callable { block() })
+    private fun <T> transaction(block: () -> T): T = database.runInTransaction(Callable {
+        val result = block()
+        val state = distribution.get() ?: CatalogDistributionEntity()
+        distribution.put(state.copy(revision = state.revision + 1))
+        result
+    })
 }
 
 private fun JSONObject.requireCatalogText(key: String): String =

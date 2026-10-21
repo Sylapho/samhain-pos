@@ -20,6 +20,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { initialCategories } from '../data/initialCategories'
 import { createCartItemDraft } from '../utils/cart'
 import { CatalogService } from '../services/catalogService'
+import { sha256Hex } from '../utils/integrity'
 
 function App(props: ComponentProps<typeof ProductionApp>) {
   const cashSession = {
@@ -275,6 +276,85 @@ describe('caisse', () => {
     fireEvent.click(within(administration).getByRole('button', { name: 'Fermer' }))
     expect(responsibleMode.isUnlocked()).toBe(false)
   })
+
+  it.each(['panier', 'options', 'paiement', 'repos'] as const)(
+    'protège la caisse lors d’une activation distante : %s',
+    async (operation) => {
+      const repository = new IndexedDbCatalogRepository(new IDBFactory(), `app-sync-${operation}`)
+      const service = new CatalogService(repository, initialCatalogProducts)
+      await service.loadCatalog()
+      const remote = initialCatalogProducts.map((product) => ({
+        ...product,
+        dataConfidence: 'confirmed',
+        ...(product.id === 'omelette' ? { priceCents: 1600 } : {}),
+        variants: product.variants?.map((variant) => ({ ...variant, dataConfidence: 'confirmed' })),
+      }))
+      const scope = {
+        organizationId: '00000000-0000-0000-0000-000000000001',
+        festivalId: '10000000-0000-0000-0000-000000000001',
+      }
+      const payload = JSON.stringify({
+        ...scope,
+        id: 'publication',
+        revision: 1,
+        schemaVersion: 1,
+        publishedAt: '2026-10-21T10:00:00Z',
+        origin: 'supabase:fixture',
+        products: remote,
+        categories: initialCategories,
+      })
+      await service.distribution.stage({ payload, sha256: sha256Hex(payload) }, scope)
+      const responsibleMode = new ResponsibleModeService(
+        new LocalStorageResponsibleCredentialRepository(localStorage),
+      )
+      await responsibleMode.setupPin('4826', '4826')
+      await responsibleMode.unlock('4826')
+      const loadRecoverableOrders = vi.fn(async () => [])
+      render(
+        <App
+          initialCatalog={undefined}
+          initialCategories={undefined}
+          catalogService={service}
+          responsibleMode={responsibleMode}
+          loadRecoverableOrders={loadRecoverableOrders}
+        />,
+      )
+      await screen.findByRole('button', { name: /Menu enfant/ })
+      await waitFor(() => expect(loadRecoverableOrders).toHaveBeenCalled())
+      if (operation === 'options')
+        fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))
+      if (operation === 'panier' || operation === 'paiement') {
+        fireEvent.click(screen.getByRole('button', { name: 'Assiettes' }))
+        fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+      }
+      if (operation === 'paiement')
+        fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
+      const before = structuredClone(useCartStore.getState().items)
+      fireEvent.click(screen.getByRole('button', { name: 'Administration' }))
+      const admin = await screen.findByRole('dialog', { name: 'Produits' })
+      fireEvent.click(within(admin).getByRole('button', { name: 'Catalogue partagé' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Activer la version téléchargée' }))
+      if (operation === 'repos') {
+        await waitFor(async () =>
+          expect((await service.distribution.status()).active).toBeDefined(),
+        )
+        expect((await service.getProducts()).find(({ id }) => id === 'omelette')?.priceCents).toBe(
+          1600,
+        )
+      } else {
+        expect(await screen.findByRole('alert')).toHaveTextContent('Terminez')
+        expect((await service.distribution.status()).active).toBeUndefined()
+        expect((await service.getProducts()).find(({ id }) => id === 'omelette')?.priceCents).toBe(
+          1000,
+        )
+        expect(useCartStore.getState().items).toEqual(before)
+        if (operation === 'options')
+          expect(screen.getByRole('dialog', { name: 'Menu enfant' })).toBeInTheDocument()
+        if (operation === 'paiement')
+          expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
+      }
+    },
+  )
 
   it('protège les catégories et conserve la caisse même sans catégorie active', async () => {
     const responsibleMode = new ResponsibleModeService(

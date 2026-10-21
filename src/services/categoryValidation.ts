@@ -1,4 +1,4 @@
-import type { Category, Product } from '../types/catalog'
+import type { Category, Product } from '../types/catalog.ts'
 
 export function normalizeCategoryLabel(label: string): string {
   return label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, ' ')

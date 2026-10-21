@@ -64,7 +64,7 @@ class RoomOrderStoreTest {
             sqlite.version = 5
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
         try {
             val reopenedStore = RoomOrderStore(migrated)
             assertEquals(before,reopenedStore.snapshot().toString())
@@ -97,7 +97,7 @@ class RoomOrderStoreTest {
             sqlite.version = 7
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context, SamhainPosDatabase::class.java, name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_7_8).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
         try {
             assertEquals(financial, RoomOrderStore(migrated).snapshot().toString())
             val catalog = RoomCatalogStore(migrated)

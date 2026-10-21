@@ -28,7 +28,7 @@ select ok(p.proconfig @> array['search_path=""'], p.proname || ': locked search_
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'pos_private' order by p.proname;
 select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'pos_private' and p.prosecdef and p.proname <> 'require_sync_session'), 2::bigint, 'Only bounded read helpers besides the closed Auth check are definers');
+  where n.nspname = 'pos_private' and p.prosecdef and p.proname not in ('require_sync_session','require_catalog_account')), 2::bigint, 'Only bounded read helpers besides the closed Auth checks are definers');
 select ok(not rolcanlogin and not rolinherit and not rolsuper and not rolbypassrls and not rolcreaterole,
   'Policy helper owner cannot log in or bypass RLS') from pg_roles where rolname = 'pos_policy_reader';
 select ok(not pg_has_role('authenticated', 'pos_policy_reader', 'MEMBER') and
@@ -44,7 +44,7 @@ select is((select count(*) from pg_proc p join pg_namespace n on n.oid = p.prona
     (has_function_privilege('anon',p.oid,'EXECUTE') or has_function_privilege('authenticated',p.oid,'EXECUTE'))), 0::bigint, 'No client-callable public ingestion RPC');
 select is((select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid
   join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'pos_private' and p.polcmd <> 'r'
-    and p.polname not in ('enrollment_executor','ledger_executor')),
+    and p.polname not in ('enrollment_executor','ledger_executor','catalog_executor')),
   0::bigint, 'No client write policy');
 select ok(not has_table_privilege('authenticated', c.oid, 'SELECT'), c.relname || ': registry not readable directly')
   from pg_class c join pg_namespace n on n.oid = c.relnamespace

@@ -286,7 +286,7 @@ class OutboxStoreTest {
             sqlite.execSQL("DROP TABLE outbox"); sqlite.execSQL("DROP TABLE outbox_backfill")
             sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42",arrayOf(hash)); sqlite.execSQL("DROP TABLE categories"); sqlite.version = 6
         } finally { durable.close() }
-        durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).addMigrations(SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8).build()
+        durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).addMigrations(SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
         try {
             assertEquals(financial,RoomOrderStore(durable).snapshot().toString())
             val restored = OutboxStore(durable)
