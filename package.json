@@ -26,7 +26,13 @@
     "build:android:test": "tsc -b && vite build --mode android-test",
     "build:android:production": "tsc -b && vite build --mode production",
     "android:install-native": "node scripts/install-android-usb-printer.mjs",
-    "android:install-usb-printer": "pnpm android:install-native"
+    "android:install-usb-printer": "pnpm android:install-native",
+    "server:dev": "pnpm --dir server dev",
+    "server:build": "pnpm --dir server build",
+    "server:start": "pnpm --dir server start",
+    "server:test": "pnpm --dir server test",
+    "server:test:integration": "pnpm --dir server test:integration",
+    "server:typecheck": "pnpm --dir server typecheck"
   },
   "dependencies": {
     "@capacitor/android": "8.5.0",

@@ -33,7 +33,7 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 ## Prérequis
 
-La [décision d'architecture MongoDB et le contrat de migration (#129)](docs/architecture-mongodb-offline-first.md) définissent la cible tablettes → API HTTPS dédiée → MongoDB et les étapes #130–#138. Cette migration est documentaire à ce stade : le transport présent dans le code reste Supabase, sans changement du fonctionnement local.
+La [décision d'architecture MongoDB et le contrat de migration (#129)](docs/architecture-mongodb-offline-first.md) définissent la cible tablettes → API HTTPS dédiée → MongoDB et les étapes #130–#138. La [fondation backend autonome (#130)](server/README.md) fournit Fastify, la connexion MongoDB et les sondes de santé ; l'authentification métier et l'ingestion restent à réaliser. Le transport des tablettes reste Supabase, sans changement du fonctionnement local.
 
 La configuration Supabase optionnelle est décrite dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). L'enrôlement, les sessions Android chiffrées par Keystore, la révocation et le remplacement sont décrits dans [`docs/tablet-enrollment.md`](docs/tablet-enrollment.md). Sans configuration ou autorisation, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md). L'[ingestion transactionnelle #36](docs/supabase-ingestion.md) reçoit les cinq kinds, les imports legacy et les diagnostics de préfixe ; l'[outbox/worker #35](docs/outbox-synchronization.md) fournit la capture et la reprise natives.
 

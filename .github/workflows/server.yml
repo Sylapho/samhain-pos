@@ -1,0 +1,54 @@
+name: Backend MongoDB
+
+on:
+  pull_request:
+    paths: ['server/**', '.github/workflows/server.yml']
+  push:
+    branches: [main]
+    paths: ['server/**', '.github/workflows/server.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.22.1'
+      - name: Install isolated dependencies
+        run: |
+          corepack enable
+          pnpm --dir server install --frozen-lockfile
+      - name: Compile, typecheck and test backend
+        run: |
+          pnpm --dir server build
+          pnpm --dir server typecheck
+          pnpm --dir server test
+      - name: Start disposable replica set
+        run: docker compose -f server/compose.test.yaml up -d --wait
+      - name: Run real MongoDB and process signal tests
+        env:
+          MONGODB_TEST_URI: mongodb://127.0.0.1:27019/?directConnection=true
+          MONGODB_TEST_DATABASE: samhain_test_ci
+          MONGODB_TEST_DISPOSABLE: 'true'
+        run: pnpm --dir server test:integration
+      - name: Build production image
+        run: docker build -t samhain-backend-test server
+      - name: Smoke-test compiled image and SIGTERM
+        run: |
+          docker run -d --name samhain-backend-smoke --network host \
+            -e NODE_ENV=test -e HOST=127.0.0.1 -e PORT=30130 \
+            -e MONGODB_URI='mongodb://127.0.0.1:27019/?directConnection=true' \
+            -e MONGODB_DATABASE=samhain_test_ci -e MONGODB_TLS=false samhain-backend-test
+          node --input-type=module -e "for(let i=0;i<30;i++){try{const r=await fetch('http://127.0.0.1:30130/health/ready');if(r.status===200)process.exit(0)}catch{}await new Promise(r=>setTimeout(r,500))}process.exit(1)"
+          docker stop --time 20 samhain-backend-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' samhain-backend-smoke)" = 0
+      - name: Stop only disposable fixtures
+        if: always()
+        run: |
+          docker rm -f samhain-backend-smoke || true
+          docker compose -f server/compose.test.yaml down

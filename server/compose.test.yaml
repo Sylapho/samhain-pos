@@ -1,0 +1,23 @@
+# Disposable localhost fixture ONLY. No production services, mounts or credentials.
+name: samhain-backend-test
+services:
+  mongo:
+    image: mongo:8.0.16
+    command: ['mongod', '--replSet', 'samhain-test', '--bind_ip_all', '--port', '27019']
+    ports:
+      - '127.0.0.1:27019:27019'
+    tmpfs:
+      - /data/db
+      - /data/configdb
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --port
+        - '27019'
+        - --quiet
+        - --eval
+        - "try { rs.status() } catch { rs.initiate({_id:'samhain-test',members:[{_id:0,host:'localhost:27019'}]}) }; if (!db.hello().isWritablePrimary) quit(1)"
+      interval: 2s
+      timeout: 5s
+      retries: 30
