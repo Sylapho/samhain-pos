@@ -28,6 +28,8 @@ jobs:
           pnpm --dir server build
           pnpm --dir server typecheck
           pnpm --dir server test
+      - name: Generate disposable fixture credentials
+        run: node --input-type=module -e "import {appendFileSync} from 'node:fs'; import {randomBytes} from 'node:crypto'; appendFileSync(process.env.GITHUB_ENV, 'MONGODB_TEST_RBAC_PASSWORD=' + randomBytes(32).toString('hex') + '\n')"
       - name: Start disposable replica set
         run: docker compose -f server/compose.test.yaml up -d --wait
       - name: Run real MongoDB and process signal tests
@@ -35,6 +37,7 @@ jobs:
           MONGODB_TEST_URI: mongodb://127.0.0.1:27019/?directConnection=true
           MONGODB_TEST_DATABASE: samhain_test_ci
           MONGODB_TEST_DISPOSABLE: 'true'
+          MONGODB_TEST_RBAC_URI: mongodb://127.0.0.1:27020/
         run: pnpm --dir server test:integration
       - name: Build production image
         run: docker build -t samhain-backend-test server

@@ -1,4 +1,4 @@
-# Backend HTTPS Samhain POS — #130
+# Backend HTTPS Samhain POS — #130 / #131
 
 Fondation **Node.js 24 LTS / TypeScript strict / Fastify / driver officiel MongoDB**,
 conforme à [l'architecture #129](../docs/architecture-mongodb-offline-first.md).
@@ -33,6 +33,11 @@ Le backend peut également être utilisé hors du dépôt : copier `server/`, in
 exécuter `pnpm build` et `pnpm start` dans ce dossier. Son lockfile est indépendant.
 `pnpm build` à la racine conserve sa fonction frontend. Vitest exclut `server/` ; les tests
 serveur utilisent le runner Node et leur propre configuration TypeScript.
+
+Avant le premier démarrage, initialiser explicitement le namespace avec le compte migrateur
+et les rôles avec un compte de provisionnement : voir le [runbook de persistance #131](../docs/mongodb-persistence.md).
+Une base vide/non compatible est refusée par le démarrage et la readiness ; aucune migration
+n'est exécutée automatiquement. `Database.mongo` expose le pool partagé aux futurs services.
 
 ## Organisation et extensions
 
@@ -138,6 +143,8 @@ profils financiers existants. Cette fondation ne prétend pas valider un événe
 ## Docker et MongoDB locale isolée
 
 ```sh
+# Disposable fixture password only; never reuse a real credential.
+export MONGODB_TEST_RBAC_PASSWORD="$(openssl rand -hex 32)"
 docker compose -f server/compose.test.yaml up -d --wait
 docker build -t samhain-pos-server:local server
 ```
@@ -146,6 +153,10 @@ La fixture Compose est un replica set **de test à un nœud**, sans authentifica
 exposé exclusivement sur localhost:27019, avec stockage tmpfs jetable. Elle sert aux tests
 du backend exécuté sur l'hôte et aux futures transactions ; ce n'est pas une architecture
 de production. `directConnection=true` permet d'utiliser la fixture depuis l'hôte.
+Une seconde fixture standalone Auth sur localhost:27020 teste les privilèges et le refus de
+topologie. Elle doit être neuve à chaque campagne d'intégration (tmpfs recréé après `down`).
+Sous PowerShell, générer auparavant le mot de passe de fixture avec
+`$env:MONGODB_TEST_RBAC_PASSWORD = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')`.
 
 Production, après création d'un fichier serveur secret distinct et d'un réseau privé
 reliant le proxy au conteneur (remplacer les noms d'exemple) :
@@ -191,6 +202,9 @@ Les secrets ne passent ni en `ARG`, ni en `COPY`.
 Startup DB impossible : arrêt sans écoute HTTP, log `SERVER_START_FAILED`. Après démarrage,
 perte DB : readiness 503 avec `Retry-After`, liveness conservée. Pas de réponse métier fictive.
 Ne pas activer d'ingestion avant inventaire de topologie, index, rôles et sauvegarde/restauration.
+Le log `started` est émis par le point d'entrée après installation des handlers SIGTERM/SIGINT :
+un superviseur peut envoyer un signal dès ce message. Le test Linux injecte chaque signal à cet
+instant précis et exige un arrêt gracieux avec code 0 et fermeture des flux du processus.
 
 ## Tests
 
@@ -206,6 +220,7 @@ Suite MongoDB explicite, après démarrage de la fixture, sous PowerShell :
 $env:MONGODB_TEST_URI = 'mongodb://127.0.0.1:27019/?directConnection=true'
 $env:MONGODB_TEST_DATABASE = 'samhain_test_local'
 $env:MONGODB_TEST_DISPOSABLE = 'true'
+$env:MONGODB_TEST_RBAC_URI = 'mongodb://127.0.0.1:27020/'
 pnpm server:test:integration
 docker compose -f server/compose.test.yaml down
 ```
@@ -214,19 +229,21 @@ Ou POSIX :
 
 ```sh
 MONGODB_TEST_URI='mongodb://127.0.0.1:27019/?directConnection=true' \
-MONGODB_TEST_DATABASE=samhain_test_local MONGODB_TEST_DISPOSABLE=true pnpm server:test:integration
+MONGODB_TEST_DATABASE=samhain_test_local MONGODB_TEST_DISPOSABLE=true \
+MONGODB_TEST_RBAC_URI='mongodb://127.0.0.1:27020/' pnpm server:test:integration
 ```
 
 Les mêmes variables peuvent être stockées dans `server/.env.integration` (ignoré par Git).
 La suite ignore les variables de connexion de production, exige localhost:27019 sans credentials,
 un namespace `samhain_test_*`, l'opt-in jetable et le replica set `samhain-test`.
-Elle ne fait **aucune écriture ni nettoyage/dropDatabase**. URI absente : tests MongoDB marqués
+Depuis #131, elle initialise des namespaces de test uniques et écrit des fixtures explicitement
+jetables pour les preuves d'atomicité, sans nettoyage ni dropDatabase. URI absente : tests MongoDB marqués
 non exécutés ; URI fournie mais base inaccessible ou garde invalide : échec.
 La panne est simulée par coupure d'un relais TCP local, sans arrêter/modifier la base partagée.
 Les signaux POSIX du processus compilé sont testés sous Linux et explicitement ignorés sous Windows.
 La CI dédiée utilise uniquement cette fixture, teste l'image et son arrêt, sans secret distant.
 
-### Vérifications locales exécutées pour cette livraison
+### Vérifications historiques exécutées pour #130
 
 - Node local 24.8.0, pnpm 10.33.0 ; installation et compilation indépendantes du serveur.
 - `pnpm server:build`, `pnpm server:typecheck` : réussis ; `pnpm server:test` : **32 tests réussis**.
@@ -255,8 +272,11 @@ local autorisé hors bac à sable. Ces limites d'outillage ne sont pas des résu
 
 ## Limites et prochaines issues
 
-#131 ajoute schémas, index, rôles et contrôles de topologie/transactions à `readinessChecks`.
-Aujourd'hui `ready` signifie seulement connexion DB/configuration valides, **pas ingestion prête**.
+#131 fournit les schémas, index, rôles, transactions et contrôles intégrés à `Database.check`.
+`ready` vérifie connexion, topologie, manifeste/index et, en production, privilèges effectifs ;
+cela ne signifie **pas qu'une ingestion HTTP est implémentée**. Commandes `db:migrate`,
+`db:roles`, `db:verify`, `db:verify-runtime`, `db:audit` et limites détaillées dans le
+[runbook #131](../docs/mongodb-persistence.md).
 #132 ajoute Auth/OIDC/enrôlement et preuves, #133 ingestion et contrats d'erreur enrichis,
 #134 transport/configuration Android, #135 catalogue. Aucun de ces parcours n'est implémenté ici.
 La caisse conserve son fonctionnement local et sa destination Supabase actuelle.
