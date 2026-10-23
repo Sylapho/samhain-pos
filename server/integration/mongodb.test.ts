@@ -7,13 +7,15 @@ import { createDatabase } from '../src/database.ts'
 import { startServer } from '../src/lifecycle.ts'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { createInterface } from 'node:readline'
+import { fileURLToPath } from 'node:url'
 import { createServer, connect } from 'node:net'
 import type { Socket } from 'node:net'
 import { migrate } from '../src/persistence/migrations.ts'
 
 const uri = process.env.MONGODB_TEST_URI
 const name = process.env.MONGODB_TEST_DATABASE
-// Deliberately ignores MONGODB_URI/MONGODB_DATABASE. No write/drop/cleanup of any database.
+// Deliberately ignores MONGODB_URI/MONGODB_DATABASE. Only explicitly disposable namespaces.
 function testConfig() {
   if (!uri || !name || process.env.MONGODB_TEST_DISPOSABLE !== 'true')
     throw new Error(
@@ -113,7 +115,7 @@ test(
 )
 
 test(
-  'compiled process handles SIGTERM/SIGINT and exits without remaining resources',
+  'compiled process handles SIGTERM/SIGINT immediately at startup and exits without remaining resources',
   {
     skip:
       !uri || process.platform === 'win32'
@@ -124,35 +126,51 @@ test(
     const config = testConfig()
     for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       const port = 31000 + Math.floor(Math.random() * 10000)
-      const child = spawn(process.execPath, ['dist/index.js'], {
-        env: {
-          ...process.env,
-          NODE_ENV: 'test',
-          MONGODB_URI: config.mongoUri,
-          MONGODB_DATABASE: config.mongoDatabase,
-          MONGODB_TLS: 'false',
-          HOST: '127.0.0.1',
-          PORT: String(port),
-          LOG_LEVEL: 'info',
+      const child = spawn(
+        process.execPath,
+        [
+          '--import',
+          fileURLToPath(new URL('./fixtures/signal-on-start.ts', import.meta.url)),
+          'dist/index.js',
+        ],
+        {
+          env: {
+            ...process.env,
+            NODE_ENV: 'test',
+            MONGODB_URI: config.mongoUri,
+            MONGODB_DATABASE: config.mongoDatabase,
+            MONGODB_TLS: 'false',
+            HOST: '127.0.0.1',
+            PORT: String(port),
+            LOG_LEVEL: 'info',
+            SAMHAIN_TEST_STARTUP_SIGNAL: signal,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
         },
-        stdio: ['ignore', 'pipe', 'pipe'],
+      )
+      const exited = once(child, 'close')
+      const lines = createInterface({ input: child.stdout })
+      let output = ''
+      let diagnostics = ''
+      child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+        diagnostics += chunk
       })
       try {
-        const exited = once(child, 'exit')
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => reject(new Error('Process did not start')), 10000)
-          child.stdout.on('data', (chunk: Buffer) => {
-            if (chunk.toString().includes('"event":"started"')) {
+          lines.on('line', (line: string) => {
+            output += line + '\n'
+            if (line.includes('"event":"started"')) {
               clearTimeout(timer)
               resolve()
             }
           })
           child.once('exit', () => {
             clearTimeout(timer)
-            reject(new Error('Process exited before ready'))
+            reject(new Error(`Process exited before ready for ${signal}: ${diagnostics}`))
           })
         })
-        child.kill(signal)
+        // The preload sends the signal synchronously when the startup log is written.
         const result = await Promise.race([
           exited,
           new Promise<never>((_resolve, reject) => {
@@ -160,10 +178,15 @@ test(
             timer.unref()
           }),
         ])
-        assert.equal(result[0], 0)
-        assert.equal(result[1], null)
+        assert.equal(result[1], null, `Process terminated by ${String(result[1])} during ${signal}`)
+        assert.equal(result[0], 0, `Shutdown failed for ${signal}: ${diagnostics}`)
+        assert(output.includes('"event":"shutdown"'), `Missing graceful shutdown for ${signal}`)
       } finally {
-        if (child.exitCode === null && !child.killed) child.kill('SIGKILL')
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL')
+          await exited.catch(() => undefined)
+        }
+        lines.close()
       }
     }
   },

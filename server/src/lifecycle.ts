@@ -35,7 +35,6 @@ export async function startServer(
     await database.check()
     app.log.info({ event: 'database_connected' })
     await app.listen({ host: config.host, port: config.port })
-    app.log.info({ event: 'started' })
     return { app, stop }
   } catch {
     await stop()

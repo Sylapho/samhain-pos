@@ -202,6 +202,9 @@ Les secrets ne passent ni en `ARG`, ni en `COPY`.
 Startup DB impossible : arrêt sans écoute HTTP, log `SERVER_START_FAILED`. Après démarrage,
 perte DB : readiness 503 avec `Retry-After`, liveness conservée. Pas de réponse métier fictive.
 Ne pas activer d'ingestion avant inventaire de topologie, index, rôles et sauvegarde/restauration.
+Le log `started` est émis par le point d'entrée après installation des handlers SIGTERM/SIGINT :
+un superviseur peut envoyer un signal dès ce message. Le test Linux injecte chaque signal à cet
+instant précis et exige un arrêt gracieux avec code 0 et fermeture des flux du processus.
 
 ## Tests
 

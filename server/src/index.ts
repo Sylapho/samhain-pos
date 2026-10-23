@@ -30,6 +30,8 @@ try {
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
+  // Consumers may signal the process as soon as this log is observable.
+  server.app.log.info({ event: 'started' })
 } catch (error) {
   // Configuration/driver exceptions can contain credentials. Never log the original error.
   process.stderr.write(
