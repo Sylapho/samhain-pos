@@ -3,6 +3,8 @@
 Version de décision : **1.0**, 14 octobre 2026. Contrat réseau : **samhain-sync/1**.
 Statut : décisions techniques retenues pour [#111](https://github.com/Sylapho/samhain-pos/issues/111), à implémenter dans des issues séparées. Aucun serveur, schéma, migration, worker ou credential n'est créé par ce document.
 
+**Évolution #129 (23 octobre 2026)** : la [nouvelle architecture cible MongoDB](architecture-mongodb-offline-first.md) remplace le choix du serveur Supabase pour les futures issues #130–#138. Le présent document conserve le contrat financier et les décisions historiques ; l'implémentation actuelle utilise encore Supabase. Les workers, l'enrôlement et le catalogue ont été implémentés depuis #111 : leurs documents dédiés décrivent leur état livré, les mentions « futur » ci-dessous décrivent le découpage initial.
+
 ## 1. Objectifs, périmètre et invariants
 
 Room/SQLite reste la source de vérité locale Android ; IndexedDB conserve ce rôle sur le Web. Supabase reçoit une copie immuable du journal, et publiera le catalogue. Une vente, son paiement et le lancement de son impression n'attendent jamais le réseau. La synchronisation est différée et sa révocation ne bloque pas les ventes locales.

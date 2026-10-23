@@ -33,6 +33,8 @@ Le PIN responsable est créé sur chaque tablette et fonctionne entièrement hor
 
 ## Prérequis
 
+La [décision d'architecture MongoDB et le contrat de migration (#129)](docs/architecture-mongodb-offline-first.md) définissent la cible tablettes → API HTTPS dédiée → MongoDB et les étapes #130–#138. Cette migration est documentaire à ce stade : le transport présent dans le code reste Supabase, sans changement du fonctionnement local.
+
 La configuration Supabase optionnelle est décrite dans [`docs/supabase-configuration.md`](docs/supabase-configuration.md). L'enrôlement, les sessions Android chiffrées par Keystore, la révocation et le remplacement sont décrits dans [`docs/tablet-enrollment.md`](docs/tablet-enrollment.md). Sans configuration ou autorisation, les ventes et impressions restent locales. L'architecture de référence est [`docs/architecture-supabase-offline-first.md`](docs/architecture-supabase-offline-first.md). L'[ingestion transactionnelle #36](docs/supabase-ingestion.md) reçoit les cinq kinds, les imports legacy et les diagnostics de préfixe ; l'[outbox/worker #35](docs/outbox-synchronization.md) fournit la capture et la reprise natives.
 
 La [campagne d'intégration #117](docs/supabase-integration-validation.md) se lance avec `pnpm test:supabase` après `pnpm android:sync:test`. Elle réinitialise uniquement la pile Supabase Docker locale jetable `samhain-pos` et teste Auth, enrôlement signé, RLS/RPC, ingestion et Room. Le job CI dédié n'utilise aucun secret de production. Le [runbook de déploiement et récupération](docs/supabase-deployment-runbook.md) décrit le rollback compatible et la reprise sans purge. La [campagne matérielle réseau/USB](docs/tm-t88v-usb-test-plan.md) reste une validation physique distincte.
