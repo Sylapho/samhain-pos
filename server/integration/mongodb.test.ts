@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createServer, connect } from 'node:net'
 import type { Socket } from 'node:net'
+import { migrate } from '../src/persistence/migrations.ts'
 
 const uri = process.env.MONGODB_TEST_URI
 const name = process.env.MONGODB_TEST_DATABASE
@@ -46,6 +47,7 @@ test(
     const hello = await db.command({ hello: 1 })
     assert.equal(hello.setName, 'samhain-test')
     assert.equal(hello.isWritablePrimary, true)
+    await migrate(db)
     const before = await db.listCollections({}, { nameOnly: true }).toArray()
     const database = createDatabase(config)
     const server = await startServer({ ...config, port: 0 }, { database })
@@ -65,6 +67,12 @@ test(
   { skip: !uri ? 'MongoDB integration not executed: MONGODB_TEST_URI absent' : false },
   async (t) => {
     const config = testConfig()
+    const initializer = new MongoClient(config.mongoUri, { timeoutMS: 3000 })
+    try {
+      await migrate(initializer.db(config.mongoDatabase))
+    } finally {
+      await initializer.close()
+    }
     // Local TCP relay simulates network loss without stopping/changing the shared fixture.
     const sockets = new Set<Socket>()
     const relay = createServer((incoming) => {

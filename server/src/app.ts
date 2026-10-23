@@ -26,7 +26,7 @@ export type AppDependencies = {
   database: Database
   authenticate?: Authenticator
   apiRoutes?: FastifyPluginAsync
-  // #131 adds read-only checks for topology/schema/indexes, within the same probe budget.
+  // Additional read-only prerequisites share the probe budget with Database.check.
   readinessChecks?: readonly ((signal: AbortSignal) => Promise<void>)[]
   logStream?: Writable
 }

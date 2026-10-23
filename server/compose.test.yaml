@@ -1,6 +1,24 @@
 # Disposable localhost fixture ONLY. No production services, mounts or credentials.
 name: samhain-backend-test
 services:
+  # Separate, fresh auth-enabled fixture to prove MongoDB privilege enforcement.
+  # It is intentionally standalone so the topology refusal is also exercised.
+  mongo-rbac:
+    image: mongo:8.0.16
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: samhain_test_bootstrap
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_TEST_RBAC_PASSWORD:?Generate a disposable test password before starting Compose}
+    command: ['mongod', '--auth', '--bind_ip_all', '--port', '27020']
+    ports:
+      - '127.0.0.1:27020:27020'
+    tmpfs:
+      - /data/db
+      - /data/configdb
+    healthcheck:
+      test: ['CMD', 'mongosh', '--port', '27020', '--quiet', '--eval', 'db.hello().ok || quit(1)']
+      interval: 2s
+      timeout: 5s
+      retries: 30
   mongo:
     image: mongo:8.0.16
     command: ['mongod', '--replSet', 'samhain-test', '--bind_ip_all', '--port', '27019']
