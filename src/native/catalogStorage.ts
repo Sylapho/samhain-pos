@@ -8,6 +8,7 @@ export type CatalogInitializationResult = {
 }
 
 export interface NativeCatalogStorageBridge {
+  getPublicationScope(): Promise<{ organizationId: string; festivalId: string }>
   getCatalogSnapshot(): Promise<CatalogSnapshot>
   commitCatalogSnapshot(options: { snapshot: CatalogCommit }): Promise<{ updated: boolean }>
   downloadCatalog(): Promise<{
@@ -41,6 +42,7 @@ export interface NativeCatalogStorageBridge {
 const nativePlugin = registerPlugin<NativeCatalogStorageBridge>('CatalogStorage')
 
 export const catalogStorage = {
+  getPublicationScope: () => nativePlugin.getPublicationScope(),
   getCatalogSnapshot: () => nativePlugin.getCatalogSnapshot(),
   commitCatalogSnapshot: (options: { snapshot: CatalogCommit }) =>
     nativePlugin.commitCatalogSnapshot(options),

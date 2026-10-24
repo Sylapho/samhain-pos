@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { Db, Document, IndexDescriptionInfo } from 'mongodb'
 import { definitions } from './schema.ts'
+import { definitions as baseline } from './schema-v1.ts'
 import { PersistenceError } from './errors.ts'
 import type { SchemaMigration } from './model.ts'
 
@@ -16,10 +17,14 @@ export function stable(value: unknown): string {
     '}'
   )
 }
-export const migration = {
-  version: 1,
-  checksum: createHash('sha256').update(stable(definitions)).digest('hex'),
-}
+export const migrations = [
+  { version: 1, checksum: createHash('sha256').update(stable(baseline)).digest('hex') },
+  {
+    version: 2,
+    checksum: createHash('sha256').update(stable(definitions)).digest('hex'),
+  },
+]
+export const migration = migrations[1]!
 
 export async function verifyTopology(db: Db, signal?: AbortSignal): Promise<void> {
   const hello = await db.command({ hello: 1 }, { ...(signal ? { signal } : {}) })
@@ -68,7 +73,10 @@ async function inspect(db: Db, complete: boolean, signal?: AbortSignal): Promise
     if (
       settings.validator &&
       Object.keys(settings.validator).length &&
-      stable(settings.validator) !== stable(definition.validator)
+      stable(settings.validator) !== stable(definition.validator) &&
+      (complete ||
+        stable(settings.validator) !==
+          stable(baseline.find((item) => item.name === definition.name)?.validator))
     )
       throw new PersistenceError('SCHEMA_INCOMPATIBLE', definition.name)
     if (
@@ -109,8 +117,9 @@ async function inspect(db: Db, complete: boolean, signal?: AbortSignal): Promise
       .find({}, options)
       .toArray()) {
       if (
-        record.version !== migration.version ||
-        record.checksum !== migration.checksum ||
+        !migrations.some(
+          (item) => item.version === record.version && item.checksum === record.checksum,
+        ) ||
         record.documentSchemaVersion !== 1
       )
         throw new PersistenceError('SCHEMA_INCOMPATIBLE', 'schemaMigrations')
@@ -121,10 +130,17 @@ async function inspect(db: Db, complete: boolean, signal?: AbortSignal): Promise
 export async function verifySchema(db: Db, signal?: AbortSignal): Promise<void> {
   await verifyTopology(db, signal)
   await inspect(db, true, signal)
-  const record = await db
+  const records = await db
     .collection<SchemaMigration>('schemaMigrations')
-    .findOne({ version: migration.version }, signal ? { signal } : {})
-  if (!record || record.checksum !== migration.checksum)
+    .find({}, signal ? { signal } : {})
+    .toArray()
+  if (
+    !migrations.every((item) =>
+      records.some(
+        (record) => record.version === item.version && record.checksum === item.checksum,
+      ),
+    )
+  )
     throw new PersistenceError('SCHEMA_INCOMPATIBLE', 'schemaMigrations')
 }
 
@@ -165,7 +181,8 @@ export async function migrate(db: Db): Promise<void> {
       }
   }
   const records = db.collection<SchemaMigration>('schemaMigrations')
-  if (!(await records.findOne({ version: migration.version })))
-    await records.insertOne({ ...migration, documentSchemaVersion: 1, appliedAt: new Date() })
+  for (const item of migrations)
+    if (!(await records.findOne({ version: item.version })))
+      await records.insertOne({ ...item, documentSchemaVersion: 1, appliedAt: new Date() })
   await verifySchema(db)
 }

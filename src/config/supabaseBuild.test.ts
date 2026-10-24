@@ -67,12 +67,12 @@ describe('ressources Supabase compilées', () => {
 
   it('bloque une clé privilégiée codée en dur et un JWT service_role', async () => {
     await expect(compile('production', {}, 'console.log("sb_secret_hardcoded")')).rejects.toThrow(
-      /Credential Supabase privilégié/,
+      /Secret serveur ou credential de session/,
     )
     const token = `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify({ role: 'service_role' })).toString('base64url')}.signature`
     expect(containsPrivilegedCredential(token)).toBe(true)
     await expect(compile('production', {}, `console.log("${token}")`)).rejects.toThrow(
-      /Credential Supabase privilégié/,
+      /Secret serveur ou credential de session/,
     )
     expect(containsPrivilegedCredential('eyJheader.invalid.signature')).toBe(false)
   })

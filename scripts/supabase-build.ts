@@ -1,4 +1,5 @@
 import type { Plugin } from 'vite'
+import { resolveApiAuthConfiguration } from '../src/config/apiAuth.ts'
 import {
   resolveSupabaseConfiguration,
   type SupabaseBuildEnvironment,
@@ -6,10 +7,12 @@ import {
 
 export function containsPrivilegedCredential(content: string): boolean {
   if (/sb_secret_[A-Za-z0-9_-]+/.test(content)) return true
+  if (/mongodb(?:\+srv)?:\/\/|-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----/.test(content))
+    return true
   for (const match of content.matchAll(/eyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+/g)) {
     try {
-      if (JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8')).role === 'service_role')
-        return true
+      const payload = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8'))
+      if (payload.role === 'service_role' || (payload.sub && payload.exp)) return true
     } catch {
       // Ignore code fragments which do not decode to a JWT payload.
     }
@@ -19,11 +22,15 @@ export function containsPrivilegedCredential(content: string): boolean {
 
 export function supabaseBuildConfiguration(mode: string, environment: SupabaseBuildEnvironment) {
   const supabase = resolveSupabaseConfiguration(mode, environment)
+  const apiAuth = resolveApiAuthConfiguration(mode, environment)
+  if (mode === 'production' && apiAuth.status === 'invalid')
+    throw new Error('Configuration API de production invalide ou non confirmée.')
   return {
     // Raw VITE_* values must never be exposed, even through an import.meta.env object spread.
     envPrefix: [],
     define: {
       __SUPABASE_CONFIGURATION__: JSON.stringify(supabase),
+      __TABLET_API_CONFIGURATION__: JSON.stringify(apiAuth),
       'import.meta.env.VITE_ENABLE_DEV_PANEL': JSON.stringify(
         mode !== 'production' && environment.VITE_ENABLE_DEV_PANEL === 'true' ? 'true' : 'false',
       ),
@@ -40,13 +47,15 @@ export function supabaseBuildConfiguration(mode: string, environment: SupabaseBu
                   ? output.source
                   : Buffer.from(output.source).toString('utf8')
             if (containsPrivilegedCredential(content)) {
-              this.error('Credential Supabase privilégié interdit dans les ressources compilées.')
+              this.error(
+                'Secret serveur ou credential de session interdit dans les ressources compilées.',
+              )
             }
           }
           this.emitFile({
             type: 'asset',
             fileName: 'samhain-build.json',
-            source: JSON.stringify({ schemaVersion: 1, mode, supabase }),
+            source: JSON.stringify({ schemaVersion: 1, mode, supabase, apiAuth }),
           })
         },
       } satisfies Plugin,

@@ -298,11 +298,14 @@ internal class TabletAuthService(
     }
 
     companion object {
-        private val SESSION_LOCK = Any()
+        internal val SESSION_LOCK = Any()
         fun state(status: String): JSONObject = JSONObject().put("status",status)
         fun prepareReplacement(context: Context): JSONObject = synchronized(SESSION_LOCK) {
             // Offline restoration does not initialize Auth, HTTPS or Keystore signing.
             TabletCredentialVault(context).clear()
+            val api = ApiAuthConfiguration.load(context)
+            if (api.status == "configured") TabletCredentialVault(context,destination = api.destinationId).clear()
+            TabletCredentialVault(context,destination = "api-installation-identity").clear()
             RoomOrderStore(SamhainPosDatabase.getInstance(context)).prepareSyncReplacement()
             state("needs_recovery").put("prepared",true)
         }

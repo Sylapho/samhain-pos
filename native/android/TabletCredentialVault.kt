@@ -41,21 +41,23 @@ internal class GcmCredentials(private val key: () -> SecretKey) {
     }
 }
 
-internal class TabletCredentialVault(context: Context, keyProvider: (() -> SecretKey)? = null) : CredentialVault {
-    private val file = AtomicFile(File(context.noBackupFilesDir,"tablet-auth-v1.enc"))
+internal class TabletCredentialVault(context: Context, keyProvider: (() -> SecretKey)? = null, destination: String? = null) : CredentialVault {
+    private val namespace = destination?.let { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8)).joinToString("") { byte -> "%02x".format(byte) } }
+    private val file = AtomicFile(File(context.noBackupFilesDir,namespace?.let { "tablet-auth-api-$it.enc" } ?: "tablet-auth-v1.enc"))
+    private val keyAlias = namespace?.let { "$AES_ALIAS.api.$it" } ?: AES_ALIAS
     private val keys by lazy { KeyStore.getInstance("AndroidKeyStore").apply { load(null) } }
     private val crypto = GcmCredentials {
         if (keyProvider != null) keyProvider() else {
-          if (!keys.containsAlias(AES_ALIAS)) {
+          if (!keys.containsAlias(keyAlias)) {
             // A missing key with existing ciphertext is never silently replaced.
             require(!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists())
             KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore").apply {
-                init(KeyGenParameterSpec.Builder(AES_ALIAS,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                init(KeyGenParameterSpec.Builder(keyAlias,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                     .setKeySize(256).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
             }.generateKey()
           }
-          keys.getKey(AES_ALIAS,null) as SecretKey
+          keys.getKey(keyAlias,null) as SecretKey
         }
     }
 

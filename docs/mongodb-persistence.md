@@ -1,5 +1,11 @@
 # Persistance MongoDB — #131
 
+Évolution #132 : le manifeste v1 est figé dans `server/src/persistence/schema-v1.ts`.
+La migration v2 ajoute les champs Auth et l’index de reprise des rotations, sans modifier
+les documents financiers. `samhain_runtime_v2` ajoute uniquement la mise à jour des plages
+de terminaux nécessaire au remplacement ; v1 reste inchangé. Suivre le
+[runbook Auth/OIDC](tablet-enrollment.md) avant activation. Aucune migration réelle n’a été exécutée par cette livraison.
+
 Cette livraison implémente la fondation de données du backend existant `server/`, selon
 [l'architecture #129](architecture-mongodb-offline-first.md), §5–10. Aucun transport tablette,
 checkout, calcul financier, Room, IndexedDB ou fichier SQL historique n'est modifié.

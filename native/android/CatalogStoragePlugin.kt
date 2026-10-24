@@ -31,9 +31,18 @@ class CatalogStoragePlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getPublicationScope(call: PluginCall) = execute(call) {
+        require(ApiAuthConfiguration.load(context).status == "not_configured")
+        val status = TabletAuthService.get(context).status(false)
+        JSONObject().put("organizationId", status.getString("organizationId")).put("festivalId", status.getString("festivalId"))
+    }
+
+    @PluginMethod
     fun publishCatalog(call: PluginCall) {
         networkExecutor.execute {
             try {
+                // API identities cannot publish through the legacy Supabase destination (#135).
+                require(ApiAuthConfiguration.load(context).status == "not_configured")
                 call.resolve(JSObject(TabletAuthService.get(context).publishCatalog(
                     call.getString("email") ?: error("Compte requis"), call.getString("password") ?: error("Compte requis"), call.requiredObject("body")
                 ).toString()))

@@ -4,13 +4,15 @@ import {
   type TabletAuthorization,
   type TabletAuthorizationStatus,
 } from '../native/tabletAuth'
-import { supabaseConfiguration } from '../config/supabaseRuntime'
+import { apiAuthConfiguration } from '../config/apiAuthRuntime'
 import { getResponsibleModeService } from './responsibleModeService'
 
 export const tabletAuthorizationMessages: Record<TabletAuthorizationStatus, string> = {
   not_configured: 'Synchronisation non configurée',
   not_enrolled: 'Tablette non enrôlée',
   pending: 'Enrôlement en attente d’approbation serveur',
+  rejected: 'Demande refusée par le responsable. Les ventes locales sont conservées.',
+  oidc_not_configured: 'Connexion responsable non configurée sur le serveur.',
   authorized: 'Tablette autorisée pour la synchronisation',
   session_expired: 'Session expirée. Reconnectez cette tablette.',
   revoked: 'Tablette révoquée. Les ventes locales sont conservées.',
@@ -31,7 +33,7 @@ export class TabletEnrollmentService {
     private readonly native: NativeTabletAuth | null = tabletAuth.isAndroid()
       ? tabletAuth.bridge
       : null,
-    private readonly configured: boolean = supabaseConfiguration.status === 'configured',
+    private readonly configured: boolean = apiAuthConfiguration.status === 'configured',
     private readonly requireResponsible: () => void = () =>
       getResponsibleModeService().requireUnlocked(),
   ) {}
@@ -64,8 +66,8 @@ export class TabletEnrollmentService {
     const result = await this.requiredNative().managerOperation(options)
     const succeeded =
       options.action === 'approve'
-        ? result.status === 'pending' && Boolean(result.invitationCode)
-        : result.status === 'revoked'
+        ? ['authorized', 'needs_recovery'].includes(result.status)
+        : result.status === (options.action === 'reject' ? 'rejected' : 'revoked')
     if (!succeeded)
       throw new Error(
         'L’action serveur n’a pas été autorisée. Vérifiez le compte responsable, ses droits et sa connexion MFA si nécessaire. Les données locales sont conservées.',
@@ -73,9 +75,30 @@ export class TabletEnrollmentService {
     return result
   }
 
+  async managerLogin(): Promise<void> {
+    this.requireResponsible()
+    const result = await this.requiredNative().managerLogin()
+    if (result.status !== 'authenticated')
+      throw new Error(
+        result.status === 'oidc_not_configured'
+          ? tabletAuthorizationMessages.oidc_not_configured
+          : 'Connexion responsable refusée ou annulée. Les données locales sont conservées.',
+      )
+  }
+
+  async inspect(options: Parameters<NativeTabletAuth['inspectEnrollment']>[0]) {
+    this.requireResponsible()
+    return this.requiredNative().inspectEnrollment(options)
+  }
+
+  async managerLogout(): Promise<void> {
+    this.requireResponsible()
+    await this.requiredNative().managerLogout()
+  }
+
   private requiredNative(): NativeTabletAuth {
     if (!this.configured)
-      throw new Error('Configurez le projet Supabase dans la build avant l’enrôlement.')
+      throw new Error('Configurez la destination API dans la build avant l’enrôlement.')
     if (!this.native)
       throw new Error('L’enrôlement sécurisé est disponible dans l’application Android.')
     return this.native

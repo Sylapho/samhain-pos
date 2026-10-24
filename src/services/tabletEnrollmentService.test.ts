@@ -8,6 +8,9 @@ function bridge(): NativeTabletAuth {
     requestEnrollment: vi.fn(async () => ({ status: 'pending' as const })),
     activate: vi.fn(async () => ({ status: 'authorized' as const })),
     prepareReplacement: vi.fn(async () => ({ status: 'needs_recovery' as const })),
+    inspectEnrollment: vi.fn(),
+    managerLogin: vi.fn(async () => ({ status: 'authenticated' as const })),
+    managerLogout: vi.fn(async () => {}),
     managerOperation: vi.fn(async () => ({ status: 'revoked' as const })),
   }
 }
@@ -19,8 +22,6 @@ describe('enrôlement natif séparé des opérations locales', () => {
     await expect(
       service.manager({
         action: 'approve',
-        email: 'manager@example.invalid',
-        password: 'test-only',
         body: { chainId: 'chain' },
       }),
     ).rejects.toThrow(/compte responsable/)

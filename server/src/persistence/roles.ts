@@ -42,6 +42,16 @@ export function roleDefinitions(database: string) {
       roles: [],
     },
     {
+      // Explicit new role: v1 grants are not silently broadened by an upgrade.
+      role: 'samhain_runtime_v2',
+      privileges: [
+        ...read,
+        ...insert,
+        ...[...update, 'terminalRanges'].map((name) => privilege(name, ['update'])),
+      ],
+      roles: [],
+    },
+    {
       role: 'samhain_reader_v1',
       privileges: [
         'organizations',
@@ -102,13 +112,28 @@ export async function installRoles(db: Db): Promise<void> {
 
 // Check effective privileges, including inherited/custom roles. Granting readWrite
 // or bypassDocumentValidation would defeat append-only protection.
-export async function verifyRuntimePrivileges(db: Db, signal?: AbortSignal): Promise<void> {
+export async function verifyRuntimePrivileges(
+  db: Db,
+  signal?: AbortSignal,
+  requireAuth = false,
+): Promise<void> {
   const result = await db.command(
     { connectionStatus: 1, showPrivileges: true },
     signal ? { signal } : {},
   )
   if (!result.authInfo?.authenticatedUsers?.length)
     throw new PersistenceError('SCOPE_DENIED', 'roles')
+  if (
+    requireAuth &&
+    !(result.authInfo.authenticatedUserPrivileges ?? []).some(
+      (p: Document) =>
+        p.resource.db === db.databaseName &&
+        p.resource.collection === 'terminalRanges' &&
+        p.actions.includes('update'),
+    )
+  ) {
+    throw new PersistenceError('SCOPE_DENIED', 'roles')
+  }
   for (const privilege of result.authInfo.authenticatedUserPrivileges ?? []) {
     const resource = privilege.resource
     const applies =

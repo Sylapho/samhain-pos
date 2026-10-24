@@ -277,9 +277,15 @@ local autorisé hors bac à sable. Ces limites d'outillage ne sont pas des résu
 cela ne signifie **pas qu'une ingestion HTTP est implémentée**. Commandes `db:migrate`,
 `db:roles`, `db:verify`, `db:verify-runtime`, `db:audit` et limites détaillées dans le
 [runbook #131](../docs/mongodb-persistence.md).
-#132 ajoute Auth/OIDC/enrôlement et preuves, #133 ingestion et contrats d'erreur enrichis,
-#134 transport/configuration Android, #135 catalogue. Aucun de ces parcours n'est implémenté ici.
-La caisse conserve son fonctionnement local et sa destination Supabase actuelle.
+#132 fournit les neuf routes Auth/OIDC/enrôlement, le registre vivant et les guards
+transactionnels dans `src/tablet-auth/`, ainsi que le client Android et le parcours OIDC
+du responsable. L’activation est désactivée par défaut ; voir le [runbook Auth](../docs/tablet-enrollment.md)
+pour les variables, le client OIDC public/PKCE, les capacités et la migration sans perte de données.
+La migration additive v2 conserve le checksum v1 ; le runtime Auth production exige
+`samhain_runtime_v2`. Aucun compte ni droit n’est créé au démarrage.
+#133 reste nécessaire pour l’ingestion HTTP, #134 pour le basculement financier Android
+et ses confirmations par destination, #135 pour le catalogue. La caisse conserve son
+fonctionnement local et son transport financier Supabase historique, sans réutiliser ses tokens côté API.
 
 Références primaires : [options et délais Fastify](https://fastify.dev/docs/latest/Reference/Server/),
 [validation sans transformations](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/),
