@@ -1,223 +1,187 @@
-# Distribution du catalogue Supabase (#115)
+# Distribution du catalogue MongoDB (#135)
 
-Le catalogue utilisé par la caisse reste dans Room/SQLite sur Android et IndexedDB sur
-le Web. Aucune vente, ouverture de panier, intention de paiement ou impression n'attend
-le réseau. Les primitives de catégories de #90 sont conservées.
+Le catalogue utilisé par la caisse reste dans Room/SQLite sur Android et IndexedDB
+sur le Web. Aucune vente, panier, intention de paiement, clôture ou impression
+n'attend le réseau. Les primitives de catégories #90, la fusion #115 et les
+transactions locales sont conservées. Aucune migration Room ni IndexedDB n'est ajoutée.
+Le schéma courant est Room v10 depuis #134 ; la transaction catalogue introduite en v9
+reste inchangée et aucune donnée SQLite existante n'est réinitialisée.
 
-## Version publiée et transport
+## API HTTPS `/api/v1`
 
-`catalog-v1` distribue une enveloppe `{ payload, sha256 }`. `payload` est le texte JSON
-UTF-8 exact produit par PostgreSQL. Son hash SHA-256 couvre **tout** le document :
-UUID serveur, révision entière croissante par organisation/festival, `schemaVersion: 1`,
-date de publication serveur, organisation, festival, origine `supabase:<sujet vérifié>`,
-produits et catégories. Ne pas re-sérialiser le payload pour vérifier son hash.
+Toutes les réponses portent `X-Samhain-Destination` et `Cache-Control: no-store`.
+Les erreurs suivent `{ error: { code } }`. Aucun accès direct tablette → MongoDB.
 
-Le contenu reprend les types existants : activité, ordre, description, prix entiers en
-centimes, TVA existante, variantes, options, ingrédients et `dataConfidence`. Aucun prix,
-taux ou ingrédient n'est complété depuis le seed. Une publication exige une confirmation
-explicite de chaque produit et variante (`dataConfidence: confirmed`). La case
-« Prix, TVA et composition vérifiés pour publication » permet au responsable de fournir
-cette confirmation dans l'éditeur existant ; aucune confirmation automatique n'est ajoutée.
+### `POST /catalog/active`
 
-La validation profonde TypeScript est partagée entre Edge et application et réutilise le
-validateur produit extrait de CatalogService, ainsi que les règles de catégories de #90.
-Le schéma v1 refuse les champs inconnus, les doublons d'identifiants/noms de catégories,
-les références absentes, prix/TVA invalides et types incorrects. Une catégorie inactive
-peut contenir des produits ; elle est masquée par les onglets existants.
+Authentification tablette et preuve RSA native `catalog-v1`, avec challenge à usage
+unique via `/auth/challenges`. Le corps signé contient `organizationId`, `festivalId`,
+`installationId`, `chainId`, `enrollmentGeneration` et, facultativement, `metadataOnly`.
+Tous les identifiants doivent correspondre à l'installation vérifiée côté serveur.
+La session et l'autorisation sont recontrôlées dans la transaction de lecture.
 
-Limites : 450 000 octets UTF-8 par document/requête de publication, 2 000 produits,
-200 catégories, 100 variantes/groupes/ingrédients par produit et 100 options par groupe.
-Le transport natif impose aussi ses limites existantes : 1 Mio, redirections refusées,
-timeouts de connexion/lecture et échéance totale de 30 secondes. Aucune pagination
-partielle n'est activable. Un téléchargement interrompu ne laisse pas de fragments actifs.
+Réponse complète : `{ organizationId, festivalId, publication, version }`.
+`version` vaut `{ payload, sha256 }`. `publication` contient `id`, `revision`,
+`schemaVersion`, `publishedAt`, `organizationId`, `festivalId`, `sha256`.
+Avec `metadataOnly: true`, seul le contenu de `version` est omis. Avant la première
+publication, `publication` et `version` valent `null` ; aucun catalogue n'est créé.
+La tablette demande le contenu complet ; aucune récupération partielle n'est activable.
 
-Sur Android, une vérification démarre après le chargement **local**, lors du retour réseau,
-puis toutes les 15 minutes pendant que l'application tourne. Elle télécharge/stage seulement.
-Le responsable peut aussi la lancer dans Administration → Catalogue partagé. Le résultat
-`version: null` signifie qu'aucune version n'est publiée ; aucun faux catalogue n'est créé.
-Les téléchargements passent par un exécuteur réseau séparé de celui du catalogue Room.
-La fermeture/relance de l'application ne perd ni version en attente ni catalogue actif.
+### `POST /catalog/publications`
 
-## Autorité locale et conflits
+Authentification responsable OIDC #132 et droit vivant `publish_catalog` sur le
+périmètre demandé. `manage_enrollment` et le PIN local ne confèrent pas ce droit.
+Le corps contient `organizationId`, `festivalId`, `schemaVersion: 1`,
+`expectedRevision`, `products`, `categories`. Les autres champs sont refusés.
+Réponse après commit : `{ version: { payload, sha256 } }`.
 
-Une seule collection produits/catégories sert aux écritures locales et à la vente.
-Les métadonnées de distribution conservent la version active, la version en attente,
-la base centrale, les conflits, les décisions et les erreurs. La base est une référence
-de fusion ; ce n'est pas un deuxième catalogue utilisé par la caisse.
+Le serveur attribue UUID opaque, révision `expectedRevision + 1`, date UTC et
+origine `api:<sujet vérifié>`. Les catégories, produits, variantes, ingrédients,
+options, prix en centimes, TVA et disponibilités gardent le contrat `catalog-v1`.
+La publication exige `dataConfidence: confirmed` pour chaque produit et variante.
+Aucune confirmation, prix, TVA ou composition n'est déduite des seeds.
 
-La proposition locale est la différence entre les lignes actuelles et cette base,
-identifiée par la version active et le compteur durable de révision locale. Avant la
-première publication, la base est le seed courant après migration historique ; les éditions
-d'une installation existante sont donc également conservées. Les créations locales ne
-disparaissent pas lors de la première réception.
+Les validateurs purs existants sont hébergés dans `server/src/catalog/shared/` afin
+de compiler le backend isolément. Les chemins publics `src/services/`, `src/types/`
+et `src/utils/integrity.ts` les réexportent ; application et API utilisent la même
+implémentation. Les règles métier de prix/TVA n'ont pas changé.
 
-La fusion compare base / local / distant **champ par champ** :
+Limites : 450 000 octets UTF-8 pour requête de publication et document final,
+2 000 produits, 200 catégories, 100 variantes/groupes/ingrédients par produit,
+100 options par groupe. Les doublons, catégories absentes, noms invalides, tarifs
+incohérents et données temporaires/incomplètes sont refusés.
 
-- local égal à la base : prendre le distant ;
-- distant égal à la base : conserver l'édition locale comme proposition ;
-- valeurs locales et distantes identiques : accepter cette valeur ;
-- les deux ont changé différemment : conserver le local et enregistrer base/local/distant.
+| HTTP      | Code / action                                                                         |
+| --------- | ------------------------------------------------------------------------------------- |
+| 400       | Enveloppe, schéma ou révision attendue invalides                                      |
+| 401       | Session absente, expirée ou invalide : se reconnecter                                 |
+| 403       | Périmètre, autorisation ou installation refusés : vérifier l'enrôlement et les droits |
+| 409       | `CATALOG_HEAD_MOVED` : télécharger la version gagnante, fusionner puis reproposer     |
+| 413       | Requête ou document trop volumineux                                                   |
+| 422       | `INVALID_PAYLOAD` : corriger et confirmer les données commerciales                    |
+| 429 / 5xx | Réessayer plus tard ; conserver le catalogue local                                    |
 
-Variantes, groupes d'options et compositions sont des champs indivisibles : aucune
-composition partielle n'est inventée. L'absence d'un identifiant dans une publication
-n'est jamais interprétée comme une suppression. Une publication désactive explicitement
-les éléments qui doivent quitter la vente ; les historiques ne sont jamais supprimés.
+## Stockage et concurrence
 
-Après activation, l'interface montre tous les champs en conflit et permet de conserver
-toutes les valeurs locales ou d'accepter toutes les valeurs publiées. Ce choix explicite
-est enregistré avec version, date, révision locale et valeurs comparées. Il fonctionne hors
-connexion sous le mode responsable existant et ne prétend pas identifier un compte humain
-Supabase. Une édition postérieure à l'affichage d'un conflit empêche un choix distant
-obsolète. Une prochaine activation attend la résolution des conflits actifs. Une collision
-structurelle, par exemple deux catégories aboutissant au même nom, annule toute activation :
-le responsable doit corriger le nom local puis réessayer.
+Les collections, validateurs et index #131 sont réutilisés : `catalogHeads` contient
+la tête par organisation/festival ; `catalogVersions` contient les versions historiques
+avec payload exact, empreinte, attribution et date serveur. L'index unique scoped
+sur la révision empêche les doublons. Le rôle runtime n'a aucun droit de modification
+ou suppression des versions historiques.
 
-`Product.availability` **persisté** reste la disponibilité locale. La disponibilité centrale
-vient de la version publiée ; la disponibilité de vente est leur intersection. Les champs
-`localAvailability` et `centralAvailability` renvoyés à l'interface sont dérivés et ne sont
-jamais persistés ni publiés. Enregistrer un changement de nom ne transforme donc pas une
-indisponibilité centrale en rupture locale. Une rupture locale ne disparaît jamais lors
-d'une mise à jour centrale. L'éditeur ne lève que la rupture de cette tablette.
+`AuthService.protectedManager` et `publishCatalog` partagent la même transaction :
+contrôle des droits vivants, insertion de version et CAS de tête sont atomiques.
+Deux publications depuis la même révision donnent une réussite et un HTTP 409.
+La politique transactionnelle existante borne les retries de conflits transitoires ;
+un commit incertain reste une erreur transitoire sans annoncer une publication réussie.
+Aucune version partielle ni progression de tête sans publication valide n'est visible.
 
-La proposition de publication exclut les ruptures locales et conserve les disponibilités
-centrales déjà connues. Une modification de disponibilité centrale peut être envoyée
-explicitement par un outil responsable authentifié au même endpoint ; elle ne découle
-jamais d'une remise en stock locale.
+## Octets et SHA-256
 
-## Transactions et protection de la caisse
+Le serveur sérialise une seule fois le document JSON en chaîne `payload`, puis calcule
+SHA-256 sur ses octets UTF-8. Il conserve et renvoie exactement cette chaîne dans
+l'enveloppe JSON, avec le hash hexadécimal minuscule. L'échappement de la chaîne par
+l'enveloppe HTTP ne change pas le texte obtenu après décodage de cette enveloppe.
+Ne jamais reconstruire le document pour vérifier son empreinte.
+Android vérifie les octets avant retour du bridge ; TypeScript vérifie de nouveau
+hash, taille, schéma et périmètre avant staging, puis la révision avant activation.
+Un hash invalide, une révision obsolète ou un périmètre différent ne remplace jamais
+le catalogue actif. Une publication perdue au retour se récupère par téléchargement,
+sans nouvelle publication aveugle.
 
-Room v9 ajoute seulement `catalog_distribution`, avec une migration 8→9 non destructive.
-IndexedDB utilise son store `catalogMetadata` existant ; aucun changement de version ni
-réinitialisation n'est nécessaire. Chaque mutation locale incrémente le compteur de
-révision dans la même transaction que la mutation.
+## Bootstrap et configuration Android
 
-`readSnapshot()` lit produits, catégories, compteur et distribution ensemble.
-`commitSnapshot()` compare le compteur puis écrit produits, catégories et marqueur
-de version en une transaction. Une édition concurrente provoque `CATALOG_CHANGED` ;
-la fusion est recalculée sur le nouvel état (au plus cinq tentatives), jamais écrasée.
-Les contraintes de noms Room et toutes les écritures sont annulées ensemble en cas d'erreur.
+1. Provisionner la persistance #131 sur une infrastructure autorisée suivant
+   [le runbook MongoDB](mongodb-persistence.md). Les tests n'utilisent qu'une base jetable.
+2. Configurer l'API HTTPS et son identité de destination suivant
+   [la configuration Android](android-mongodb-synchronization.md) et l'Auth/OIDC #132.
+   Attribuer explicitement `publish_catalog` au responsable et à son périmètre côté serveur.
+3. Construire/synchroniser l'APK avec la configuration publique existante #134.
+   Aucun credential MongoDB, secret serveur ou token responsable ne passe dans Vite,
+   les assets, les archives ou le bridge JavaScript. Les credentials tablette restent
+   dans le vault ; la session responsable OIDC reste temporaire en mémoire native.
+4. Enrôler chaque tablette vers cette API. Aucune session Supabase n'est copiée.
+5. Sur la première tablette, saisir/importer et vérifier le catalogue réel. Dans
+   Administration → Catalogue partagé, se connecter comme responsable puis choisir
+   explicitement « Publier les modifications sur toutes les tablettes ».
+   Avec `expectedRevision: 0`, cette action crée la première publication traçable.
+   Un bootstrap concurrent reçoit 409 et ne remplace pas le gagnant.
+6. Télécharger puis activer sur chaque tablette au repos.
 
-L'activation est une action distincte du téléchargement. App exige un panier vide,
-aucune feuille d'options, aucun écran de paiement/reprise et aucune intention à vérifier.
-La vérification de reprise doit avoir abouti pour la caisse courante. Un verrou synchrone
-d'interaction est conservé pendant le commit **et** le rafraîchissement des produits et
-catégories React ; l'interface est `inert` pendant cette courte opération locale.
-La transaction Room/IndexedDB recontrôle les intentions persistées : seules les intentions
-`finalized` ou `abandoned` sont compatibles avec l'activation. Un échec après commit mais
-avant relecture rend le catalogue UI indisponible jusqu'à une relecture/redémarrage, sans
-permettre de nouvelles sélections sur une vue périmée.
+Il n'existe aucun peuplement automatique MongoDB depuis les seeds. Le responsable
+confirme les données dans l'éditeur existant. Le transport catalogue livré est Android ;
+le Web conserve IndexedDB et le service injectable, sans parcours d'authentification Web.
+Les anciens endpoints Supabase restent réservés aux anciennes APK jusqu'à #138 ;
+le nouveau chemin catalogue n'appelle ni Edge Functions ni Supabase Auth.
 
-Les commandes, lignes du panier, intentions, journal et états d'impression ne sont jamais
-réécrits par la distribution. Les nouveaux choix utilisent la version activée ; les snapshots
-de prix/TVA/composition déjà enregistrés restent identiques. Le seed reste conditionné à
-une base vide/non initialisée. Les migrations historiques de tarifs et d'ingrédients du
-burger sont désormais appliquées **une fois**, avec leur marqueur et les produits dans
-la même transaction. Aucun prix distant accepté ne repasse par ces anciennes migrations.
+## Fusion et autonomie locale
 
-## Publication et sécurité
+Le cycle reste téléchargement → vérification → staging durable → fusion → activation
+atomique. La recherche automatique existante après chargement local, au retour réseau
+et toutes les 15 minutes ne fait que télécharger/stager. Elle n'active jamais.
+Une coupure réseau laisse le catalogue actif et les modifications locales utilisables ;
+on peut relancer la recherche. Aucun fragment de téléchargement n'est activé.
 
-La migration `20261021100000_catalog_distribution.sql` ajoute :
+La fusion compare base / local / distant champ par champ. Local inchangé : prendre
+le distant ; distant inchangé : garder le local ; changements identiques : accepter ;
+changements incompatibles : conserver le local et exposer explicitement le conflit.
+Variantes/options/compositions restent indivisibles. Une omission n'est pas une
+suppression : désactiver explicitement les éléments. Les décisions locales sont
+conservées avec leur révision ; une édition plus récente interdit une résolution
+obsolète. La prochaine activation attend la résolution des conflits précédents.
 
-- `pos_private.catalog_heads`, tête verrouillée par organisation/festival ;
-- `pos_private.catalog_versions`, versions immuables avec empreinte et attribution ;
-- la capacité distincte `publish_catalog` dans les habilitations existantes ;
-- la RPC `catalog_v1` réservée au rôle serveur et son propriétaire borné
-  `pos_catalog_executor`, sans droits d'écriture sur les événements financiers.
+La disponibilité persistée reste locale. La disponibilité de vente est l'intersection
+locale/centrale. Les ruptures locales ne sont jamais publiées ni écrasées. Les champs
+dérivés de disponibilité ne sont pas persistés. Les propositions de publication
+conservent les disponibilités centrales déjà connues.
 
-Tables privées non exposées, RLS forcée, aucun accès direct anon/authenticated/service_role.
-Les policies de l'exécuteur ne sont pas des policies clientes. La RPC vérifie la session
-Auth vivante et les droits actifs en transaction. Un téléchargement exige la preuve RSA
-de l'installation enrôlée, sa génération, sa continuité et son périmètre via les helpers #114.
-Le sujet et la session proviennent du JWT vérifié par Auth, jamais des champs client ni du
-seul terminalId. La signature couvre le corps brut, l'endpoint `catalog-v1` et un challenge
-à usage unique consommé dans la transaction. HTTP non sécurisé est refusé ; le loopback
-est réservé aux tests de la pile locale. Android utilise uniquement HTTPS.
+Activation : panier vide, aucune option/paiement/reprise/intention à vérifier, verrou
+UI conservé jusqu'à la relecture. La transaction Room v9 / IndexedDB compare la
+révision locale et recontrôle les intentions durables. Toute erreur annule les écritures
+ensemble ; une édition concurrente recalcule la fusion au lieu d'écraser le local.
+Les commandes, montants, snapshots historiques, journal et tickets restent inchangés.
 
-Une publication utilise un compte Supabase non anonyme ayant `publish_catalog` pour le
-périmètre. `manage_enrollment`, un compte tablette et le PIN local ne suffisent pas.
-Elle fournit `expectedRevision` (0 pour la première publication) ; une tête différente
-retourne HTTP 409 `CATALOG_HEAD_MOVED`. Deux publications concurrentes ne peuvent donc
-pas écraser silencieusement leurs révisions. La révision, l'UUID, la date et l'origine
-sont attribués côté serveur. Une publication perdue au retour réseau se récupère par un
-nouveau téléchargement, sans publier de nouveau aveuglément.
+## Dépendances et validation
 
-Le formulaire Android réutilise l'authentification native temporaire du responsable,
-sans enregistrer son mot de passe/session ; le token tablette reste dans le vault existant.
-La configuration Capacitor conserve la désactivation des logs de paramètres. Le serveur
-utilise son credential privilégié uniquement dans l'environnement Edge, jamais dans Vite,
-les assets Android, l'APK ou les archives. MFA est vérifié par les règles existantes ;
-le formulaire actuel n'ajoute pas de parcours interactif de challenge MFA.
+Le code #132, #133 et #134 est présent sur la branche de départ, même si #133/#134
+étaient encore ouvertes lors de la consultation GitHub. Ce catalogue réutilise
+l'Auth #132 et le transport/configuration #134 ; il ne dépend pas d'une ingestion
+financière pour vendre, lire ou publier le catalogue. Aucun remplacement d'Auth,
+de worker, de stockage local ou de technologie d'impression n'est introduit.
 
-## Déploiement et exploitation
+Tests : `pnpm test:run`, `pnpm server:test`, `pnpm server:typecheck`,
+`pnpm server:build`, `pnpm lint`, `pnpm build`, Gradle `testDebugUnitTest assembleDebug`.
+`server/integration/catalog.test.ts` utilise la fixture réelle #131/#132 :
+`MONGODB_TEST_URI` loopback:27019, `MONGODB_TEST_DATABASE=samhain_test_*`,
+`MONGODB_TEST_DISPOSABLE=true`, replica set `samhain-test`. Il n'accepte pas la production.
+Lancer `pnpm server:test:integration` avec ces variables sur la fixture jetable.
 
-1. Sur un projet Supabase **de test autorisé**, appliquer les migrations #113/#114/#36
-   puis celle de #115 avec `supabase db push --linked`. Vérifier le projet lié avant la commande.
-2. Déployer `supabase functions deploy catalog-v1 --project-ref <projet-test>` avec vérification
-   JWT activée. Les imports TypeScript partagés doivent être inclus par le CLI.
-3. Un administrateur serveur attribue explicitement `publish_catalog` au compte responsable
-   dans `pos_private.scope_grants` pour l'organisation/festival existant. Aucun droit n'est
-   attribué automatiquement aux anciens responsables. Ne jamais exposer ce schéma dans l'API.
-4. Construire/synchroniser l'application avec sa configuration publique #112, mettre à jour
-   les tablettes en conservant leurs données et les enrôler via #114.
-5. Confirmer les données commerciales dans l'administration, rechercher une publication,
-   publier explicitement si nécessaire puis activer sur chaque tablette au repos.
-6. Vérifier sur deux tablettes : panier/options/paiement pendant publication, rupture locale,
-   conflit, reprise après arrêt, expiration/révocation et plusieurs jours en mode avion.
+Les tests couvrent publication initiale/révisions, lecture A/B, concurrence/409,
+historique, rollback, validation, tailles, isolation, permissions, expiration/révocation,
+connexion DB perdue et octets exacts. Les tests #90/#115 et le scénario A/B IndexedDB
+couvrent staging, caisse occupée, conflits, ruptures locales et snapshots inchangés.
+Les tests Kotlin vérifient transport signé API, intégrité, scope, coupure réseau et Room.
 
-Aucun déploiement hébergé ni attribution réelle de droits n'a été effectué dans cette tâche.
-La pile locale est un environnement de test ; ses fixtures ne sont pas des données métier.
+Restent des validations d'exploitation distinctes : déploiement HTTPS réel, configuration
+OIDC du fournisseur, deux tablettes physiques, mise à jour conservant les données,
+mode avion prolongé, arrêt du processus et matériel USB. Une simulation locale ou
+Robolectric n'est pas une preuve de validation matérielle. Les archives financières v1
+ne restaurent toujours pas les éditions/conflits catalogue ; utiliser un seul onglet
+pour la caisse Web, comme avant cette issue.
 
-## Validation et limites
+### Contrôles exécutés le 25 octobre 2026
 
-Les tests couvrent : base vide/cache valide, administration hors ligne, horloge avancée,
-staging et reprise, interruption réseau, version invalide, catégorie désactivée/référence
-absente, conflits et décisions, stock central/local, panier/options/paiement dans App,
-intentions durables, rollback/CAS, migration relancée et snapshots historiques inchangés.
-Room est testé avec Robolectric/SQLite et réouverture de fichier, pas par arrêt réel d'une
-tablette. Les tests HTTP locaux utilisent Auth, Edge, PostgREST et PostgreSQL réels, y compris
-publication concurrente et révocation.
+| Contrôle                                                              | Résultat local                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm test:run`                                                       | 533 tests réussis, 59 fichiers                                                                                           |
+| `pnpm server:test`                                                    | 50 tests réussis                                                                                                         |
+| Intégration catalogue, Auth, persistance et ledger                    | 50 tests réussis sur MongoDB 8.0.16 replica set ; 1 test RBAC ignoré faute de fixture authentifiée distincte             |
+| Gradle `testDebugUnitTest`                                            | 112 tests réussis ; 2 campagnes live Room/Supabase/MongoDB ignorées sans leur bridge d'intégration                       |
+| TypeScript application/serveur, lint, builds web/serveur/Android test | Réussis                                                                                                                  |
+| Capacitor sync, installation des templates, `assembleDebug`           | Réussis ; APK de test avec API non configurée dans cet environnement                                                     |
+| Diff, formatage, inspection des assets                                | Réussis ; aucune URI MongoDB ni clé privée dans les assets ; aucune dépendance Supabase dans le nouveau chemin catalogue |
 
-Les six critères d'acceptation de #115 sont couverts par l'implémentation et ces tests locaux.
-L'exploitation sur deux appareils, le projet hébergé, le matériel USB et la durée réelle
-hors connexion restent à valider. L'impression n'est pas modifiée par cette issue.
-
-Le navigateur conserve et teste la même persistance transactionnelle et le même service,
-mais aucun parcours d'authentification Web n'existait dans #114 : le transport sécurisé
-livré est Android. Il reste injectable dans les tests Web. L'application Web n'ajoute
-pas de gestion coordonnée des paniers volatils entre plusieurs onglets ; utiliser un seul
-onglet de caisse. Les éditions/conflits/décisions catalogue restent exclus des archives
-financières v1 selon #111 ; ne pas annoncer leur restauration via ces archives.
-
-### Résultats exécutés le 21 octobre 2026
-
-| Contrôle                                                                       | Résultat                                                                                               |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `pnpm test:run`                                                                | 490 tests, 54 fichiers, tous réussis                                                                   |
-| TypeScript (`tsc -b`), `pnpm lint`, Prettier sur les fichiers concernés        | Réussis                                                                                                |
-| `pnpm build`, `pnpm build:android:test`, Capacitor sync et installation native | Réussis                                                                                                |
-| Gradle `testDebugUnitTest assembleDebug`                                       | 87 tests, aucune erreur ; APK debug construit                                                          |
-| `supabase test db`                                                             | 402 assertions réussies                                                                                |
-| `scripts/test-supabase-ingest.mjs`                                             | 92 contrôles réels Auth/Edge/PostgreSQL réussis, catalogue inclus                                      |
-| `scripts/test-supabase-migrations.mjs`                                         | Données financières/registre conservées à l'identique ; reconstruction réussie                         |
-| `deno check supabase/functions/catalog-v1/index.ts`                            | Réussi                                                                                                 |
-| `supabase db lint --local --level warning`                                     | Aucun problème catalogue ; avertissement préexistant dans `ledger_prefix_v1` sur un retour de fonction |
-| Schémas Room v8/v9 et sources générées                                         | Anciennes entités identiques ; templates Kotlin et copies Android identiques                           |
-| Recherche de credentials dans les assets et l'APK                              | Aucune valeur de clé privilégiée/JWT trouvée ; logs du bridge désactivés                               |
-| `git diff --check`                                                             | Réussi                                                                                                 |
-
-Les commandes pnpm ont utilisé la copie locale du CLI pnpm 10.33.0 : le lanceur Corepack
-essayait un téléchargement indisponible dans le bac à sable. Vitest et Gradle ont été
-exécutés avec l'accès nécessaire à leurs caches. La pile Supabase locale démarrée pour ces
-contrôles a été arrêtée ensuite, sans suppression de ses volumes.
-
-### Fichiers principaux
-
-| Zone                         | Fichiers                                                                                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Modèle, validation et fusion | `src/types/catalogDistribution.ts`, `src/services/catalogDistribution.ts`, `src/services/productValidation.ts`                                                                                    |
-| Distribution et stockage Web | `src/services/catalogDistributionService.ts`, `catalogService.ts`, `catalogRepository.ts`, `src/native/catalogStorage.ts`                                                                         |
-| Protection et administration | `src/app/App.tsx`, `src/features/catalog/CatalogSynchronization.tsx`, `ProductManagementDialog.tsx`, champs dérivés dans `src/types/catalog.ts`                                                   |
-| Android canonique            | `native/android/{SamhainPosDatabase,RoomCatalogStore,CatalogStoragePlugin,TabletAuthService}.kt` et leurs copies générées dans `android/app/src/main/java/fr/samhain/pos/` ; schéma Room `9.json` |
-| Supabase                     | `supabase/migrations/20261021100000_catalog_distribution.sql`, `functions/catalog-v1/index.ts`, `functions/_shared/catalogHttp.ts`, configuration de la fonction                                  |
-| Validation                   | Tests catalogue/App/HTTP, tests Kotlin et chemins de migration actualisés, `supabase/tests/catalog.test.sql`, assertions de privilèges existantes, script d'intégration et filtres CI Supabase    |
-| Documentation                | Ce document, `README.md`, `docs/android-persistence.md`                                                                                                                                           |
+Le CLI pnpm 10.33.0 déjà installé a été utilisé directement après l'échec réseau
+du lanceur Corepack. Vitest et les tests réseau locaux ont nécessité l'accès à leurs
+caches/ports hors bac à sable. Le processus MongoDB jetable a été arrêté après les tests.
+Ces résultats ne constituent ni un déploiement ni une validation sur tablette physique.

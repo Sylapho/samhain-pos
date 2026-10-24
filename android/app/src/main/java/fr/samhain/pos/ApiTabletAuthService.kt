@@ -130,6 +130,33 @@ internal class ApiTabletAuthService(
         } catch (error: TabletAuthFailure) { failure(error.code); throw error }
     }
 
+    fun downloadCatalog(): JSONObject = synchronized(TabletAuthService.SESSION_LOCK) {
+        try {
+            val current = status()
+            if(current.getString("status") !in setOf("authorized", "session_expired")) throw TabletAuthFailure(current.getString("status"))
+            val body = JSONObject()
+            for(field in listOf("organizationId", "festivalId", "chainId", "installationId", "enrollmentGeneration")) body.put(field, current.get(field))
+            fun download() = signed("/api/v1/catalog/active", "catalog-v1", body, accessToken())
+            val result = try { download() } catch(error: TabletAuthFailure) {
+                if(error.code != "session_expired") throw error
+                val stored = vault.read() ?: throw error
+                stored.getJSONObject("session").put("expires_at", 0); vault.write(stored)
+                download()
+            }
+            require(result.getString("organizationId") == current.getString("organizationId") && result.getString("festivalId") == current.getString("festivalId"))
+            require(result.has("version"))
+            if(!result.isNull("version")) {
+                val version = result.getJSONObject("version")
+                val payload = version.getString("payload")
+                require(payload.toByteArray(Charsets.UTF_8).size <= 450000 && sha(payload) == version.getString("sha256"))
+                val publication = StrictApiJson.parse(payload)
+                require(publication.getInt("schemaVersion") == 1 && SyncProtocol.safeSequence(publication.get("revision")) > 0)
+                require(publication.getString("organizationId") == current.getString("organizationId") && publication.getString("festivalId") == current.getString("festivalId"))
+            }
+            result
+        } catch(error: TabletAuthFailure) { failure(error.code); throw error }
+    }
+
     private fun accessToken():String{
         var stored=vault.read()?:throw TabletAuthFailure("session_expired")
         val current=stored.optJSONObject("session")?:throw TabletAuthFailure("session_expired")
