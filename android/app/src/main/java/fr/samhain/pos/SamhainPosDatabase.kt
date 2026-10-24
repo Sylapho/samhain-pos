@@ -342,9 +342,10 @@ interface SyncIdentityDao {
         CatalogDistributionEntity::class,
         SyncIdentityEntity::class,
         OutboxEntry::class,
+        OutboxDestination::class,
         OutboxBackfill::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class SamhainPosDatabase : RoomDatabase() {
@@ -369,6 +370,14 @@ abstract class SamhainPosDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "samhain-pos-room.db"
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE outbox_backfill ADD COLUMN destinationId TEXT NOT NULL DEFAULT 'supabase'")
+                db.execSQL("ALTER TABLE outbox_backfill ADD COLUMN captureError TEXT")
+                db.execSQL("CREATE TABLE IF NOT EXISTS outbox_destinations (destinationId TEXT NOT NULL, eventId TEXT NOT NULL, chainId TEXT NOT NULL, eventType TEXT NOT NULL, organizationId TEXT, festivalId TEXT, transportFingerprint TEXT, status TEXT NOT NULL, attemptCount INTEGER NOT NULL, lastAttemptAt INTEGER, nextAttemptAt INTEGER NOT NULL, lastError TEXT, claimOwner TEXT, leaseExpiresAt INTEGER, receiptId TEXT, serverReceivedAt TEXT, syncedAt INTEGER, PRIMARY KEY(destinationId, eventId))")
+            }
+        }
 
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -508,7 +517,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
                     context.applicationContext,
                     SamhainPosDatabase::class.java,
                     DATABASE_NAME,
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
                     .also { instance = it }
             }

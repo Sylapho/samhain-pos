@@ -51,6 +51,23 @@ describe('configuration publique de la destination API', () => {
       }).status,
     ).toBe('configured')
   })
+  it('refuse une destination test en production et toute configuration test invalide au build', () => {
+    expect(resolveApiAuthConfiguration('production', environment).status).toBe('invalid')
+    expect(() =>
+      supabaseBuildConfiguration('android-test', {
+        ...environment,
+        VITE_SAMHAIN_API_URL: 'http://api.example.invalid',
+      }),
+    ).toThrow(/Configuration API invalide/)
+    expect(
+      resolveApiAuthConfiguration('production', {
+        ...environment,
+        VITE_SAMHAIN_API_ENVIRONMENT: 'production',
+        SAMHAIN_API_PRODUCTION_URL: 'https://different.example.invalid',
+        SAMHAIN_API_PRODUCTION_DESTINATION_ID: destinationId,
+      }).status,
+    ).toBe('invalid')
+  })
   it('refuse les URI MongoDB, clés privées et sessions dans les artefacts', () => {
     expect(containsPrivilegedCredential('mongodb+srv://test-only.invalid')).toBe(true)
     expect(containsPrivilegedCredential('-----BEGIN PRIVATE KEY-----')).toBe(true)

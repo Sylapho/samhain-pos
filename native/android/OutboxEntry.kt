@@ -44,10 +44,17 @@ data class OutboxBackfill(
     val recoveryAttempts: Int = 0,
     val recoveryRequested: Boolean = false,
     val enabled: Boolean = true,
+    @ColumnInfo(defaultValue = "'supabase'") val destinationId: String = "supabase",
+    val captureError: String? = null,
 )
 
 @Dao
 interface OutboxDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun saveDestination(state: OutboxDestination)
+    @Query("SELECT * FROM outbox_destinations WHERE destinationId = :destination AND eventId = :event")
+    fun destination(destination: String, event: String): OutboxDestination?
+    @Query("SELECT * FROM outbox WHERE eventId > :cursor ORDER BY eventId LIMIT 100")
+    fun destinationPage(cursor: String): List<OutboxEntry>
     @Insert(onConflict = OnConflictStrategy.ABORT) fun insert(entry: OutboxEntry)
     @Update fun update(entry: OutboxEntry): Int
     @Query("SELECT * FROM outbox WHERE eventId = :id") fun find(id: String): OutboxEntry?

@@ -1,5 +1,7 @@
 # Outbox transactionnelle et synchronisation différée (#35)
 
+Depuis #134, le worker de cette APK utilise l’API HTTPS MongoDB et ses credentials natifs, sans fallback Supabase. Les mécanismes locaux décrits ci-dessous sont conservés. Les confirmations de réception sont séparées par destination dans Room v10 ; voir [le runbook Android MongoDB](android-mongodb-synchronization.md). Les références Supabase ci-dessous décrivent le transport historique des anciennes APK.
+
 ## Capture et migrations
 
 Room **v7** ajoute `outbox` et `outbox_backfill` par migration additive **6 → 7**.

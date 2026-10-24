@@ -15,6 +15,7 @@
     "test:run": "vitest run",
     "test:supabase": "node scripts/test-supabase-integration.mjs",
     "test:supabase:room": "node scripts/test-supabase-room.mjs",
+    "test:mongodb:room": "node scripts/test-mongodb-room.mjs",
     "android:add": "pnpm android:add:production",
     "android:add:test": "pnpm build:android:test && cap add android && pnpm android:install-native",
     "android:add:production": "pnpm build:android:production && cap add android && pnpm android:install-native",

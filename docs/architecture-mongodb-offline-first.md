@@ -2,7 +2,7 @@
 
 Version de décision : **1.0 — 23 octobre 2026**. Contrats conservés : **samhain-sync/1**, **samhain-auth/1**, publication **catalog-v1 / schemaVersion 1**.
 
-Statut : architecture cible retenue pour [#129](https://github.com/Sylapho/samhain-pos/issues/129), à réaliser par #130–#138. Audit du checkout `9d3c5b8` ; l'issue et ses commentaires ont été lus (aucun commentaire). **Ce document ne livre ni API, ni migration de données, ni changement de transport.** Le code exécuté reste Supabase. Les identifiants, hébergements et données réelles ne sont pas connus.
+Statut : architecture cible retenue pour [#129](https://github.com/Sylapho/samhain-pos/issues/129), à réaliser par #130–#138. Audit du checkout `9d3c5b8` ; l'issue et ses commentaires ont été lus (aucun commentaire). **Ce document ne livre ni API, ni migration de données, ni changement de transport.** Cette phrase décrit l’audit initial ; l’état actuel du code est précisé ci-dessous. Les identifiants, hébergements et données réelles ne sont pas connus.
 
 ## 1. Décisions et limites
 

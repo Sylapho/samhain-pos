@@ -53,6 +53,77 @@ class OutboxStoreTest {
     private fun engine(send: (ProtectedSyncEndpoint,JSONObject) -> JSONObject, auth: () -> JSONObject = ::scope) =
         SyncEngine(db,auth,send,{ clock },{ it })
 
+    @Test fun destinationMigrationReplaysSupabaseReceiptsAndResumesWithoutBusinessEffects() = run {
+        orders.createOrder(request("old-ack"),source())
+        engine({ _, body -> response(body) }).drain()
+        val old = db.outboxDao().find("sale:old-ack")!!
+        orders.createOrder(request("old-pending"),source())
+        val before = orders.snapshot().toString()
+        val tuples = db.outboxDao().all(old.chainId).map { listOf(it.eventId,it.sequence,it.hash,it.previousHash,it.payloadCanonical) }
+        val destination = "11111111-1111-4111-8111-111111111111"
+        val migrated = OutboxStore(db,destination)
+        migrated.selectDestination(clock)
+        assertEquals(old.receiptId,db.outboxDao().destination("supabase",old.eventId)!!.receiptId)
+        assertTrue(db.outboxDao().all(old.chainId).all { it.status == "pending" && it.receiptId == null })
+        assertTrue(migrated.diagnostics().isNull("lastServerReceivedAt"))
+        assertEquals("unknown",migrated.diagnostics().getString("continuity"))
+        // Commit only the first historical tuple, then lose the second ACK after remote persistence.
+        db.outboxDao().updateBackfill(db.outboxDao().backfill()!!.copy(batchLimit = 1))
+        SyncEngine(db,::scope,{ _, body -> response(body) },{clock},{it},destination).drain()
+        val firstReceipt = db.outboxDao().find(old.eventId)!!.receiptId
+        var lost: JSONObject? = null
+        SyncEngine(db,::scope,{ _, body -> lost = JSONObject(body.toString()); throw TabletAuthFailure("server_unreachable") },{clock},{it},destination).drain()
+        clock += 21600001
+        // New engine/store instances use only the durable cursor, delivery state and original bytes.
+        SyncEngine(db,::scope,{ _, body ->
+            assertEquals(lost!!.getJSONArray("events").toString(),body.getJSONArray("events").toString())
+            response(body).apply { getJSONArray("acknowledgements").getJSONObject(0).put("status","already_present") }
+        },{clock},{it},destination).drain()
+        assertEquals(firstReceipt,db.outboxDao().find(old.eventId)!!.receiptId)
+        assertTrue(db.outboxDao().all(old.chainId).all { it.status == "synced" })
+        assertEquals(tuples,db.outboxDao().all(old.chainId).map { listOf(it.eventId,it.sequence,it.hash,it.previousHash,it.payloadCanonical) })
+        assertEquals(before,orders.snapshot().toString())
+        assertNotEquals(old.receiptId,db.outboxDao().destination(destination,old.eventId)!!.receiptId)
+        OutboxStore(db,"supabase").selectDestination(clock)
+        assertEquals(old.receiptId,db.outboxDao().find(old.eventId)!!.receiptId)
+        migrated.selectDestination(clock)
+        assertEquals(firstReceipt,db.outboxDao().find(old.eventId)!!.receiptId)
+    }
+
+    @Test fun destinationSwitchIsAtomicAndRejectsStaleWorkersAndPreservesConflicts() = run {
+        orders.createOrder(request("first"),source()); orders.createOrder(request("second"),source())
+        val original = OutboxStore(db,"supabase")
+        val claimed = original.claim(scope(),"old-worker",clock)
+        val target = OutboxStore(db,"api-destination")
+        assertThrows(Exception::class.java) { target.selectDestination(clock) }
+        assertEquals("supabase",db.outboxDao().backfill()?.destinationId ?: "supabase")
+        assertNull(db.outboxDao().destination("supabase",claimed.first().eventId))
+        clock += 120001
+        target.selectDestination(clock)
+        val body = SyncProtocol.envelope(scope(),UUID.randomUUID().toString()).put("events",JSONArray().also { a -> claimed.forEach { a.put(SyncProtocol.event(it)) } })
+        assertThrows(Exception::class.java) { original.acknowledge(claimed,"old-worker",body,response(body),clock) }
+        assertTrue(db.outboxDao().all(claimed.first().chainId).all { it.receiptId == null })
+        val first = db.outboxDao().find(claimed.first().eventId)!!
+        db.outboxDao().update(first.copy(status = "quarantined",lastError = "PREFIX_CONFLICT"))
+        OutboxStore(db,"another-destination").selectDestination(clock)
+        assertEquals("quarantined",db.outboxDao().find(first.eventId)!!.status)
+        orders.createOrder(request("still-offline"),source())
+        assertEquals(3,orders.snapshot().getJSONArray("orders").length())
+    }
+
+    @Test fun missingDurableHistoryRequiresRecoveryAndNeverFabricatesAnEvent() = run {
+        orders.createOrder(request("lost-history"),source())
+        val hash = db.outboxDao().find("sale:lost-history")!!.hash
+        db.openHelper.writableDatabase.execSQL("DELETE FROM sales_ledger") // Corrupt test fixture only.
+        engine({ _, _ -> error("Incomplete durable history must not upload") }).drain()
+        assertEquals("LOCAL_HISTORY_INCOMPLETE",outbox.diagnostics().getString("lastError"))
+        assertEquals("conflict",outbox.diagnostics().getString("errorCategory"))
+        assertFalse(outbox.diagnostics().getBoolean("backfillComplete"))
+        assertEquals(hash,db.outboxDao().find("sale:lost-history")!!.hash)
+        assertNull(db.outboxDao().find("sale:lost-history")!!.receiptId)
+        assertFalse(outbox.canRetry())
+    }
+
     @Test fun captureAndOutboxFailureRollbackAllFinancialState() = run {
         orders.createOrder(request("first"),source())
         val before = orders.snapshot().toString()
@@ -293,10 +364,10 @@ class OutboxStoreTest {
             val schema = listOf(java.io.File(path),java.io.File("app/$path"),java.io.File("android/app/$path")).first { it.exists() }
             val hash = JSONObject(schema.readText()).getJSONObject("database").getString("identityHash")
             val sqlite = durable.openHelper.writableDatabase
-            sqlite.execSQL("DROP TABLE outbox"); sqlite.execSQL("DROP TABLE outbox_backfill")
+            sqlite.execSQL("DROP TABLE outbox_destinations"); sqlite.execSQL("DROP TABLE outbox"); sqlite.execSQL("DROP TABLE outbox_backfill")
             sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42",arrayOf(hash)); sqlite.execSQL("DROP TABLE categories"); sqlite.version = 6
         } finally { durable.close() }
-        durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).addMigrations(SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
+        durable = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name).addMigrations(SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9,SamhainPosDatabase.MIGRATION_9_10).build()
         try {
             assertEquals(financial,RoomOrderStore(durable).snapshot().toString())
             val restored = OutboxStore(durable)

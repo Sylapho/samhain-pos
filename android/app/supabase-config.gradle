@@ -1,7 +1,7 @@
 // The web build is the only source of public network configuration for the native worker.
 def validateSamhainReleaseResources = tasks.register('validateSamhainReleaseResources') {
     group = 'verification'
-    description = 'Refuse les ressources test et les credentials Supabase privilégiés dans une release.'
+    description = 'Refuse les destinations test et les secrets serveur dans une release.'
     doLast {
         def assets = file('src/main/assets/public')
         def metadataFile = new File(assets, 'samhain-build.json')
@@ -19,6 +19,10 @@ def validateSamhainReleaseResources = tasks.register('validateSamhainReleaseReso
             }
         }
         if (metadata.apiAuth?.status == 'configured') {
+            def uri = new java.net.URI(metadata.apiAuth.origin)
+            if (uri.scheme != 'https' || !uri.host || uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null || uri.rawPath || !(uri.port == -1 || uri.port in 1..65535) || !(metadata.apiAuth.destinationId ==~ /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)) {
+                throw new GradleException('Origine HTTPS ou identité de destination API invalide.')
+            }
             def origin = providers.environmentVariable('SAMHAIN_API_PRODUCTION_URL').getOrNull()?.trim()?.replaceAll('/$', '')
             def destination = providers.environmentVariable('SAMHAIN_API_PRODUCTION_DESTINATION_ID').getOrNull()?.trim()
             if (metadata.apiAuth.environment != 'production' || metadata.apiAuth.origin != origin || metadata.apiAuth.destinationId != destination) {

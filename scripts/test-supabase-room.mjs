@@ -161,8 +161,8 @@ try {
     'android/app/build/test-results/testDebugUnitTest/TEST-fr.samhain.pos.LiveSupabaseIntegrationTest.xml',
     'utf8',
   )
-  assert.match(report, /tests="1"/)
-  assert.match(report, /skipped="0"/)
+  assert.match(report, /tests="2"/)
+  assert.match(report, /skipped="1"/)
   assert.equal(enrolled, 2, 'Both independent scopes must execute')
   assert.ok(
     sends >= 6 && committedLosses === 2 && verified === 2,

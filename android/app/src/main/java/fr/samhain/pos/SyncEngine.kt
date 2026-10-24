@@ -13,13 +13,18 @@ internal class SyncEngine(
     private val send: (ProtectedSyncEndpoint, JSONObject) -> JSONObject,
     private val now: () -> Long = System::currentTimeMillis,
     private val jitter: (Long) -> Long = { Random.nextLong(it + 1) },
+    private val destination: String? = null,
 ) {
-    private val store = OutboxStore(database)
+    private val store = OutboxStore(database,destination)
 
     /** Returns the earliest useful next wakeup, or null when drained/blocked. */
     fun drain(): Long? {
+        store.selectDestination(now())
         // Backfill is local and also runs without configuration or enrollment.
-        repeat(10) { if(store.backfillBatch()) return drainReady() }
+        var complete = false
+        try { for (batch in 0 until 10) { if(store.backfillBatch()) { complete = true; break } } }
+        catch (_: Exception) { store.recordCaptureFailure(); return null }
+        if (complete) return drainReady()
         return now() + 1000
     }
 
@@ -81,7 +86,7 @@ internal class SyncEngine(
             val recovery = error.errorCode in setOf("HEAD_MOVED","MISSING_PREDECESSOR","DEPENDENCY_MISSING",
                 "PROTOCOL_UNSUPPORTED","LEDGER_SCHEMA_UNSUPPORTED","BATCH_TOO_LARGE")
             store.release(rows,owner,if(temporary) "pending" else if(recovery) "needs_recovery" else "quarantined",error.errorCode,
-                if(temporary) now() + maxOf(backoff(rows.firstOrNull()?.attemptCount ?: 1,jitter),error.retryAfterMillis ?: 0) else 0)
+                if(temporary) now() + maxOf(backoff(rows.firstOrNull()?.attemptCount ?: 1,jitter),error.retryAfterMillis?.coerceIn(0,21600000) ?: 0) else 0)
             if(error.errorCode in setOf("HEAD_MOVED","MISSING_PREDECESSOR","DEPENDENCY_MISSING")) {
                 if(store.allowAutomaticRecovery() && recover(scope,error.errorCode == "DEPENDENCY_MISSING")) return now() + 1000
             }
@@ -121,7 +126,7 @@ internal class SyncEngine(
                 SyncProtocol.validateContext(request,response)
                 val head = response.getJSONObject("serverHead")
                 SyncProtocol.validateHead(head)
-                if(head.getLong("sequence") > maxSequence) return false
+                if(SyncProtocol.safeSequence(head.get("sequence")) > maxSequence) return false
                 val results = response.getJSONArray("results")
                 require(results.length() == page.size)
                 val seen = mutableSetOf<String>()
@@ -129,7 +134,7 @@ internal class SyncEngine(
                     val result = results.getJSONObject(i)
                     val row = page.firstOrNull { it.eventId == result.getString("eventId") } ?: error("INVALID_PREFIX")
                     require(seen.add(row.eventId))
-                    require(result.getLong("sequence") == row.sequence && result.getString("hash") == row.hash &&
+                    require(SyncProtocol.safeSequence(result.get("sequence")) == row.sequence && result.getString("hash") == row.hash &&
                         result.getString("transportFingerprint") == row.transportFingerprint)
                     if(result.getString("status") == "conflict") {
                         store.blockChain(chain,"quarantined","PREFIX_CONFLICT")

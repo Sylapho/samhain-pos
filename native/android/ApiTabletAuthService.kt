@@ -106,6 +106,30 @@ internal class ApiTabletAuthService(
         if(action=="reject"||body.optString("installationId")==stored.getString("installationId"))remember(JSONObject().put("status",if(action=="reject")"rejected" else "revoked"))
         publicState(vault.read()!!)
     }
+    fun sendSync(endpoint: ProtectedSyncEndpoint, body: JSONObject): JSONObject = synchronized(TabletAuthService.SESSION_LOCK) {
+        try {
+            val current = status()
+            val state = current.getString("status")
+            if (state !in setOf("authorized", "session_expired") && !(state == "needs_recovery" && endpoint == ProtectedSyncEndpoint.PREFIX))
+                throw TabletAuthFailure(state)
+            for (field in listOf("organizationId", "festivalId", "chainId", "installationId", "enrollmentGeneration"))
+                require(body.get(field) == current.get(field))
+            val path = when (endpoint) {
+                ProtectedSyncEndpoint.LEDGER -> "/api/v1/ledger/ingest"
+                ProtectedSyncEndpoint.LEGACY -> "/api/v1/ledger/legacy"
+                ProtectedSyncEndpoint.PREFIX -> "/api/v1/ledger/prefix"
+            }
+            try { signed(path, endpoint.route, body, accessToken()) }
+            catch (error: TabletAuthFailure) {
+                if (error.code != "session_expired") throw error
+                val stored = vault.read() ?: throw error
+                stored.getJSONObject("session").put("expires_at", 0)
+                vault.write(stored)
+                signed(path, endpoint.route, body, accessToken())
+            }
+        } catch (error: TabletAuthFailure) { failure(error.code); throw error }
+    }
+
     private fun accessToken():String{
         var stored=vault.read()?:throw TabletAuthFailure("session_expired")
         val current=stored.optJSONObject("session")?:throw TabletAuthFailure("session_expired")
@@ -114,7 +138,7 @@ internal class ApiTabletAuthService(
         if(!stored.has("rotationPayload")){stored.put("rotationPayload",body.toString()).put("rotationStartedAt",now());vault.write(stored)}
         if(now()-stored.getLong("rotationStartedAt")>60)throw TabletAuthFailure("session_expired")
         val result=signed("/api/v1/auth/refresh","refresh",body,null)
-        validateSession(result);stored=vault.read()!!;stored.put("session",result);stored.remove("rotationPayload");stored.remove("rotationStartedAt")
+        validateSession(result);stored=vault.read()!!;stored.put("session",result).put("status","authorized");stored.remove("rotationPayload");stored.remove("rotationStartedAt")
         vault.write(stored)
         return result.getString("access_token")
     }
@@ -159,7 +183,7 @@ internal class ApiTabletAuthService(
         try{vault.read()?.let{if(code in setOf("revoked","authorization_denied","needs_recovery","rejected","session_expired")){it.put("status",code);vault.write(it)}}}catch(_:Exception){}
         return try{vault.read()?.let{publicState(it).put("status",code)}?:state(code)}catch(_:Exception){state(code)}
     }
-    private fun validateSession(value:JSONObject){require(value.getString("access_token").isNotBlank()&&value.getString("refresh_token").isNotBlank()&&value.getLong("expires_at")>now()&&value.getString("token_type")=="bearer")}
+    private fun validateSession(value:JSONObject){require(value.getString("access_token").isNotBlank()&&value.getString("refresh_token").isNotBlank()&&SyncProtocol.safeSequence(value.get("expires_at"))>now()&&value.getString("token_type")=="bearer")}
     companion object{
         private val PUBLIC_FIELDS=listOf("organizationId","festivalId","chainId","enrollmentGeneration","serverHead")
         private fun state(value:String)=JSONObject().put("status",value)

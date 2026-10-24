@@ -23,8 +23,8 @@ export function containsPrivilegedCredential(content: string): boolean {
 export function supabaseBuildConfiguration(mode: string, environment: SupabaseBuildEnvironment) {
   const supabase = resolveSupabaseConfiguration(mode, environment)
   const apiAuth = resolveApiAuthConfiguration(mode, environment)
-  if (mode === 'production' && apiAuth.status === 'invalid')
-    throw new Error('Configuration API de production invalide ou non confirmée.')
+  if (apiAuth.status === 'invalid')
+    throw new Error('Configuration API invalide ou destination de production non confirmée.')
   return {
     // Raw VITE_* values must never be exposed, even through an import.meta.env object spread.
     envPrefix: [],
