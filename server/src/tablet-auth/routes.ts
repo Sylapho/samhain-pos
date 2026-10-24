@@ -4,13 +4,13 @@ import type { AuthChallenge, Scope } from '../persistence/model.ts'
 import { dossier, keys, record, text, uuid } from './validation.ts'
 import { reject } from './crypto.ts'
 
-function bearer(request: FastifyRequest, optional = false) {
+export function bearer(request: FastifyRequest, optional = false) {
   const value = request.headers.authorization
   if (!value && optional) return ''
   if (!value || !/^Bearer [A-Za-z0-9._~-]+$/.test(value) || value.length > 16384) return reject()
   return value.slice(7)
 }
-function proof(request: FastifyRequest) {
+export function proof(request: FastifyRequest) {
   const nonce = request.headers['x-samhain-nonce']
   const signature = request.headers['x-samhain-signature']
   if (typeof nonce !== 'string' || typeof signature !== 'string' || !request.rawBody)

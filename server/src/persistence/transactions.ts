@@ -25,7 +25,12 @@ export function duplicate(error: unknown): boolean {
 export async function runTransaction<T, S extends TransactionSession>(
   createSession: () => S,
   work: (session: S) => Promise<T>,
-  options: { attempts?: number; commitAttempts?: number; budgetMs?: number } = {},
+  options: {
+    attempts?: number
+    commitAttempts?: number
+    budgetMs?: number
+    signal?: AbortSignal
+  } = {},
 ): Promise<T> {
   const attempts = options.attempts ?? 4
   const commits = options.commitAttempts ?? 3
@@ -40,7 +45,11 @@ export async function runTransaction<T, S extends TransactionSession>(
     !(options.budgetMs === undefined || (options.budgetMs > 0 && options.budgetMs <= 20000))
   )
     throw new PersistenceError('TRANSACTION_RETRY')
-  for (let attempt = 0; attempt < attempts && performance.now() < deadline; attempt++) {
+  for (
+    let attempt = 0;
+    attempt < attempts && performance.now() < deadline && !options.signal?.aborted;
+    attempt++
+  ) {
     const session = createSession()
     let uncertain = false
     try {
@@ -52,6 +61,9 @@ export async function runTransaction<T, S extends TransactionSession>(
       })
       const result = await work(session)
       for (let commit = 0; commit < commits && performance.now() < deadline; commit++) {
+        // Once a commit is uncertain it must be resolved on this transaction,
+        // even if the HTTP caller has since disconnected or timed out.
+        if (!uncertain && options.signal?.aborted) throw new PersistenceError('TRANSACTION_RETRY')
         try {
           await session.commitTransaction()
           return result
@@ -89,6 +101,7 @@ export async function runTransaction<T, S extends TransactionSession>(
 export function transaction<T>(
   client: MongoClient,
   work: (session: ClientSession) => Promise<T>,
+  options: { signal?: AbortSignal } = {},
 ): Promise<T> {
-  return runTransaction(() => client.startSession(), work)
+  return runTransaction(() => client.startSession(), work, options)
 }

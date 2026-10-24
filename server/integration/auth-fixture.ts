@@ -8,8 +8,9 @@ import { buildApp } from '../src/app.ts'
 import { config, fakeDatabase } from '../tests/helpers.ts'
 import type { AuthConfig } from '../src/tablet-auth/config.ts'
 import type { Dossier, SessionReply } from '../src/tablet-auth/types.ts'
+import type { Config } from '../src/config.ts'
 
-export async function authFixture() {
+export async function authFixture(overrides: Partial<Config> = {}) {
   const f = await fixture()
   const serverKey = generateKeyPairSync('rsa', { modulusLength: 2048 })
   const oidcKey = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -43,7 +44,13 @@ export async function authFixture() {
     oidcKeys: createLocalJWKSet({ keys: [{ ...jwk, kid: 'test-oidc', alg: 'RS256' }] }),
   })
   const service = createAuthService(f.client, f.db, configuration, crypto)
-  const app = await buildApp(config(), { database: fakeDatabase(), authService: service })
+  const app = await buildApp(
+    { ...config(), ...overrides },
+    {
+      database: { ...fakeDatabase(), mongo: { client: f.client, db: f.db } },
+      authService: service,
+    },
+  )
   const oidcPrivate = await importPKCS8(
     oidcKey.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     'RS256',

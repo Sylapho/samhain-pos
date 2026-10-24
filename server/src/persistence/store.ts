@@ -11,6 +11,7 @@ import type {
   SyncReceipt,
   TerminalRange,
   Capability,
+  Chain,
 } from './model.ts'
 import { PersistenceError } from './errors.ts'
 import { transaction } from './transactions.ts'
@@ -20,8 +21,8 @@ import { parseStrictJson } from '../json.ts'
 import { verifySchema } from './migrations.ts'
 import { verifyRuntimePrivileges } from './roles.ts'
 
-// Mandatory activation boundary for future HTTP handlers. The low-level factory
-// below remains usable by isolated migrations/tests, which use different accounts.
+// Activation helper for standalone runtimes. The HTTP entry point performs the
+// equivalent schema/privilege checks through Database.check before listening.
 export async function openPersistence(client: MongoClient, db: Db) {
   await verifySchema(db)
   await verifyRuntimePrivileges(db)
@@ -39,8 +40,11 @@ export type TabletContext = ChainScope &
   }
 export type BusinessValidation = (
   event: LedgerEvent,
-  context: { db: Db; session: ClientSession },
+  context: { db: Db; session: ClientSession; signal?: AbortSignal },
 ) => Promise<void>
+// Only server-owned AuthService.protectedTablet supplies this state. Its guards,
+// nonce and financial writes must share the already-open transaction.
+export type AuthorizedTransaction = { chain: Chain; session: ClientSession; signal?: AbortSignal }
 
 export function createPersistence(client: MongoClient, db: Db) {
   const c = <N extends keyof Documents>(name: N) => db.collection<Documents[N]>(name)
@@ -204,8 +208,9 @@ export function createPersistence(client: MongoClient, db: Db) {
         { ...scope, orderId: event.originalOrderId },
         { session },
       )
-      if (!sale || (sale.type === 'sealed' ? sale.saleHash : null) !== event.originalSaleHash)
-        throw new PersistenceError('DEPENDENCY_MISSING')
+      if (!sale) throw new PersistenceError('DEPENDENCY_MISSING')
+      if ((sale.type === 'sealed' ? sale.saleHash : null) !== event.originalSaleHash)
+        throw new PersistenceError('BUSINESS_INCONSISTENCY')
     }
     if (
       event.referencedSessionId &&
@@ -236,6 +241,7 @@ export function createPersistence(client: MongoClient, db: Db) {
       expectedHead: Head,
       proofs: readonly LedgerProof[],
       validateBusiness: BusinessValidation,
+      authorized?: AuthorizedTransaction,
     ) {
       if (
         !proofs.length ||
@@ -245,14 +251,77 @@ export function createPersistence(client: MongoClient, db: Db) {
       )
         throw new PersistenceError('INVALID_DOCUMENT')
       const events = proofs.map((proof) => ledgerDocument(C(context), proof, new Date()))
-      if (events.some((event, i) => i > 0 && event.sequence !== events[i - 1]!.sequence + 1))
-        throw new PersistenceError('MISSING_PREDECESSOR')
-      return transaction(client, async (session) => {
-        const chain = await authorizeTablet(context, 'ledger-ingest-v1', session)
+      const work = async (session: ClientSession) => {
+        if (!session.inTransaction()) throw new PersistenceError('TRANSACTION_RETRY')
+        const chain =
+          authorized?.chain ?? (await authorizeTablet(context, 'ledger-ingest-v1', session))
         let head = chain.head
         let added = false
         const receipts: SyncReceipt[] = []
+        const statuses: ('accepted' | 'already_present')[] = []
+        const operations = new Set<string>(),
+          sessions = new Set<string>(),
+          orders = new Set<string>()
+        // Classify identity conflicts across the entire lot before head/recovery checks.
         for (const event of events) {
+          authorized?.signal?.throwIfAborted()
+          const existing = await c('ledgerEvents').findOne(
+            { ...C(context), eventId: event.eventId },
+            { session },
+          )
+          if (
+            existing &&
+            (existing.payloadCanonical !== event.payloadCanonical ||
+              existing.transportFingerprint !== event.transportFingerprint ||
+              existing.sequence !== event.sequence ||
+              existing.hash !== event.hash ||
+              existing.previousHash !== event.previousHash ||
+              existing.sourceTerminalId !== event.sourceTerminalId ||
+              existing.ledgerCanonicalization !== event.ledgerCanonicalization)
+          )
+            throw new PersistenceError('EVENT_CONTENT_CONFLICT')
+          const occupant = await c('ledgerEvents').findOne(
+            { ...C(context), sequence: event.sequence },
+            { session },
+          )
+          if (occupant && occupant.eventId !== event.eventId)
+            throw new PersistenceError('SEQUENCE_FORK')
+          if (
+            !existing &&
+            event.kind === 'sale' &&
+            (orders.has(event.orderId!) ||
+              (await c('sales').findOne({ ...S(context), orderId: event.orderId! }, { session })))
+          )
+            throw new PersistenceError('DUPLICATE_ORDER_OTHER_CHAIN')
+          if (event.kind === 'sale') orders.add(event.orderId!)
+          if (!existing && event.operationId) {
+            const key = `${event.kind}:${event.operationId}`
+            if (
+              operations.has(key) ||
+              (await c('ledgerEvents').findOne(
+                { ...C(context), kind: event.kind, operationId: event.operationId },
+                { session },
+              ))
+            )
+              throw new PersistenceError('EVENT_CONTENT_CONFLICT')
+            operations.add(key)
+          }
+          if (!existing && event.sessionId) {
+            if (
+              sessions.has(event.sessionId) ||
+              (await c('ledgerEvents').findOne(
+                { ...C(context), kind: 'cash_session_opened', sessionId: event.sessionId },
+                { session },
+              ))
+            )
+              throw new PersistenceError('EVENT_CONTENT_CONFLICT')
+            sessions.add(event.sessionId)
+          }
+        }
+        if (events.some((event, i) => i > 0 && event.sequence !== events[i - 1]!.sequence + 1))
+          throw new PersistenceError('MISSING_PREDECESSOR')
+        for (const event of events) {
+          authorized?.signal?.throwIfAborted()
           const scope = C(context)
           const existing = await c('ledgerEvents').findOne(
             { ...scope, eventId: event.eventId },
@@ -281,6 +350,7 @@ export function createPersistence(client: MongoClient, db: Db) {
                 session,
               ),
             )
+            statuses.push('already_present')
             continue
           }
           if (await c('ledgerEvents').findOne({ ...scope, sequence: event.sequence }, { session }))
@@ -310,7 +380,11 @@ export function createPersistence(client: MongoClient, db: Db) {
           )
             throw new PersistenceError('EVENT_CONTENT_CONFLICT')
           await checkReferences(event, session)
-          await validateBusiness(event, { db, session })
+          await validateBusiness(event, {
+            db,
+            session,
+            ...(authorized?.signal ? { signal: authorized.signal } : {}),
+          })
           if (event.kind === 'sale') {
             if (await c('sales').findOne({ ...S(context), orderId: event.orderId! }, { session }))
               throw new PersistenceError('DUPLICATE_ORDER_OTHER_CHAIN')
@@ -328,6 +402,7 @@ export function createPersistence(client: MongoClient, db: Db) {
           }
           await c('ledgerEvents').insertOne(event, { session })
           receipts.push(await receipt(context, event, 'ledger', session))
+          statuses.push('accepted')
           head = { sequence: event.sequence, hash: event.hash }
           added = true
         }
@@ -348,52 +423,89 @@ export function createPersistence(client: MongoClient, db: Db) {
           ).matchedCount !== 1
         )
           throw new PersistenceError('HEAD_MOVED')
-        return { head, receipts }
-      })
+        return { head, receipts, statuses }
+      }
+      return authorized ? work(authorized.session) : transaction(client, work)
     },
     async persistLegacy(
       context: TabletContext,
       proof: LegacyProof,
       validateBusiness: (context: { db: Db; session: ClientSession }) => Promise<void>,
     ) {
-      const sale = legacyDocument(C(context), proof)
-      if (typeof validateBusiness !== 'function') throw new PersistenceError('INVALID_DOCUMENT')
-      return transaction(client, async (session) => {
-        await authorizeTablet(context, 'legacy-import-v1', session)
-        const existing = await c('sales').findOne(
-          { ...S(context), orderId: sale.orderId },
-          { session },
-        )
-        if (existing) {
-          if (existing.chainId !== context.chainId || existing.type !== 'legacy')
-            throw new PersistenceError('DUPLICATE_ORDER_OTHER_CHAIN')
-          if (
-            existing.payloadCanonical !== sale.payloadCanonical ||
-            existing.transportFingerprint !== sale.transportFingerprint ||
-            existing.sourceTerminalId !== sale.sourceTerminalId
-          )
-            throw new PersistenceError('EVENT_CONTENT_CONFLICT')
-          return existingReceipt(
-            context,
-            proof.eventId,
-            'legacy_order',
-            proof.transportFingerprint,
-            null,
-            null,
-            session,
-          )
-        }
-        if (
-          !(await c('terminalRanges').findOne(
-            { ...C(context), sourceTerminalId: proof.sourceTerminalId },
+      const result = await this.persistLegacyBatch(context, [proof], (_proof, state) =>
+        validateBusiness(state),
+      )
+      return result.receipts[0]!
+    },
+    async persistLegacyBatch(
+      context: TabletContext,
+      proofs: readonly LegacyProof[],
+      validateBusiness: (
+        proof: LegacyProof,
+        context: { db: Db; session: ClientSession },
+      ) => Promise<void>,
+      authorized?: AuthorizedTransaction,
+    ) {
+      if (
+        !proofs.length ||
+        proofs.length > 100 ||
+        new Set(proofs.map((p) => p.eventId)).size !== proofs.length ||
+        typeof validateBusiness !== 'function'
+      )
+        throw new PersistenceError('INVALID_DOCUMENT')
+      const sales = proofs.map((proof) => legacyDocument(C(context), proof))
+      const work = async (session: ClientSession) => {
+        if (!session.inTransaction()) throw new PersistenceError('TRANSACTION_RETRY')
+        const chain =
+          authorized?.chain ?? (await authorizeTablet(context, 'legacy-import-v1', session))
+        const receipts: SyncReceipt[] = []
+        const statuses: ('accepted' | 'already_present')[] = []
+        for (let index = 0; index < proofs.length; index++) {
+          authorized?.signal?.throwIfAborted()
+          const proof = proofs[index]!,
+            sale = sales[index]!
+          const existing = await c('sales').findOne(
+            { ...S(context), orderId: sale.orderId },
             { session },
-          ))
-        )
-          throw new PersistenceError('SCOPE_DENIED')
-        await validateBusiness({ db, session })
-        await c('sales').insertOne(sale, { session })
-        return receipt(context, proof, 'legacy_order', session)
-      })
+          )
+          if (existing) {
+            if (existing.chainId !== context.chainId || existing.type !== 'legacy')
+              throw new PersistenceError('DUPLICATE_ORDER_OTHER_CHAIN')
+            if (
+              existing.payloadCanonical !== sale.payloadCanonical ||
+              existing.transportFingerprint !== sale.transportFingerprint ||
+              existing.sourceTerminalId !== sale.sourceTerminalId
+            )
+              throw new PersistenceError('EVENT_CONTENT_CONFLICT')
+            receipts.push(
+              await existingReceipt(
+                context,
+                proof.eventId,
+                'legacy_order',
+                proof.transportFingerprint,
+                null,
+                null,
+                session,
+              ),
+            )
+            statuses.push('already_present')
+            continue
+          }
+          if (
+            !(await c('terminalRanges').findOne(
+              { ...C(context), sourceTerminalId: proof.sourceTerminalId },
+              { session },
+            ))
+          )
+            throw new PersistenceError('SCOPE_DENIED')
+          await validateBusiness(proof, { db, session })
+          await c('sales').insertOne(sale, { session })
+          receipts.push(await receipt(context, proof, 'legacy_order', session))
+          statuses.push('accepted')
+        }
+        return { head: chain.head, receipts, statuses }
+      }
+      return authorized ? work(authorized.session) : transaction(client, work)
     },
     async publishCatalog(
       scope: Scope,

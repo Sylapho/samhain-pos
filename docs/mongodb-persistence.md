@@ -1,5 +1,10 @@
 # Persistance MongoDB — #131
 
+Évolution #133 : les routes d’ingestion, legacy et préfixe sont implémentées dans
+`server/src/ledger/`, sans nouveau schéma/index. Le [runbook d’ingestion](mongodb-ingestion.md)
+décrit leur contrat, validation financière et recette locale. Aucun raccordement financier
+Android ni déploiement réel n’est effectué.
+
 Évolution #132 : le manifeste v1 est figé dans `server/src/persistence/schema-v1.ts`.
 La migration v2 ajoute les champs Auth et l’index de reprise des rotations, sans modifier
 les documents financiers. `samhain_runtime_v2` ajoute uniquement la mise à jour des plages
@@ -75,10 +80,14 @@ sans faux hash/séquence financière ni avancement de tête. Les corrections exi
 antérieure de C avec le hash original exact, ou une référence legacy avec originalSaleHash null.
 Les références de sessions doivent être présentes dans le préfixe déjà acquis.
 
-Cette issue ne porte **pas** le validateur monétaire complet de #133, les règles de cumul de
-remboursement, session active ou totaux de clôture. `persistLedger` impose un callback
+La fondation #131 ne portait pas le validateur monétaire ; #133 le fournit dans
+`ledger/business.ts`, avec cumul de remboursements, session active et totaux de clôture.
+`persistLedger` impose un callback
 `BusinessValidation(event,{db,session})`, exécuté avant insertion, pour brancher ces contrôles
-dans la même transaction. `persistLegacy` exige également sa validation métier. Les petits
+dans la même transaction. Les routes utilisent la session et la chaîne déjà gardées par
+`AuthService.protectedTablet`, sans seconde transaction ni seconde consommation de nonce.
+`persistLegacyBatch` rend l’import de 1–100 commandes atomique ; `persistLegacy` conserve
+son interface unitaire pour les tests de fondation. Les petits
 snapshots des fixtures sont explicitement des données de test de stockage, pas des ventes valides.
 La publication impose `validateContent(payload)` : #135 doit y réutiliser la validation profonde
 du catalogue existant, notamment `dataConfidence: confirmed` et les références produits/catégories.
@@ -115,7 +124,7 @@ séquence, réservation de vente, tête, catalogue ou plage terminal). Les retri
 
 Un `UnknownTransactionCommitResult` ne relance que le commit de **la même transaction**.
 Si l'incertitude persiste, `COMMIT_UNCERTAIN`, aucun résultat assimilable à un ACK ; les preuves
-peuvent néanmoins être durables. #133 devra traduire cette situation en HTTP 503
+peuvent néanmoins être durables. #133 traduit cette situation en HTTP 503
 `TRANSACTION_RETRY`, jamais affirmer un rollback certain. Une nouvelle requête signée avec
 un nouveau challenge résout le cas grâce aux reçus persistants.
 
@@ -152,13 +161,14 @@ collections et ne protègent pas d'un administrateur DB. Le rôle applicatif fou
 DB contre UPDATE/DELETE ; l'exploitation doit protéger aussi les comptes administrateurs.
 
 `Database.mongo` expose le **client/pool déjà partagé** et son Db pour #132/#133 ; ne pas
-créer un autre client à chaque requête. L'activation des routes doit passer par
-`openPersistence(client,db)`, qui vérifie schéma/index/topologie et privilèges effectifs.
+créer un autre client à chaque requête. L’activation doit vérifier schéma/index/topologie
+et privilèges effectifs : l’entrée HTTP le fait via `Database.check` avant écoute,
+`openPersistence(client,db)` fournit la même frontière pour un runtime autonome.
 La factory bas niveau `createPersistence` sert aux composants de confiance et aux tests.
 Le démarrage/readiness exécutent déjà `verifySchema` sans écrire ; en production ils refusent
 aussi les privilèges runtime trop larges. Pas de migration automatique au démarrage.
 Une base vide non initialisée n'est donc plus prête. Auth par défaut et routes métiers restent
-fermées ; même un schéma valide n'annonce pas une ingestion HTTP déjà disponible.
+fermées sans configuration Auth ; même un schéma valide ne prouve pas une réception de ventes.
 
 ## Initialisation et vérification
 
@@ -266,11 +276,9 @@ de sauvegarde/restauration effective n'est déclenchée par cette livraison.
 
 ## Intégrations restantes
 
-- #132 : vérification cryptographique, OIDC, émission/rotation/challenges, création/activation
-  des registres, continuité/remplacement, publication des audits et politique de conservation Auth.
-  Les SPKI doivent être réellement décodées/validées avant insertion ; aucun secret Keystore.
-- #133 : format HTTP complet, priorité des erreurs sur tout le lot, validation monétaire contre
-  le préfixe, ACK samhain-sync/1 et diagnostic/prefix. Les primitives ne constituent pas ces routes.
+- #132 et #133 sont implémentées côté serveur : voir les runbooks Auth et ingestion pour
+  configuration et garanties testées. OIDC/TLS/rôles et recette de la base cible restent
+  des prérequis d’exploitation ; aucun secret Keystore n’est transmis.
 - #134 : destination/epoch, bascule unique du transport et rattrapage des anciens synced.
 - #135 : réutilisation du validateur catalogue complet, authentification des lectures/publications,
   construction des métadonnées serveur et gestion de réponse de publication perdue.

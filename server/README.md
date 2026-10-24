@@ -1,4 +1,4 @@
-# Backend HTTPS Samhain POS — #130 / #131
+# Backend HTTPS Samhain POS — #130 à #133
 
 Fondation **Node.js 24 LTS / TypeScript strict / Fastify / driver officiel MongoDB**,
 conforme à [l'architecture #129](../docs/architecture-mongodb-offline-first.md).
@@ -41,16 +41,18 @@ n'est exécutée automatiquement. `Database.mongo` expose le pool partagé aux f
 
 ## Organisation et extensions
 
-| Fichier                                          | Responsabilité                                                                |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/index.ts`                                   | Configuration, signaux SIGINT/SIGTERM et échéance absolue d'arrêt             |
-| `src/lifecycle.ts`                               | Connexion et ping avant écoute, nettoyage des échecs, arrêt idempotent        |
-| `src/config.ts`                                  | Validation typée et erreurs expurgées avant toute connexion réseau            |
-| `src/database.ts`                                | Un client/pool partagé, budgets réseau/opération, ping et fermeture           |
-| `src/app.ts`                                     | Application injectable, protections HTTP, sondes et préfixe `/api/v1`         |
-| `src/auth.ts`                                    | Principaux vérifiés, politiques tablette/capacité/périmètre, refus par défaut |
-| `src/json.ts`, `src/errors.ts`, `src/network.ts` | Parseur v1, erreurs stables, allowlists IP/CIDR                               |
-| `tests/`, `integration/`                         | Tests isolés, driver réel, panne réseau et arrêt de processus                 |
+| Fichier                                          | Responsabilité                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `src/index.ts`                                   | Configuration, signaux SIGINT/SIGTERM et échéance absolue d'arrêt              |
+| `src/lifecycle.ts`                               | Connexion et ping avant écoute, nettoyage des échecs, arrêt idempotent         |
+| `src/config.ts`                                  | Validation typée et erreurs expurgées avant toute connexion réseau             |
+| `src/database.ts`                                | Un client/pool partagé, budgets réseau/opération, ping et fermeture            |
+| `src/app.ts`                                     | Application injectable, protections HTTP, sondes et préfixe `/api/v1`          |
+| `src/auth.ts`                                    | Principaux vérifiés, politiques tablette/capacité/périmètre, refus par défaut  |
+| `src/tablet-auth/`                               | OIDC, enrôlement, sessions, signatures du corps brut et guards transactionnels |
+| `src/ledger/`                                    | Ingestion, legacy, préfixe, validation financière et erreurs samhain-sync/1    |
+| `src/json.ts`, `src/errors.ts`, `src/network.ts` | Parseur v1, erreurs stables, allowlists IP/CIDR                                |
+| `tests/`, `integration/`                         | Tests isolés, driver réel, panne réseau et arrêt de processus                  |
 
 `buildApp` accepte une dépendance `Database` injectable, des `readinessChecks(signal)` et
 un plugin `apiRoutes` enregistré sous `/api/v1`. Les routes de ce plugin doivent déclarer
@@ -59,8 +61,8 @@ bornes explicites). Toute route sans politique est refusée, même avec un authe
 injecté. Le `Authenticator` par défaut renvoie toujours `null` : un Bearer arbitraire,
 un rôle JSON ou un header de permissions n'est jamais une identité.
 
-#132 devra fournir le vérificateur réel de session, registre, génération, clé et preuve,
-et dériver le périmètre depuis des données vérifiées. Le point d'extension est du code serveur
+#132 fournit le vérificateur réel de session, registre, génération, clé et preuve,
+et dérive le périmètre depuis des données vérifiées. Le point d'extension est du code serveur
 de confiance, pas une option HTTP ni une option permettant une fausse authentification.
 `authorize` sépare tablette liée à une chaîne et responsable avec `manage_enrollment`,
 `read_ledger` ou `publish_catalog`, avec contrôle du périmètre. Aucune route métier de
@@ -136,9 +138,12 @@ réseau est celle du driver ; aucune boucle de recréation de clients n'est ajou
   de cycle de vie. Pas d'URL brute/query, corps, token, cookie, header de signature ou exception
   du driver. Les serializers expurgent aussi les erreurs internes de Fastify.
 
-Les futures routes financières #133 doivent reprendre **exactement** le contrat enrichi
-§8.4 de l'architecture (contexte, catégorie/retryable, aucun ACK avant commit) et les deux
-profils financiers existants. Cette fondation ne prétend pas valider un événement financier.
+Les routes financières #133 reprennent le contrat enrichi §8.3–8.4 de l’architecture
+(contexte, catégorie/retryable, aucun ACK avant commit) et les deux profils financiers.
+`POST /api/v1/ledger/ingest`, `/api/v1/ledger/legacy` et `/api/v1/ledger/prefix` utilisent
+le véritable `AuthService.protectedTablet`. Sans Auth configurée, elles restent fermées.
+Validation monétaire, dépendances, atomicité des lots, reçus, récupération et tests sont
+décrits dans le [runbook d’ingestion #133](../docs/mongodb-ingestion.md).
 
 ## Docker et MongoDB locale isolée
 
@@ -274,7 +279,7 @@ local autorisé hors bac à sable. Ces limites d'outillage ne sont pas des résu
 
 #131 fournit les schémas, index, rôles, transactions et contrôles intégrés à `Database.check`.
 `ready` vérifie connexion, topologie, manifeste/index et, en production, privilèges effectifs ;
-cela ne signifie **pas qu'une ingestion HTTP est implémentée**. Commandes `db:migrate`,
+la readiness n’est pas une preuve de réception des ventes. Commandes `db:migrate`,
 `db:roles`, `db:verify`, `db:verify-runtime`, `db:audit` et limites détaillées dans le
 [runbook #131](../docs/mongodb-persistence.md).
 #132 fournit les neuf routes Auth/OIDC/enrôlement, le registre vivant et les guards
@@ -283,8 +288,8 @@ du responsable. L’activation est désactivée par défaut ; voir le [runbook A
 pour les variables, le client OIDC public/PKCE, les capacités et la migration sans perte de données.
 La migration additive v2 conserve le checksum v1 ; le runtime Auth production exige
 `samhain_runtime_v2`. Aucun compte ni droit n’est créé au démarrage.
-#133 reste nécessaire pour l’ingestion HTTP, #134 pour le basculement financier Android
-et ses confirmations par destination, #135 pour le catalogue. La caisse conserve son
+#133 fournit l’ingestion HTTP transactionnelle ; #134 reste nécessaire pour le basculement
+financier Android et ses confirmations par destination, #135 pour le catalogue. La caisse conserve son
 fonctionnement local et son transport financier Supabase historique, sans réutiliser ses tokens côté API.
 
 Références primaires : [options et délais Fastify](https://fastify.dev/docs/latest/Reference/Server/),

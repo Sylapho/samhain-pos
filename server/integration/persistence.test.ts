@@ -221,10 +221,17 @@ test(
       f.store.persistLedger(a, empty, [proof], validatedForStorage),
       f.store.persistLedger(b, empty, [proof], validatedForStorage),
     ])
-    assert.deepEqual(results[0], results[1])
+    assert.deepEqual(results[0]!.head, results[1]!.head)
+    assert.deepEqual(results[0]!.receipts, results[1]!.receipts)
+    assert.deepEqual(results.map((result) => result.statuses[0]).sort(), [
+      'accepted',
+      'already_present',
+    ])
     await challenge(f.db, a)
     const replay = await f.store.persistLedger(a, empty, [proof], validatedForStorage)
-    assert.deepEqual(replay, results[0])
+    assert.deepEqual(replay.head, results[0]!.head)
+    assert.deepEqual(replay.receipts, results[0]!.receipts)
+    assert.deepEqual(replay.statuses, ['already_present'])
     assert.equal(await f.db.collection('ledgerEvents').countDocuments(), 1)
     assert.equal(await f.db.collection('sales').countDocuments(), 1)
     assert.equal(await f.db.collection('syncReceipts').countDocuments(), 1)

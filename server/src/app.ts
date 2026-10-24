@@ -17,6 +17,8 @@ import { createAuthService } from './tablet-auth/service.ts'
 import { authRoutes } from './tablet-auth/routes.ts'
 import type { AuthService } from './tablet-auth/service.ts'
 import { PersistenceError } from './persistence/errors.ts'
+import { ledgerRoutes } from './ledger/routes.ts'
+import { syncError } from './ledger/errors.ts'
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -127,7 +129,10 @@ export async function buildApp(
     }
     request.log[status >= 500 ? 'error' : 'warn']({ code }, 'request_failed')
     if (status === 503) reply.header('Retry-After', '1')
-    void reply.code(status).send(errorResponse(code))
+    if (request.url.split('?')[0]?.startsWith('/api/v1/ledger/')) {
+      const financial = syncError(code, status, request.body)
+      void reply.code(financial.status).send(financial.body)
+    } else void reply.code(status).send(errorResponse(code))
   })
   // Do not include raw URLs, query strings, bodies, headers or arbitrary exception messages.
   app.addHook('onResponse', async (request, reply) => {
@@ -167,21 +172,26 @@ export async function buildApp(
     },
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Samhain-Nonce', 'X-Samhain-Signature'],
-    exposedHeaders: ['X-Request-ID'],
+    exposedHeaders: ['X-Request-ID', 'X-Samhain-Destination'],
     credentials: false,
     maxAge: 300,
     strictPreflight: true,
   })
-  app.addHook('onSend', async (_request, reply, payload) => {
+  app.addHook('onSend', async (request, reply, payload) => {
     if (payload === null || payload === undefined) return payload
     // v1 responses must be buffered JSON. Reject streams before sending any bytes.
     if (
       !(typeof payload === 'string' || Buffer.isBuffer(payload)) ||
       Buffer.byteLength(payload) > config.responseLimit
     ) {
-      reply.code(500).type('application/json')
+      const financial = request.url.split('?')[0]?.startsWith('/api/v1/ledger/')
+      reply.code(financial ? 503 : 500).type('application/json')
       reply.removeHeader('content-length')
-      return JSON.stringify(errorResponse('RESPONSE_TOO_LARGE'))
+      return JSON.stringify(
+        financial
+          ? syncError('SERVER_UNAVAILABLE', 503, request.body).body
+          : errorResponse('RESPONSE_TOO_LARGE'),
+      )
     }
     return payload
   })
@@ -237,6 +247,11 @@ export async function buildApp(
   // Bootstrap routes verify possession themselves; manager/tablet handlers also perform
   // cryptographic and transactional authorization. Other API routes remain deny-by-default.
   if (authService) await app.register(authRoutes(authService), { prefix: '/api/v1' })
+  if (authService && dependencies.database.mongo)
+    await app.register(
+      ledgerRoutes(dependencies.database.mongo.client, dependencies.database.mongo.db, authService),
+      { prefix: '/api/v1' },
+    )
   await app.register(
     async (api) => {
       api.addHook('onRequest', async (request) => {
