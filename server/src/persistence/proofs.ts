@@ -27,7 +27,10 @@ export type LedgerProof = Pick<
   | 'transportFingerprint'
   | 'sourceTerminalId'
 >
-function canonical(payload: unknown, profile: LedgerEvent['ledgerCanonicalization']): string {
+export function canonical(
+  payload: unknown,
+  profile: LedgerEvent['ledgerCanonicalization'],
+): string {
   if (!['ts-ledger-v1', 'android-ledger-v1'].includes(profile))
     throw new PersistenceError('INVALID_DOCUMENT')
   const result = stable(payload)

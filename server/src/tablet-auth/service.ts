@@ -295,16 +295,21 @@ export function createAuthService(
     proof: Proof,
     work: (state: Awaited<ReturnType<typeof tabletGuard>>, session: ClientSession) => Promise<T>,
     allowRecovery = false,
+    signal?: AbortSignal,
   ) {
     const claims = await crypto.session(token)
     const key = await knownKey(claims.sub!)
     verifyProof(claims.sub!, action, proof.nonce, proof.raw, proof.signature, key)
-    return transaction(client, async (session) => {
-      const state = await tabletGuard(db, claims, session, allowRecovery)
-      if (state.apiSession.keyFingerprint !== digest(key)) reject('PROOF_REQUIRED', 403)
-      await consume(claims.sub!, action, proof, key, session, claims.sid)
-      return work(state, session)
-    })
+    return transaction(
+      client,
+      async (session) => {
+        const state = await tabletGuard(db, claims, session, allowRecovery)
+        if (state.apiSession.keyFingerprint !== digest(key)) reject('PROOF_REQUIRED', 403)
+        await consume(claims.sub!, action, proof, key, session, claims.sid)
+        return work(state, session)
+      },
+      signal ? { signal } : {},
+    )
   }
   return {
     crypto,

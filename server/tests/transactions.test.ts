@@ -115,6 +115,59 @@ test('network failure, timeout and non-transient abort return sanitized errors w
     )
   }
 })
+test('aborted HTTP work cannot start/commit; uncertain commit is still resolved on the same session', async () => {
+  const controller = new AbortController()
+  let committed = 0,
+    aborted = 0
+  await assert.rejects(
+    runTransaction(
+      () =>
+        session(
+          async () => {
+            committed++
+          },
+          () => {
+            aborted++
+          },
+        ),
+      async () => {
+        controller.abort()
+        return 'never-acknowledged'
+      },
+      { signal: controller.signal },
+    ),
+    (error: unknown) => error instanceof PersistenceError && error.code === 'TRANSACTION_RETRY',
+  )
+  assert.equal(committed, 0)
+  assert.equal(aborted, 1)
+  let callbacks = 0
+  await assert.rejects(
+    runTransaction(
+      () => session(async () => {}),
+      async () => {
+        callbacks++
+        return true
+      },
+      { signal: controller.signal },
+    ),
+  )
+  assert.equal(callbacks, 0)
+  const uncertain = new AbortController()
+  const result = await runTransaction(
+    () =>
+      session(async () => {
+        if (++committed === 1) {
+          uncertain.abort()
+          throw labelled('UnknownTransactionCommitResult')
+        }
+      }),
+    async () => 'durable',
+    { signal: uncertain.signal },
+  )
+  assert.equal(result, 'durable')
+  assert.equal(committed, 2)
+})
+
 test('schema manifest prohibits financial TTL and runtime mutations of immutable proofs', () => {
   for (const definition of definitions) {
     if (!['authChallenges', 'refreshRotations'].includes(definition.name))
