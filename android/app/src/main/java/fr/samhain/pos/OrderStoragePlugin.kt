@@ -107,8 +107,11 @@ class OrderStoragePlugin : Plugin() {
 
     @PluginMethod
     fun getSyncDiagnostics(call: PluginCall) = execute(call) {
-        val authentication = TabletAuthService.get(context).status().optString("status")
-        OutboxStore(SamhainPosDatabase.getInstance(context)).diagnostics().apply {
+        val authentication = ApiTabletAuthService.get(context).status().optString("status")
+        val config = ApiAuthConfiguration.load(context)
+        val outbox = OutboxStore(SamhainPosDatabase.getInstance(context),config.destinationId)
+        outbox.selectDestination()
+        outbox.diagnostics().apply {
             put("authentication",authentication)
             if(authentication !in setOf("authorized","session_expired")) put("continuity","unknown")
         }
@@ -116,7 +119,7 @@ class OrderStoragePlugin : Plugin() {
 
     @PluginMethod
     fun retrySynchronization(call: PluginCall) = execute(call) {
-        val authentication = TabletAuthService.get(context).status().optString("status")
+        val authentication = ApiTabletAuthService.get(context).status().optString("status")
         val allowed = authentication in setOf("authorized","session_expired") &&
             OutboxStore(SamhainPosDatabase.getInstance(context)).canRetry()
         if(allowed) OutboxScheduler.schedule(context)

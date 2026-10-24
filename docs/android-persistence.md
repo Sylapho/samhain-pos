@@ -17,6 +17,8 @@ Le catalogue suit la même frontière : `CatalogService` dépend de `CatalogRepo
 
 Room v9 ajoute `catalog_distribution` par migration 8→9 non destructive pour le staging, les bases de fusion, conflits et décisions du [catalogue versionné #115](catalog-distribution.md). Le compteur de révision local, les produits, catégories et marqueurs d'activation sont écrits ensemble ; les commandes et le journal ne sont pas modifiés. L'activation recontrôle les intentions de paiement persistées dans sa transaction.
 
+Room v10 ajoute `outbox_destinations`, la destination active et un diagnostic durable de capture par migration additive 9→10. Les reçus Supabase restent conservés ; ils ne valent jamais confirmation MongoDB. Le journal et les opérations locales ne sont pas réécrits. Voir [la migration Android #134](android-mongodb-synchronization.md), notamment l’impossibilité de revenir à une APK limitée au schéma v9.
+
 ## Politique Android Backup
 
 Android Backup n'est pas un mécanisme de sauvegarde supporté pour Samhain POS. Le manifeste impose `android:allowBackup="false"` et référence deux politiques complémentaires :

@@ -19,11 +19,12 @@ class ApiAuthHttpTest {
     private class Connection : HttpsURLConnection(URL("https://api.example.invalid")) {
         val sent = ByteArrayOutputStream()
         var status = 200; var bytes = "{}".toByteArray(); var destination = "11111111-1111-4111-8111-111111111111"; var closed = false
-        override fun getResponseCode() = status
+        var timeout = false; var retryAfter: String? = null
+        override fun getResponseCode(): Int { if (timeout) throw java.net.SocketTimeoutException(); return status }
         override fun getInputStream() = ByteArrayInputStream(bytes)
         override fun getErrorStream() = ByteArrayInputStream(bytes)
         override fun getOutputStream() = sent
-        override fun getHeaderField(name: String?) = if(name == "X-Samhain-Destination") destination else null
+        override fun getHeaderField(name: String?) = when(name) { "X-Samhain-Destination" -> destination; "Retry-After" -> retryAfter; else -> null }
         override fun disconnect() { closed = true }
         override fun usingProxy() = false
         override fun connect() {}
@@ -64,5 +65,35 @@ class ApiAuthHttpTest {
         val error = assertThrows(TabletAuthFailure::class.java) { ApiAuthHttp(config) { conn }.get("/api/v1/auth/config") }
         assertEquals("revoked", error.code)
         assertFalse(error.toString().contains("private-test-only"))
+    }
+
+    @Test fun strictJsonRejectsDuplicateKeysTrailingInputAndNonJsonSyntax() {
+        for (raw in listOf("{\"committed\":true,\"committed\":false}","{} {}","{'status':'ok'}","{status:true}","{\"n\":9007199254740992}","{\"a\":NaN}","{\"unicode\":\"\\ud800\"}","{\"nul\":\"\\u0000\"}")) {
+            val conn = Connection(); conn.bytes = raw.toByteArray()
+            assertThrows(TabletAuthFailure::class.java) { ApiAuthHttp(config) { conn }.get("/api/v1/auth/config") }
+        }
+        assertEquals("accepted",StrictApiJson.parse("{\"status\":\"accepted\"}").getString("status"))
+    }
+
+    @Test fun ledgerErrorsKeepRecoveryCodesAndBoundedRetryAfter() {
+        val conn = Connection(); conn.status = 409
+        conn.bytes = "{\"error\":{\"code\":\"HEAD_MOVED\"}}".toByteArray()
+        val failure = assertThrows(SyncHttpFailure::class.java) {
+            ApiAuthHttp(config) { conn }.signed("/api/v1/ledger/ingest","api-token","{}","nonce","proof")
+        }
+        assertEquals(409,failure.httpStatus); assertEquals("HEAD_MOVED",failure.errorCode)
+        conn.status = 429; conn.retryAfter = "2147483647"
+        conn.bytes = "{\"error\":{\"code\":\"RATE_LIMITED\"}}".toByteArray()
+        val quota = assertThrows(SyncHttpFailure::class.java) { ApiAuthHttp(config) { conn }.signed("/api/v1/ledger/ingest","token","{}","nonce","proof") }
+        assertEquals(21600000L,quota.retryAfterMillis)
+        for ((status,code) in listOf(401 to "session_expired",403 to "revoked")) {
+            conn.status = status
+            conn.bytes = "{\"error\":{\"code\":\"${if(status==401) "AUTH_REQUIRED" else "ACCESS_REVOKED"}\"}}".toByteArray()
+            val error = assertThrows(TabletAuthFailure::class.java) { ApiAuthHttp(config) { conn }.signed("/api/v1/ledger/ingest","token","{}","nonce","proof") }
+            assertEquals(code,error.code)
+        }
+        conn.timeout = true
+        val timeout = assertThrows(TabletAuthFailure::class.java) { ApiAuthHttp(config) { conn }.signed("/api/v1/ledger/ingest","token","{}","nonce","proof") }
+        assertEquals("server_unreachable",timeout.code); assertTrue(conn.closed)
     }
 }

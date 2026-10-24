@@ -47,7 +47,7 @@ class RoomOrderStoreTest {
     fun exportedHistoricalSchemasUpgradeToCurrentWithoutChangingFinancialProofs() = onDatabaseThread {
         store.createOrder(request("historical-sale"), source())
         val before = store.snapshot().toString()
-        for (version in 2..8) {
+        for (version in 2..9) {
             val name = "full-migration-$version-${UUID.randomUUID()}.db"
             val path = "schemas/fr.samhain.pos.SamhainPosDatabase/$version.json"
             val schema = JSONObject(listOf(File(path),File("app/$path"),File("android/app/$path"))
@@ -91,7 +91,7 @@ class RoomOrderStoreTest {
             val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
                 .addMigrations(SamhainPosDatabase.MIGRATION_2_3,SamhainPosDatabase.MIGRATION_3_4,
                     SamhainPosDatabase.MIGRATION_4_5,SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,
-                    SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
+                    SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9,SamhainPosDatabase.MIGRATION_9_10).build()
             try {
                 assertEquals("Financial snapshot changed from schema $version",before,RoomOrderStore(migrated).snapshot().toString())
                 assertTrue(OutboxStore(migrated).backfillBatch())
@@ -118,6 +118,7 @@ class RoomOrderStoreTest {
             originalStore.createOrder(request("v5-sale"),source())
             before = originalStore.snapshot().toString()
             val sqlite = original.openHelper.writableDatabase
+            sqlite.execSQL("DROP TABLE outbox_destinations")
             sqlite.execSQL("DROP TABLE sync_identity")
             sqlite.execSQL("DROP TABLE outbox")
             sqlite.execSQL("DROP TABLE outbox_backfill")
@@ -126,7 +127,7 @@ class RoomOrderStoreTest {
             sqlite.version = 5
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context,SamhainPosDatabase::class.java,name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_5_6,SamhainPosDatabase.MIGRATION_6_7,SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9,SamhainPosDatabase.MIGRATION_9_10).build()
         try {
             val reopenedStore = RoomOrderStore(migrated)
             assertEquals(before,reopenedStore.snapshot().toString())
@@ -154,12 +155,15 @@ class RoomOrderStoreTest {
             val schema = listOf(File(path),File("app/$path"),File("android/app/$path")).first { it.exists() }
             val hash = JSONObject(schema.readText()).getJSONObject("database").getString("identityHash")
             val sqlite = original.openHelper.writableDatabase
+            sqlite.execSQL("DROP TABLE outbox_destinations")
+            sqlite.execSQL("ALTER TABLE outbox_backfill DROP COLUMN destinationId")
+            sqlite.execSQL("ALTER TABLE outbox_backfill DROP COLUMN captureError")
             sqlite.execSQL("DROP TABLE categories")
             sqlite.execSQL("UPDATE room_master_table SET identity_hash = ? WHERE id=42", arrayOf(hash))
             sqlite.version = 7
         } finally { original.close() }
         val migrated = Room.databaseBuilder(context, SamhainPosDatabase::class.java, name)
-            .addMigrations(SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9).build()
+            .addMigrations(SamhainPosDatabase.MIGRATION_7_8,SamhainPosDatabase.MIGRATION_8_9,SamhainPosDatabase.MIGRATION_9_10).build()
         try {
             assertEquals(financial, RoomOrderStore(migrated).snapshot().toString())
             val catalog = RoomCatalogStore(migrated)

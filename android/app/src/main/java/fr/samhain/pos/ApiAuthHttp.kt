@@ -41,12 +41,12 @@ internal class ApiAuthHttp(private val config: ApiAuthConfiguration, private val
                 output.toByteArray()
             } ?: byteArrayOf()
             val decoded=Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(bytes)).toString()
-            val result=try{JSONObject(decoded)}catch(_:Exception){throw TabletAuthFailure(if(status>=500)"server_unreachable" else "needs_recovery")}
+            val result=try{StrictApiJson.parse(decoded)}catch(_:Exception){throw TabletAuthFailure(if(status>=500)"server_unreachable" else "needs_recovery")}
             if(status!=200){
                 val code=result.optJSONObject("error")?.optString("code")
                 val state=when(code){
                     "AUTH_REQUIRED" -> "session_expired"
-                    "ACCESS_REVOKED" -> "revoked"
+                    "ACCESS_REVOKED", "INSTALLATION_RETIRED" -> "revoked"
                     "SCOPE_DENIED","REFRESH_REPLAY" -> "authorization_denied"
                     "ENROLLMENT_EXPIRED" -> "invitation_expired"
                     "INVITATION_INVALID" -> "invitation_invalid"
@@ -54,12 +54,22 @@ internal class ApiAuthHttp(private val config: ApiAuthConfiguration, private val
                     "ATTEMPTS_EXCEEDED" -> "attempts_exceeded"
                     "REPLACEMENT_CONFLICT" -> "replacement_conflict"
                     "OIDC_NOT_CONFIGURED" -> "oidc_not_configured"
-                    else -> if(status>=500||status==429||status==408)"server_unreachable" else "needs_recovery"
+                    else -> if(status==401) "session_expired" else if(status==403) "authorization_denied" else if(status>=500||status==429||status==408)"server_unreachable" else "needs_recovery"
+                }
+                if (path.startsWith("/api/v1/ledger/") && status !in setOf(401,403)) {
+                    val allowed = setOf("HEAD_MOVED","MISSING_PREDECESSOR","DEPENDENCY_MISSING","SEQUENCE_FORK",
+                        "EVENT_CONTENT_CONFLICT","DUPLICATE_ORDER_OTHER_CHAIN","TRANSACTION_RETRY","SERVER_UNAVAILABLE",
+                        "INTERNAL_ERROR","RATE_LIMITED","INVALID_ENVELOPE","INVALID_HASH","INVALID_FINGERPRINT",
+                        "INVALID_PAYLOAD","BUSINESS_INCONSISTENCY","CANONICALIZATION_UNSUPPORTED","PROTOCOL_UNSUPPORTED",
+                        "LEDGER_SCHEMA_UNSUPPORTED","BATCH_TOO_LARGE","EVENT_TOO_LARGE")
+                    val retry = SyncEngine.retryAfter(connection.getHeaderField("Retry-After"),System.currentTimeMillis())?.coerceAtMost(21600000)
+                    throw SyncHttpFailure(status,if(code in allowed) code!! else "HTTP_ERROR",retry)
                 }
                 throw TabletAuthFailure(state)
             }
             return result
-        }catch(error:TabletAuthFailure){throw error}
+        }catch(error:SyncHttpFailure){throw error}
+        catch(error:TabletAuthFailure){throw error}
         catch(_:java.io.IOException){throw TabletAuthFailure("server_unreachable")}
         catch(_:Exception){throw TabletAuthFailure("needs_recovery")}
         finally{timeout.cancel(false);connection.disconnect()}

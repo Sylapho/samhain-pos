@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 import { IndexedDbOutboxRepository } from './outboxRepository'
 
 export type SyncDiagnostics = {
+  destinationId?: string
   enabled: boolean
   chainId?: string
   pendingEvents: number

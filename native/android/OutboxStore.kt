@@ -5,9 +5,42 @@ import java.time.Instant
 import java.util.concurrent.Callable
 import org.json.JSONObject
 
-internal class OutboxStore(private val database: SamhainPosDatabase) {
+internal class OutboxStore(private val database: SamhainPosDatabase, private val destination: String? = null) {
     private val dao = database.outboxDao()
-    private fun <T> tx(block: () -> T): T = database.runInTransaction(Callable { block() })
+    private fun <T> tx(block: () -> T): T = database.runInTransaction(Callable {
+        if (destination != null) require((dao.backfill()?.destinationId ?: "supabase") == destination) { "DESTINATION_CHANGED" }
+        block()
+    })
+
+    /** Switch the active delivery projection atomically; preserve every previous destination's evidence. */
+    fun selectDestination(now: Long = System.currentTimeMillis()) = database.runInTransaction(Callable {
+        val target = destination ?: return@Callable
+        dao.initBackfill(OutboxBackfill())
+        val state = dao.backfill()!!
+        if (state.destinationId == target) return@Callable
+        var cursor = ""
+        while (true) {
+            val page = dao.destinationPage(cursor)
+            if (page.isEmpty()) break
+            for (row in page) {
+                require(row.status != "sending" || (row.leaseExpiresAt ?: Long.MAX_VALUE) <= now) { "DESTINATION_BUSY" }
+                dao.saveDestination(OutboxDestination.from(state.destinationId, row))
+                val previous = dao.destination(target, row.eventId)
+                val fresh = row.copy(organizationId = null, festivalId = null, transportFingerprint = null,
+                    status = if (row.status in setOf("quarantined", "needs_recovery")) row.status else "pending",
+                    attemptCount = 0, lastAttemptAt = null, nextAttemptAt = 0,
+                    lastError = if (row.status in setOf("quarantined", "needs_recovery")) row.lastError else null,
+                    claimOwner = null, leaseExpiresAt = null, receiptId = null, serverReceivedAt = null, syncedAt = null)
+                val restored = previous?.applyTo(row) ?: fresh
+                // A claim from a retired destination/process cannot resume as a live lease.
+                val ready = if (restored.status == "sending") restored.copy(status = "pending", claimOwner = null, leaseExpiresAt = null) else restored
+                require(dao.update(ready) == 1)
+            }
+            cursor = page.last().eventId
+        }
+        require(dao.updateBackfill(state.copy(destinationId = target, ledgerCursor = 0, legacyCursor = "",
+            legacyComplete = false, recoveryAttempts = 0, recoveryRequested = false)) == 1)
+    })
     private fun identity(): SyncIdentityEntity {
         val identities = database.syncIdentityDao()
         identities.insertIfMissing(SyncIdentityEntity(chainId = UUID.randomUUID().toString()))
@@ -52,8 +85,19 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
         val entries = database.salesLedgerDao().batchAfter(state.ledgerCursor,remaining)
         entries.forEach(::capture)
         state = state.copy(ledgerCursor = entries.lastOrNull()?.sequence ?: state.ledgerCursor)
+        val complete = state.legacyComplete && entries.size < remaining
+        if (complete) {
+            val expected = (database.metadataDao().get()?.nextJournalSequence ?: 1) - 1
+            require(database.salesLedgerDao().count().toLong() == expected && state.ledgerCursor == expected) { "LOCAL_HISTORY_INCOMPLETE" }
+            state = state.copy(captureError = null)
+        }
         require(dao.updateBackfill(state) == 1)
-        state.legacyComplete && entries.size < remaining
+        complete
+    }
+
+    fun recordCaptureFailure() = tx {
+        dao.initBackfill(OutboxBackfill())
+        require(dao.updateBackfill(dao.backfill()!!.copy(captureError = "LOCAL_HISTORY_INCOMPLETE")) == 1)
     }
 
     fun claim(scope: JSONObject, owner: String, now: Long, limit: Int = 100): List<OutboxEntry> = tx {
@@ -114,9 +158,11 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
                     current.payloadCanonical == row.payloadCanonical && current.chainId == row.chainId)
                 val ack = acks[row.eventId]!!
                 require(current.receiptId == null || (current.receiptId == ack.getString("receiptId") && current.serverReceivedAt == ack.getString("serverReceivedAt")))
-                require(dao.update(current.copy(status = "synced",attemptCount = 0,lastError = null,nextAttemptAt = 0,
+                val confirmed = current.copy(status = "synced",attemptCount = 0,lastError = null,nextAttemptAt = 0,
                     claimOwner = null,leaseExpiresAt = null,receiptId = ack.getString("receiptId"),
-                    serverReceivedAt = ack.getString("serverReceivedAt"),syncedAt = now)) == 1)
+                    serverReceivedAt = ack.getString("serverReceivedAt"),syncedAt = now)
+                require(dao.update(confirmed) == 1)
+                dao.saveDestination(OutboxDestination.from(dao.backfill()?.destinationId ?: "supabase", confirmed))
             }
         }
     }
@@ -144,7 +190,7 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
     // A manual wakeup never clears a conflict, a claim or a persisted backoff.
     fun canRetry(): Boolean = tx {
         val chain = identity().chainId
-        dao.backfill()?.enabled != false && dao.blockedCount(chain) == 0 &&
+        dao.backfill()?.enabled != false && dao.backfill()?.captureError == null && dao.blockedCount(chain) == 0 &&
             dao.diagnosticEntries(chain).none { it.status == "sending" }
     }
 
@@ -170,7 +216,8 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
 
     fun resetBackfill() {
         dao.initBackfill(OutboxBackfill())
-        require(dao.updateBackfill(OutboxBackfill(enabled = dao.backfill()!!.enabled)) == 1)
+        val state = dao.backfill()!!
+        require(dao.updateBackfill(state.copy(ledgerCursor = 0,legacyCursor = "",legacyComplete = false)) == 1)
     }
 
     fun bindPage(rows: List<OutboxEntry>, scope: JSONObject): List<OutboxEntry> = tx {
@@ -213,13 +260,14 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
         val state = dao.backfill()
         val capturedLedger = rows.count { it.sequence != null }
         val capturedLegacy = rows.count { it.sequence == null }
-        val backfillComplete = state?.legacyComplete == true && capturedLedger == database.salesLedgerDao().count() &&
+        val backfillComplete = state?.legacyComplete == true && state.captureError == null && capturedLedger == database.salesLedgerDao().count() &&
             capturedLegacy == database.orderDao().legacyCount()
         val failures = rows.filter { it.status != "synced" &&
             (it.status in setOf("paused_auth","needs_recovery","quarantined") || (it.status == "pending" && it.lastError?.let { code -> code != "BATCH_DEFERRED" } == true)) }
-        val errors = failures.size
+        val errors = failures.size + if (state?.captureError != null) 1 else 0
         val lastFailure = failures.maxByOrNull { it.lastAttemptAt ?: 0 }
         val category = when {
+            state?.captureError != null -> "conflict"
             failures.any { it.status in setOf("needs_recovery","quarantined") } -> "conflict"
             failures.any { it.status == "paused_auth" } -> "authentication"
             lastFailure?.lastError == "NETWORK_ERROR" -> "service_unreachable"
@@ -229,7 +277,7 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
         // Only receipts written by acknowledge() count, including historical receipts being replayed.
         val receipts = rows.filter { it.receiptId != null && it.syncedAt != null && it.serverReceivedAt != null }
         val received = receipts.maxByOrNull { Instant.parse(it.serverReceivedAt).toEpochMilli() }?.serverReceivedAt
-        JSONObject().put("chainId",chain.chainId).put("enabled",state?.enabled ?: true).put("pendingEvents",rows.count { it.status != "synced" })
+        JSONObject().put("destinationId",state?.destinationId ?: "supabase").put("chainId",chain.chainId).put("enabled",state?.enabled ?: true).put("pendingEvents",rows.count { it.status != "synced" })
             .put("pending",rows.count { it.status == "pending" }).put("sending",rows.count { it.status == "sending" })
             .put("errors",errors).put("backfillComplete",backfillComplete)
             .put("continuity",if(!chain.restored && chain.bound && backfillComplete && errors == 0 && rows.all { it.status == "synced" && it.receiptId != null && it.syncedAt != null && it.serverReceivedAt != null }) "verified" else "unknown")
@@ -237,6 +285,6 @@ internal class OutboxStore(private val database: SamhainPosDatabase) {
             .put("lastServerReceivedAt",received ?: JSONObject.NULL)
             .put("lastExchangeAt",JSONObject.NULL)
             .put("errorCategory",category)
-            .put("lastError",lastFailure?.lastError ?: JSONObject.NULL)
+            .put("lastError",state?.captureError ?: lastFailure?.lastError ?: JSONObject.NULL)
     }
 }

@@ -130,4 +130,95 @@ class ApiTabletAuthServiceTest {
         assertEquals("not_configured", ApiAuthConfiguration.parse("""{"schemaVersion":1,"mode":"test"}""").status)
         assertEquals("invalid", ApiAuthConfiguration.parse("""{"schemaVersion":1,"mode":"test","apiAuth":{"status":"configured","environment":"test","origin":"http://api.invalid","destinationId":"bad"}}""").status)
     }
+
+    @Test fun configurationChecksTestProductionOriginAndMissingValues() {
+        for (mode in listOf("android-test","production")) {
+            val environment = if (mode == "production") "production" else "test"
+            val api = JSONObject().put("status","configured").put("environment",environment)
+                .put("origin",config.origin).put("destinationId",config.destinationId)
+            val build = JSONObject().put("schemaVersion",1).put("mode",mode).put("apiAuth",api)
+            assertEquals("configured",ApiAuthConfiguration.parse(build.toString()).status)
+            api.put("environment",if(environment == "test") "production" else "test")
+            assertEquals("invalid",ApiAuthConfiguration.parse(build.toString()).status)
+            api.put("environment",environment)
+            for (origin in listOf("http://api.invalid","https://api.invalid:70000","https://user:pass@api.invalid","https://api.invalid/path","https://api.invalid?query=1","https://api.invalid#fragment")) {
+                api.put("origin",origin)
+                assertEquals("invalid",ApiAuthConfiguration.parse(build.toString()).status)
+            }
+        }
+    }
+
+    @Test fun financial401RotatesOnceAndNeverRetriesARevokedOrUnrefreshableSession() {
+        val vault = Vault()
+        val binding = JSONObject().put("organizationId","org").put("festivalId","festival")
+            .put("chainId","chain").put("enrollmentGeneration",1)
+        vault.write(JSONObject().put("installationId","installation").put("publicKey","test-public")
+            .put("status","authorized").put("binding",binding).put("session",session()))
+        val body = JSONObject(binding.toString()).put("installationId","installation")
+        var uploads = 0
+        var rotations = 0
+        val http = object : ApiAuthTransport {
+            override fun get(path: String, token: String?) = error("unexpected GET")
+            override fun post(path: String, token: String?, body: JSONObject) = JSONObject().put("nonce","nonce")
+            override fun signed(path: String, token: String?, raw: String, nonce: String, signature: String): JSONObject {
+                if (path.endsWith("/refresh")) { rotations++; return session(2000,"rotated") }
+                uploads++
+                if (uploads == 1) throw TabletAuthFailure("session_expired")
+                return JSONObject().put("committed",true)
+            }
+        }
+        assertTrue(service(vault,http).sendSync(ProtectedSyncEndpoint.LEDGER,body).getBoolean("committed"))
+        assertEquals(1,rotations); assertEquals(2,uploads)
+        assertEquals("rotated",vault.read()!!.getJSONObject("session").getString("refresh_token"))
+        assertEquals("authorized",service(vault,http).status().getString("status"))
+        val refused = object : ApiAuthTransport by http {
+            override fun signed(path: String, token: String?, raw: String, nonce: String, signature: String): JSONObject = throw TabletAuthFailure("session_expired")
+        }
+        assertThrows(TabletAuthFailure::class.java) { service(vault,refused).sendSync(ProtectedSyncEndpoint.LEDGER,body) }
+        assertEquals("session_expired",vault.read()!!.getString("status"))
+    }
+
+    @Test fun financialTransportUsesApiCredentialsExactBodyProofAndNativeScope() {
+        val vault = Vault()
+        val binding = JSONObject().put("organizationId","org").put("festivalId","festival")
+            .put("chainId","chain").put("enrollmentGeneration",1)
+        vault.write(JSONObject().put("installationId","installation").put("publicKey","test-public")
+            .put("status","authorized").put("binding",binding).put("session",session()))
+        val body = JSONObject(binding.toString()).put("installationId","installation")
+            .put("protocolVersion",1).put("requestId","request").put("events",JSONArray())
+        var signedMessage = ""
+        var sends = 0
+        val proofSigner = object : InstallationSigner {
+            override fun publicKey() = "test-public"
+            override fun sign(message: ByteArray): String { signedMessage = message.toString(Charsets.UTF_8); return "proof" }
+        }
+        val http = object : ApiAuthTransport {
+            override fun get(path: String, token: String?) = error("unexpected GET")
+            override fun post(path: String, token: String?, body: JSONObject): JSONObject {
+                assertEquals("/api/v1/auth/challenges",path)
+                assertEquals("ledger-ingest-v1",body.getString("action"))
+                assertEquals("installation",body.getString("installationId"))
+                assertNull(token)
+                return JSONObject().put("nonce","nonce")
+            }
+            override fun signed(path: String, token: String?, raw: String, nonce: String, signature: String): JSONObject {
+                sends++
+                assertEquals("/api/v1/ledger/ingest",path); assertEquals("api-access",token)
+                assertEquals(body.toString(),raw); assertEquals("nonce",nonce); assertEquals("proof",signature)
+                assertEquals("samhain-auth/1\ninstallation\nledger-ingest-v1\nnonce\n${SyncProtocol.sha(raw)}",signedMessage)
+                return JSONObject().put("committed",true)
+            }
+        }
+        val auth = service(vault,http,signer = proofSigner)
+        assertTrue(auth.sendSync(ProtectedSyncEndpoint.LEDGER,body).getBoolean("committed"))
+        assertThrows(Exception::class.java) { auth.sendSync(ProtectedSyncEndpoint.LEDGER,JSONObject(body.toString()).put("festivalId","foreign")) }
+        assertEquals(1,sends)
+        val revoked = object : ApiAuthTransport by http {
+            override fun signed(path: String, token: String?, raw: String, nonce: String, signature: String): JSONObject = throw TabletAuthFailure("revoked")
+        }
+        assertThrows(TabletAuthFailure::class.java) { service(vault,revoked).sendSync(ProtectedSyncEndpoint.LEDGER,body) }
+        assertEquals("revoked",vault.read()!!.getString("status"))
+        assertThrows(TabletAuthFailure::class.java) { auth.sendSync(ProtectedSyncEndpoint.LEDGER,body) }
+        assertEquals(1,sends)
+    }
 }
