@@ -5,6 +5,64 @@ import { TabletEnrollmentService } from '../../services/tabletEnrollmentService'
 import type { NativeTabletAuth } from '../../native/tabletAuth'
 
 describe('paramètres de synchronisation responsable', () => {
+  it('passe par le navigateur responsable et exige l’examen du dossier avant approbation', async () => {
+    const bridge: NativeTabletAuth = {
+      getStatus: vi.fn(async () => ({
+        status: 'pending' as const,
+        requestId: 'request',
+        installationId: 'installation',
+        chainId: 'chain',
+      })),
+      requestEnrollment: vi.fn(),
+      activate: vi.fn(),
+      prepareReplacement: vi.fn(),
+      managerLogin: vi.fn(async () => ({ status: 'authenticated' as const })),
+      managerLogout: vi.fn(),
+      managerOperation: vi.fn(async () => ({ status: 'authorized' as const })),
+      inspectEnrollment: vi.fn(async () => ({
+        requestId: 'request',
+        installationId: 'installation',
+        chainId: 'chain',
+        terminalId: 'Caisse A',
+        restored: false,
+        prefixCount: 12,
+        legacyCount: 3,
+      })),
+    }
+    render(
+      <TabletSynchronizationSettings
+        terminalId="terminal"
+        service={new TabletEnrollmentService(bridge, true, () => {})}
+      />,
+    )
+    await screen.findByText(/en attente d’approbation/)
+    fireEvent.click(screen.getByRole('button', { name: 'Approbation par un responsable serveur' }))
+    expect(screen.queryByLabelText('Mot de passe')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Autoriser côté serveur' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Se connecter au compte responsable' }))
+    await waitFor(() => expect(bridge.managerLogin).toHaveBeenCalledOnce())
+    fireEvent.change(screen.getByLabelText('Organisation (identifiant confirmé)'), {
+      target: { value: 'org' },
+    })
+    fireEvent.change(screen.getByLabelText('Festival (identifiant confirmé)'), {
+      target: { value: 'festival' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Examiner le dossier serveur' }))
+    await screen.findByText(/12 événements et 3 commandes historiques/)
+    fireEvent.click(screen.getByRole('button', { name: 'Autoriser côté serveur' }))
+    await waitFor(() => expect(bridge.managerOperation).toHaveBeenCalledOnce())
+    expect(bridge.managerOperation).toHaveBeenCalledWith({
+      action: 'approve',
+      body: {
+        requestId: 'request',
+        chainId: 'chain',
+        organizationId: 'org',
+        festivalId: 'festival',
+        replacesInstallationId: undefined,
+      },
+    })
+    expect(bridge.activate).not.toHaveBeenCalled()
+  })
   it('distingue autorisation locale, autorisation serveur et révocation sans afficher de token', async () => {
     const bridge: NativeTabletAuth = {
       getStatus: vi.fn(async ({ verify }) => ({
@@ -14,6 +72,9 @@ describe('paramètres de synchronisation responsable', () => {
       })),
       requestEnrollment: vi.fn(),
       activate: vi.fn(),
+      inspectEnrollment: vi.fn(),
+      managerLogin: vi.fn(async () => ({ status: 'authenticated' as const })),
+      managerLogout: vi.fn(async () => {}),
       managerOperation: vi.fn(),
       prepareReplacement: vi.fn(),
     }
@@ -41,6 +102,9 @@ describe('paramètres de synchronisation responsable', () => {
           }),
       ),
       activate: vi.fn(),
+      inspectEnrollment: vi.fn(),
+      managerLogin: vi.fn(async () => ({ status: 'authenticated' as const })),
+      managerLogout: vi.fn(async () => {}),
       managerOperation: vi.fn(),
       prepareReplacement: vi.fn(),
     }

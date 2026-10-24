@@ -24,7 +24,8 @@ try {
   else if (action === 'audit') await auditEvidence(db)
   else {
     await verifySchema(db)
-    if (action === 'verify-runtime') await verifyRuntimePrivileges(db)
+    if (action === 'verify-runtime')
+      await verifyRuntimePrivileges(db, undefined, config.auth !== null)
   }
   process.stdout.write(JSON.stringify({ event: 'persistence_check', action, status: 'ok' }) + '\n')
 } catch (error) {

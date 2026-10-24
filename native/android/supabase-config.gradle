@@ -18,16 +18,28 @@ def validateSamhainReleaseResources = tasks.register('validateSamhainReleaseReso
                 throw new GradleException('Projet Supabase de release non confirmé. Vérifiez SAMHAIN_SUPABASE_PRODUCTION_URL puis resynchronisez.')
             }
         }
+        if (metadata.apiAuth?.status == 'configured') {
+            def origin = providers.environmentVariable('SAMHAIN_API_PRODUCTION_URL').getOrNull()?.trim()?.replaceAll('/$', '')
+            def destination = providers.environmentVariable('SAMHAIN_API_PRODUCTION_DESTINATION_ID').getOrNull()?.trim()
+            if (metadata.apiAuth.environment != 'production' || metadata.apiAuth.origin != origin || metadata.apiAuth.destinationId != destination) {
+                throw new GradleException('Destination API de release non confirmée. Resynchronisez les ressources de production.')
+            }
+        } else if (metadata.apiAuth?.status == 'invalid') {
+            throw new GradleException('Configuration API invalide dans les ressources de release.')
+        }
         assets.eachFileRecurse { resource ->
             if (resource.isFile() && resource.name ==~ /.*\.(json|js|html|map|txt)/) {
                 def content = resource.getText('UTF-8')
+                if (content =~ /mongodb(?:\+srv)?:\/\/|-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----/) {
+                    throw new GradleException('Secret serveur interdit dans les ressources de release.')
+                }
                 def privileged = content =~ /sb_secret_[A-Za-z0-9_-]+/
                 if (privileged.find()) throw new GradleException('Credential privilégié interdit dans les ressources de release.')
                 def jwt = content =~ /eyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+/
                 while (jwt.find()) {
                     try {
                         def payload = new groovy.json.JsonSlurper().parseText(new String(java.util.Base64.urlDecoder.decode(jwt.group(1)), 'UTF-8'))
-                        if (payload.role == 'service_role') throw new GradleException('JWT privilégié interdit dans les ressources de release.')
+                        if (payload.role == 'service_role' || (payload.sub && payload.exp)) throw new GradleException('JWT de session interdit dans les ressources de release.')
                     } catch (IllegalArgumentException ignored) {
                         // A non-JWT code fragment is not a credential.
                     } catch (groovy.json.JsonException ignored) {

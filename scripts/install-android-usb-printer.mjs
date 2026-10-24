@@ -112,6 +112,7 @@ if (!appBuildGradle.includes('unitTests.includeAndroidResources = true')) {
   )
 }
 const roomDependencies = [
+  '    implementation "net.openid:appauth:0.11.1"',
   '    implementation "androidx.work:work-runtime:2.11.1"',
   '    testImplementation "androidx.work:work-testing:2.11.1"',
   `    implementation "androidx.room:room-runtime:${roomVersion}"`,
@@ -124,6 +125,12 @@ for (const dependency of roomDependencies) {
   if (!appBuildGradle.includes(dependency.trim())) {
     appBuildGradle = appBuildGradle.replace(/dependencies\s*\{/, `dependencies {\n${dependency}`)
   }
+}
+if (!appBuildGradle.includes('appAuthRedirectScheme')) {
+  appBuildGradle = appBuildGradle.replace(
+    /defaultConfig\s*\{/,
+    'defaultConfig {\n        manifestPlaceholders.appAuthRedirectScheme = "fr.samhain.pos"',
+  )
 }
 fs.writeFileSync(appBuildGradlePath, normalizeLineEndings(appBuildGradle, appGradleLineEnding))
 

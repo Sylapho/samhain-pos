@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { catalogStorage } from '../../native/catalogStorage'
-import { tabletAuth } from '../../native/tabletAuth'
+import { apiAuthConfiguration } from '../../config/apiAuthRuntime'
 import { readCatalogVersion, validateCatalogContent } from '../../services/catalogDistribution'
 import type { CatalogDistributionState } from '../../types/catalogDistribution'
 import type { CatalogService } from '../../services/catalogService'
@@ -196,7 +196,13 @@ export function CatalogSynchronization({
         </div>
       )}
       <p>{state?.decisions.length ?? 0} décision(s) locale(s) enregistrée(s).</p>
-      {catalogStorage.isAndroidNative() && (
+      {catalogStorage.isAndroidNative() && apiAuthConfiguration.status !== 'not_configured' ? (
+        <p>
+          La publication centrale du catalogue pour cette destination API n’est pas encore
+          disponible. Le catalogue local reste utilisable.
+        </p>
+      ) : null}
+      {catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'not_configured' && (
         <>
           <Button
             disabled={busy || !!next || !!state?.conflicts.length}
@@ -213,7 +219,7 @@ export function CatalogSynchronization({
                   const content = validateCatalogContent(
                     await service.distribution.publicationContent(),
                   )
-                  const scope = await tabletAuth.bridge.getStatus({ verify: false })
+                  const scope = await catalogStorage.getPublicationScope()
                   if (!scope.organizationId || !scope.festivalId)
                     throw new Error('Enrôlez la tablette avant de publier.')
                   const { version } = await catalogStorage.publishCatalog({

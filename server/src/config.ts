@@ -1,8 +1,11 @@
 import { MongoClient } from 'mongodb'
 import { isIP } from 'node:net'
 import { networkMatcher } from './network.ts'
+import { loadAuthConfig } from './tablet-auth/config.ts'
+import type { AuthConfig } from './tablet-auth/config.ts'
 
 export type Config = {
+  auth: AuthConfig | null
   environment: 'test' | 'development' | 'production'
   host: string
   port: number
@@ -120,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const host = env.HOST ?? '127.0.0.1'
   if (!isIP(host)) fail('HOST')
   const config: Config = {
+    auth: loadAuthConfig(env),
     environment: environment as Config['environment'],
     host,
     port: integer('PORT', 3000, 1, 65535),

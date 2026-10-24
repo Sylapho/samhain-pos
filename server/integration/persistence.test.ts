@@ -139,11 +139,14 @@ test(
     }
     await f.db.collection('organizations').insertOne(preserved)
     await migrate(f.db)
-    const before = await f.db.collection('schemaMigrations').findOne()
+    const before = await f.db.collection('schemaMigrations').findOne({ version: migration.version })
     const metadata = await f.db.listCollections({}, { nameOnly: false }).toArray()
     await migrate(f.db)
     await verifySchema(f.db)
-    assert.deepEqual(await f.db.collection('schemaMigrations').findOne(), before)
+    assert.deepEqual(
+      await f.db.collection('schemaMigrations').findOne({ version: migration.version }),
+      before,
+    )
     assert.deepEqual(await f.db.collection('organizations').findOne(), preserved)
     assert.equal(before?.checksum, migration.checksum)
     assert.equal(metadata.length, definitions.length)

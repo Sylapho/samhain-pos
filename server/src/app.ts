@@ -12,6 +12,11 @@ import type { AccessPolicy, Authenticator } from './auth.ts'
 import { ApiError, errorResponse } from './errors.ts'
 import { parseStrictJson } from './json.ts'
 import { networkMatcher } from './network.ts'
+import { authCrypto } from './tablet-auth/crypto.ts'
+import { createAuthService } from './tablet-auth/service.ts'
+import { authRoutes } from './tablet-auth/routes.ts'
+import type { AuthService } from './tablet-auth/service.ts'
+import { PersistenceError } from './persistence/errors.ts'
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -29,6 +34,7 @@ export type AppDependencies = {
   // Additional read-only prerequisites share the probe budget with Database.check.
   readinessChecks?: readonly ((signal: AbortSignal) => Promise<void>)[]
   logStream?: Writable
+  authService?: AuthService
 }
 
 export async function buildApp(
@@ -101,6 +107,9 @@ export async function buildApp(
     if (error instanceof ApiError) {
       status = error.status
       code = error.code
+    } else if (error instanceof PersistenceError) {
+      status = 503
+      code = 'TRANSACTION_RETRY'
     } else if (error.validation) {
       status = 400
       code = 'INVALID_ENVELOPE'
@@ -215,6 +224,19 @@ export async function buildApp(
       },
     })
   }
+  const authService =
+    dependencies.authService ??
+    (config.auth && dependencies.database.mongo
+      ? createAuthService(
+          dependencies.database.mongo.client,
+          dependencies.database.mongo.db,
+          config.auth,
+          await authCrypto(config.auth),
+        )
+      : null)
+  // Bootstrap routes verify possession themselves; manager/tablet handlers also perform
+  // cryptographic and transactional authorization. Other API routes remain deny-by-default.
+  if (authService) await app.register(authRoutes(authService), { prefix: '/api/v1' })
   await app.register(
     async (api) => {
       api.addHook('onRequest', async (request) => {

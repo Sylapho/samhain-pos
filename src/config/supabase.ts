@@ -8,7 +8,7 @@ export type SupabaseConfiguration =
       publishableKey: string
     }
 
-export type SupabaseBuildEnvironment = {
+export type SupabaseBuildEnvironment = import('./apiAuth').ApiAuthBuildEnvironment & {
   VITE_ENABLE_DEV_PANEL?: string
   VITE_SUPABASE_URL?: string
   VITE_SUPABASE_PUBLISHABLE_KEY?: string

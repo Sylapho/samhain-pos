@@ -21,9 +21,12 @@ export function TabletSynchronizationSettings({
   const busy = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState('')
-  const [managerAction, setManagerAction] = useState<'approve' | 'revoke' | null>(null)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [managerAction, setManagerAction] = useState<'approve' | 'reject' | 'revoke' | null>(null)
+  const [managerConnected, setManagerConnected] = useState(false)
+  const [review, setReview] = useState<Awaited<
+    ReturnType<TabletEnrollmentService['inspect']>
+  > | null>(null)
+  const [reviewedScope, setReviewedScope] = useState('')
   const [organizationId, setOrganizationId] = useState('')
   const [festivalId, setFestivalId] = useState('')
   const [chainId, setChainId] = useState('')
@@ -60,11 +63,11 @@ export function TabletSynchronizationSettings({
     } finally {
       busy.current = false
       setPending(false)
-      setPassword('')
       setCode('')
     }
   }
   const inputStyle = 'mt-1 min-h-12 w-full border border-stone-400 bg-white px-3 text-stone-950'
+  const reviewScope = JSON.stringify([authorization.requestId, organizationId, festivalId, chainId])
   return (
     <div className="mt-4 border-b border-stone-300 pb-3">
       <p className="font-bold" aria-live="polite">
@@ -97,6 +100,7 @@ export function TabletSynchronizationSettings({
                       'revoked',
                       'authorization_denied',
                       'attempts_exceeded',
+                      'rejected',
                     ].includes(authorization.status),
                   ),
                 )
@@ -131,15 +135,28 @@ export function TabletSynchronizationSettings({
             </>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            {authorization.requestId ? (
+            {authorization.requestId && authorization.status !== 'authorized' ? (
               <Button
                 disabled={pending}
                 onClick={() => {
                   setChainId(authorization.chainId ?? '')
+                  setOrganizationId(authorization.organizationId ?? '')
+                  setFestivalId(authorization.festivalId ?? '')
                   setManagerAction('approve')
                 }}
               >
                 Approbation par un responsable serveur
+              </Button>
+            ) : null}
+            {authorization.requestId && authorization.status !== 'authorized' ? (
+              <Button
+                disabled={pending}
+                onClick={() => {
+                  setChainId(authorization.chainId ?? '')
+                  setManagerAction('reject')
+                }}
+              >
+                Refuser cette demande
               </Button>
             ) : null}
             {authorization.installationId && authorization.chainId ? (
@@ -147,6 +164,8 @@ export function TabletSynchronizationSettings({
                 disabled={pending}
                 onClick={() => {
                   setChainId(authorization.chainId ?? '')
+                  setOrganizationId(authorization.organizationId ?? '')
+                  setFestivalId(authorization.festivalId ?? '')
                   setManagerAction('revoke')
                 }}
               >
@@ -162,21 +181,18 @@ export function TabletSynchronizationSettings({
                 void run(async () => {
                   const result = await service.manager({
                     action: managerAction,
-                    email,
-                    password,
                     body: {
                       chainId,
-                      ...(managerAction === 'approve'
+                      organizationId,
+                      festivalId,
+                      ...(managerAction !== 'revoke'
                         ? {
                             requestId: authorization.requestId,
-                            organizationId,
-                            festivalId,
                             replacesInstallationId: replacesInstallationId || undefined,
                           }
                         : { installationId: authorization.installationId }),
                     },
                   })
-                  if (result.invitationCode) return service.activate(result.invitationCode)
                   return result
                 }).then(() => setManagerAction(null))
               }}
@@ -184,33 +200,48 @@ export function TabletSynchronizationSettings({
               <p className="font-bold">
                 {managerAction === 'approve'
                   ? 'Autoriser cette demande'
-                  : 'Confirmer la révocation serveur'}
+                  : managerAction === 'reject'
+                    ? 'Refuser cette demande'
+                    : 'Confirmer la révocation serveur'}
               </p>
               <p className="text-sm">
-                Utilisez un compte Supabase habilité. Le PIN local ne donne aucun droit serveur.
+                Utilisez votre compte responsable dans le navigateur sécurisé. Le PIN local ne donne
+                aucun droit serveur.
               </p>
-              <label className="mt-2 block">
-                Adresse du compte responsable
-                <input
-                  type="email"
-                  required
-                  className={inputStyle}
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </label>
-              <label className="mt-2 block">
-                Mot de passe
-                <input
-                  type="password"
-                  required
-                  autoComplete="off"
-                  className={inputStyle}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-              </label>
-              {managerAction === 'approve' ? (
+              <Button
+                className="mt-2"
+                disabled={pending}
+                type="button"
+                onClick={() =>
+                  void run(async () => {
+                    setManagerConnected(false)
+                    await service.managerLogin()
+                    setManagerConnected(true)
+                    return authorization
+                  })
+                }
+              >
+                {managerConnected
+                  ? 'Reconnecter le compte responsable'
+                  : 'Se connecter au compte responsable'}
+              </Button>
+              {managerConnected ? (
+                <Button
+                  className="mt-2"
+                  disabled={pending}
+                  type="button"
+                  onClick={() =>
+                    void run(async () => {
+                      await service.managerLogout()
+                      setManagerConnected(false)
+                      return authorization
+                    })
+                  }
+                >
+                  Déconnecter le responsable
+                </Button>
+              ) : null}
+              {managerAction !== 'revoke' ? (
                 <>
                   <label className="mt-2 block">
                     Organisation (identifiant confirmé)
@@ -247,6 +278,42 @@ export function TabletSynchronizationSettings({
                       onChange={(event) => setReplacesInstallationId(event.target.value)}
                     />
                   </label>
+                  <Button
+                    className="mt-2"
+                    type="button"
+                    disabled={pending || !managerConnected || !organizationId || !festivalId}
+                    onClick={() =>
+                      void run(async () => {
+                        setReviewedScope('')
+                        const dossier = await service.inspect({
+                          requestId: authorization.requestId!,
+                          organizationId,
+                          festivalId,
+                        })
+                        if (
+                          dossier.installationId !== authorization.installationId ||
+                          dossier.chainId !== chainId
+                        )
+                          throw new Error(
+                            'Le dossier ne correspond pas à cette installation et cette chaîne.',
+                          )
+                        setReview(dossier)
+                        setReviewedScope(reviewScope)
+                        return authorization
+                      })
+                    }
+                  >
+                    Examiner le dossier serveur
+                  </Button>
+                  {review && reviewedScope === reviewScope ? (
+                    <p className="mt-2 text-sm">
+                      Caisse déclarée : {review.terminalId}. {review.prefixCount} événements et{' '}
+                      {review.legacyCount} commandes historiques.
+                      {review.restored
+                        ? ' Archive restaurée : vérifier l’installation remplacée et les preuves de sauvegarde.'
+                        : ' Installation sans restauration déclarée.'}
+                    </p>
+                  ) : null}
                 </>
               ) : (
                 <p className="mt-2 font-bold text-amber-950">
@@ -259,16 +326,24 @@ export function TabletSynchronizationSettings({
                   disabled={pending}
                   type="button"
                   onClick={() => {
-                    setPassword('')
                     setManagerAction(null)
                   }}
                 >
                   Annuler
                 </Button>
-                <Button disabled={pending} type="submit">
+                <Button
+                  disabled={
+                    pending ||
+                    !managerConnected ||
+                    (managerAction !== 'revoke' && reviewedScope !== reviewScope)
+                  }
+                  type="submit"
+                >
                   {managerAction === 'approve'
                     ? 'Autoriser côté serveur'
-                    : 'Confirmer la révocation'}
+                    : managerAction === 'reject'
+                      ? 'Confirmer le refus'
+                      : 'Confirmer la révocation'}
                 </Button>
               </div>
             </form>

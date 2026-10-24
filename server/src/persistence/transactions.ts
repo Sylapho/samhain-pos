@@ -1,5 +1,6 @@
 import type { ClientSession, MongoClient } from 'mongodb'
 import { PersistenceError } from './errors.ts'
+import { ApiError } from '../errors.ts'
 import { setTimeout as delay } from 'node:timers/promises'
 
 type TransactionSession = Pick<
@@ -76,7 +77,7 @@ export async function runTransaction<T, S extends TransactionSession>(
           await delay(5 * 2 ** attempt)
         continue
       }
-      if (error instanceof PersistenceError) throw error
+      if (error instanceof PersistenceError || error instanceof ApiError) throw error
       throw new PersistenceError('TRANSACTION_RETRY')
     } finally {
       await session.endSession().catch(() => undefined)

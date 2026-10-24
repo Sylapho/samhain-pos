@@ -6,6 +6,13 @@ Statut : architecture cible retenue pour [#129](https://github.com/Sylapho/samha
 
 ## 1. Décisions et limites
 
+État d’implémentation après #132 : la fondation serveur #130, la persistance #131 et
+l’enrôlement API/OIDC #132 existent dans `server/`. Le client natif d’authentification
+utilise un coffre par destination et la reprise bornée des rotations. Le transport
+financier et le catalogue restent sur leurs chemins historiques tant que #133–#135
+ne livrent pas leur basculement. Voir le [runbook d’enrôlement](tablet-enrollment.md).
+Les sections prospectives ci-dessous décrivent les contrats, pas un déploiement réalisé.
+
 1. **Tablettes Android → API HTTPS dédiée → MongoDB existante.** Room/SQLite reste l'autorité pour les opérations financières acquises sur chaque caisse. MongoDB conserve leur copie vérifiée et distribue des publications de catalogue ; aucun appel serveur n'entre dans une vente, un paiement/remboursement, une ouverture de session, une modification de fond, une clôture ou une impression.
 2. Conserver le journal immuable, les cinq kinds, les hashes, les séquences, les snapshots, la capture transactionnelle dans l'outbox, les claims et WorkManager. Adapter les frontières configuration/Auth/transport, sans nouveau moteur de caisse ou seconde file financière.
 3. Réutiliser les corps et ACK de `samhain-sync/1` sur des routes `/api/v1`. Conserver les deux profils financiers et leur canonicalisation de transport distincte. L'implémentation MongoDB remplace les garanties RPC/contraintes SQL, pas les données scellées.

@@ -55,7 +55,11 @@ export function createDatabase(
       if (client instanceof MongoClient) {
         await verifySchema(client.db(config.mongoDatabase), checkSignal)
         if (config.environment === 'production')
-          await verifyRuntimePrivileges(client.db(config.mongoDatabase), checkSignal)
+          await verifyRuntimePrivileges(
+            client.db(config.mongoDatabase),
+            checkSignal,
+            config.auth !== null,
+          )
       }
     },
     close() {
