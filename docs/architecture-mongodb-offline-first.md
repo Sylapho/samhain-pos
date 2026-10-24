@@ -12,7 +12,8 @@ L’ingestion valide les cinq kinds, legacy et préfixe dans la transaction d’
 avec reçus stables et vérification indépendante des deux profils historiques. Voir
 le [contrat d’ingestion et ses tests](mongodb-ingestion.md).
 Le client natif d’authentification utilise un coffre par destination et la reprise bornée
-des rotations. Depuis #134, le transport financier Android utilise l’API HTTPS et Room v10 conserve les confirmations par destination ; voir [la migration Android](android-mongodb-synchronization.md). Le catalogue MongoDB attend #135. Voir le [runbook d’enrôlement](tablet-enrollment.md).
+des rotations. Le transport financier Android attend #134 et le catalogue #135 ; leurs
+chemins historiques restent actifs. Voir le [runbook d’enrôlement](tablet-enrollment.md).
 Les sections prospectives ci-dessous décrivent les contrats, pas un déploiement réalisé.
 
 1. **Tablettes Android → API HTTPS dédiée → MongoDB existante.** Room/SQLite reste l'autorité pour les opérations financières acquises sur chaque caisse. MongoDB conserve leur copie vérifiée et distribue des publications de catalogue ; aucun appel serveur n'entre dans une vente, un paiement/remboursement, une ouverture de session, une modification de fond, une clôture ou une impression.
