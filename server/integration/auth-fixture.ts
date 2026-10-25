@@ -89,6 +89,13 @@ export async function authFixture(overrides: Partial<Config> = {}) {
     app,
     service,
     manager,
+    async managerToken(subject: string) {
+      return new SignJWT({ sub: subject, iat: now, exp: now + 3600 })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-oidc' })
+        .setIssuer(configuration.oidc!.issuer)
+        .setAudience(configuration.oidc!.audience)
+        .sign(oidcPrivate)
+    },
     configuration,
     scope,
     async close() {

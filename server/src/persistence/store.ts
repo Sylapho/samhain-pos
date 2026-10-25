@@ -513,6 +513,7 @@ export function createPersistence(client: MongoClient, db: Db) {
       expectedRevision: number,
       version: CatalogVersion,
       validateContent: (payload: unknown) => void,
+      authorized?: Pick<AuthorizedTransaction, 'session'>,
     ) {
       if (
         version.organizationId !== scope.organizationId ||
@@ -537,8 +538,9 @@ export function createPersistence(client: MongoClient, db: Db) {
       )
         throw new PersistenceError('INVALID_DOCUMENT')
       validateContent(payload)
-      return transaction(client, async (session) => {
-        await touchGrant(scope, actor, 'publish_catalog', session)
+      const work = async (session: ClientSession) => {
+        if (!session.inTransaction()) throw new PersistenceError('TRANSACTION_RETRY')
+        if (!authorized) await touchGrant(scope, actor, 'publish_catalog', session)
         const current = await c('catalogHeads').findOne(S(scope), { session })
         if ((current?.revision ?? 0) !== expectedRevision)
           throw new PersistenceError('CATALOG_CONFLICT')
@@ -564,7 +566,8 @@ export function createPersistence(client: MongoClient, db: Db) {
         )
           throw new PersistenceError('CATALOG_CONFLICT')
         return { payload: version.payload, sha256: version.sha256 }
-      })
+      }
+      return authorized ? work(authorized.session) : transaction(client, work)
     },
     async addTerminalRange(range: TerminalRange, session: ClientSession) {
       if (!session.inTransaction()) throw new PersistenceError('TRANSACTION_RETRY')

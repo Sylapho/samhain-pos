@@ -5,6 +5,8 @@ import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
+import com.getcapacitor.annotation.ActivityCallback
+import androidx.activity.result.ActivityResult
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,6 +16,8 @@ class CatalogStoragePlugin : Plugin() {
     private val databaseExecutor = Executors.newSingleThreadExecutor()
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private val store: RoomCatalogStore by lazy { RoomCatalogStore(SamhainPosDatabase.getInstance(context)) }
+    private val auth by lazy { ApiTabletAuthService.get(context) }
+    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context))) }
 
     @PluginMethod
     fun getCatalogSnapshot(call: PluginCall) = execute(call) { store.snapshot() }
@@ -25,15 +29,14 @@ class CatalogStoragePlugin : Plugin() {
     @PluginMethod
     fun downloadCatalog(call: PluginCall) {
         networkExecutor.execute {
-            try { call.resolve(JSObject(TabletAuthService.get(context).downloadCatalog().toString())) }
+            try { call.resolve(JSObject(auth.downloadCatalog().toString())) }
             catch (_: Exception) { call.reject("Catalogue distant inaccessible. Le catalogue local reste disponible.", "CATALOG_SYNC_ERROR") }
         }
     }
 
     @PluginMethod
     fun getPublicationScope(call: PluginCall) = execute(call) {
-        require(ApiAuthConfiguration.load(context).status == "not_configured")
-        val status = TabletAuthService.get(context).status(false)
+        val status = auth.status(false)
         JSONObject().put("organizationId", status.getString("organizationId")).put("festivalId", status.getString("festivalId"))
     }
 
@@ -41,14 +44,34 @@ class CatalogStoragePlugin : Plugin() {
     fun publishCatalog(call: PluginCall) {
         networkExecutor.execute {
             try {
-                // API identities cannot publish through the legacy Supabase destination (#135).
-                require(ApiAuthConfiguration.load(context).status == "not_configured")
-                call.resolve(JSObject(TabletAuthService.get(context).publishCatalog(
-                    call.getString("email") ?: error("Compte requis"), call.getString("password") ?: error("Compte requis"), call.requiredObject("body")
+                call.resolve(JSObject(ApiAuthHttp(ApiAuthConfiguration.load(context)).post(
+                    "/api/v1/catalog/publications", manager.token(), call.requiredObject("body")
                 ).toString()))
             } catch (_: Exception) { call.reject("Publication refusée ou révision dépassée. Rechargez la version publiée.", "CATALOG_PUBLISH_ERROR") }
         }
     }
+
+    @PluginMethod
+    fun managerLogin(call: PluginCall) {
+        networkExecutor.execute {
+            try {
+                val intent = manager.begin()
+                activity.runOnUiThread {
+                    try { startActivityForResult(call, intent, "managerResult") }
+                    catch (_: Exception) { manager.cancel(); call.resolve(JSObject().put("status", "authorization_denied")) }
+                }
+            } catch (_: Exception) { call.resolve(JSObject().put("status", "authorization_denied")) }
+        }
+    }
+
+    @ActivityCallback
+    private fun managerResult(call: PluginCall?, result: ActivityResult) {
+        if(call == null) { manager.cancel(); return }
+        manager.complete(result.data) { value -> call.resolve(JSObject(value.toString())) }
+    }
+
+    @PluginMethod
+    fun managerLogout(call: PluginCall) { manager.logout(); call.resolve() }
 
     @PluginMethod
     fun initializeCatalog(call: PluginCall) = execute(call) { store.initialize(call.requiredArray("products")) }
@@ -101,6 +124,7 @@ class CatalogStoragePlugin : Plugin() {
         getArray(name) ?: throw IllegalArgumentException("Le champ $name est requis.")
 
     override fun handleOnDestroy() {
+        manager.dispose()
         databaseExecutor.shutdown()
         networkExecutor.shutdown()
         super.handleOnDestroy()

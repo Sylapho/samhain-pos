@@ -288,9 +288,11 @@ du responsable. L’activation est désactivée par défaut ; voir le [runbook A
 pour les variables, le client OIDC public/PKCE, les capacités et la migration sans perte de données.
 La migration additive v2 conserve le checksum v1 ; le runtime Auth production exige
 `samhain_runtime_v2`. Aucun compte ni droit n’est créé au démarrage.
-#133 fournit l’ingestion HTTP transactionnelle ; #134 reste nécessaire pour le basculement
-financier Android et ses confirmations par destination, #135 pour le catalogue. La caisse conserve son
-fonctionnement local et son transport financier Supabase historique, sans réutiliser ses tokens côté API.
+#133 fournit l’ingestion HTTP transactionnelle ; #134 fournit le transport financier Android
+et ses confirmations par destination. #135 ajoute `POST /api/v1/catalog/active` et
+`POST /api/v1/catalog/publications`, avec publication OIDC `publish_catalog`, CAS et
+versions immuables. Voir [la distribution du catalogue](../docs/catalog-distribution.md).
+La caisse conserve son fonctionnement local ; aucun token Supabase n'est réutilisé côté API.
 
 Références primaires : [options et délais Fastify](https://fastify.dev/docs/latest/Reference/Server/),
 [validation sans transformations](https://fastify.dev/docs/latest/Reference/Validation-and-Serialization/),

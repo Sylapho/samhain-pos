@@ -43,7 +43,7 @@ export function version(
     revision,
     schemaVersion: 1,
     publishedAt: '2026-10-21T10:00:00Z',
-    origin: 'supabase:fixture',
+    origin: 'api:fixture',
   }
   const payload = JSON.stringify(publication)
   return { payload, sha256: sha256Hex(payload) }
@@ -67,6 +67,36 @@ async function put(idb: IDBFactory, store: string, value: unknown) {
 }
 
 describe('distribution transactionnelle du catalogue', () => {
+  it('simule A et B : deux publications, conflit explicite, rupture locale et activation au repos', async () => {
+    const a = await setup()
+    const b = await setup()
+    const initial = version(1, await a.sync.publicationContent())
+    await a.sync.stage(initial, scope)
+    await b.sync.stage(initial, scope)
+    await a.sync.activate(() => true)
+    await b.sync.activate(() => true)
+    await a.service.updateProduct({ ...product, name: 'Édition A', priceCents: 700 })
+    await b.service.updateProduct({ ...product, name: 'Édition B', availability: 'sold-out' })
+    const second = version(2, await a.sync.publicationContent())
+    await b.sync.stage(second, scope)
+    await expect(b.sync.activate(() => false)).rejects.toThrow('panier')
+    expect((await b.service.getProducts())[0].name).toBe('Édition B')
+    await b.sync.activate(() => true)
+    expect((await b.sync.status()).conflicts).toEqual([
+      expect.objectContaining({ field: 'name', local: 'Édition B', remote: 'Édition A' }),
+    ])
+    expect((await b.service.getProducts())[0]).toMatchObject({
+      name: 'Édition B',
+      priceCents: 700,
+      availability: 'sold-out',
+    })
+    await b.sync.resolve('remote', () => true)
+    expect((await b.service.getProducts())[0]).toMatchObject({
+      name: 'Édition A',
+      availability: 'sold-out',
+    })
+    expect(readCatalogVersion((await b.sync.status()).active!).revision).toBe(2)
+  })
   it('initialise un cache vide et conserve les éditions après plusieurs jours hors connexion', async () => {
     const { idb, service } = await setup()
     await service.updateProduct({ ...product, name: 'Édition hors ligne', priceCents: 650 })

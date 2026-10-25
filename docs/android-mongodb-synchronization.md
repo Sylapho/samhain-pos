@@ -133,7 +133,7 @@ la perte physique de la tablette ou l’effacement des données Android.
 La migration Room v10 ne permet pas de revenir à une APK limitée au schéma v9.
 Un rollback applicatif doit comprendre v10 et conserver toutes les confirmations.
 Retirer la configuration API suspend les uploads ; cela ne réactive pas l’ancien worker.
-Le catalogue MongoDB reste hors #134 (#135) ; le catalogue local reste disponible.
+Le [catalogue MongoDB #135](catalog-distribution.md) réutilise cette configuration et les credentials natifs ; sa publication requiert une session responsable OIDC. Le catalogue local reste disponible hors ligne.
 Le retrait des composants historiques Supabase appartient à #138.
 
 ## Tests reproductibles et limites de preuve

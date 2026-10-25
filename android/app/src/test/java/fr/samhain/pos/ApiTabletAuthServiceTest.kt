@@ -17,6 +17,40 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ApiTabletAuthServiceTest {
+    @Test fun catalogDownloadUsesApiProofAndRejectsCorruptionForeignScopeAndDisconnect() {
+        val vault = Vault()
+        val binding = JSONObject().put("organizationId","org").put("festivalId","festival").put("chainId","chain").put("enrollmentGeneration",1)
+        vault.write(JSONObject().put("installationId","installation").put("publicKey","test-public").put("status","authorized").put("binding",binding).put("session",session()))
+        val payload = JSONObject().put("organizationId","org").put("festivalId","festival").put("schemaVersion",1).put("revision",1).put("name","é / test").toString()
+        var result = JSONObject().put("organizationId","org").put("festivalId","festival").put("version",JSONObject().put("payload",payload).put("sha256",SyncProtocol.sha(payload)))
+        var disconnected = false
+        val http = object : ApiAuthTransport {
+            override fun get(path:String, token:String?) = error("unexpected GET")
+            override fun post(path:String, token:String?, body:JSONObject):JSONObject {
+                assertEquals("/api/v1/auth/challenges",path)
+                assertEquals("catalog-v1",body.getString("action"))
+                return JSONObject().put("nonce","nonce")
+            }
+            override fun signed(path:String, token:String?, raw:String, nonce:String, signature:String):JSONObject {
+                assertEquals("/api/v1/catalog/active",path); assertEquals("api-access",token)
+                assertEquals("installation",JSONObject(raw).getString("installationId"))
+                if(disconnected) throw TabletAuthFailure("server_unreachable")
+                return result
+            }
+        }
+        val auth = service(vault,http)
+        assertEquals(payload,auth.downloadCatalog().getJSONObject("version").getString("payload"))
+        result.getJSONObject("version").put("sha256","bad")
+        assertThrows(Exception::class.java) { auth.downloadCatalog() }
+        result.getJSONObject("version").put("sha256",SyncProtocol.sha(payload)); result.put("festivalId","foreign")
+        assertThrows(Exception::class.java) { auth.downloadCatalog() }
+        disconnected = true
+        assertThrows(TabletAuthFailure::class.java) { auth.downloadCatalog() }
+        assertEquals("authorized",auth.status().getString("status"))
+        result = JSONObject().put("organizationId","org").put("festivalId","festival").put("version",JSONObject.NULL)
+        disconnected = false
+        assertTrue(auth.downloadCatalog().isNull("version"))
+    }
     private class Vault : CredentialVault {
         var data: String? = null
         override fun read() = data?.let { JSONObject(it) }

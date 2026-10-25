@@ -72,8 +72,8 @@ export function CatalogSynchronization({
   const [error, setError] = useState('')
   const [online, setOnline] = useState(navigator.onLine)
   const [publish, setPublish] = useState(false)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [authenticated, setAuthenticated] = useState(false)
+
   useEffect(() => {
     let active = true
     void service.distribution
@@ -89,6 +89,7 @@ export function CatalogSynchronization({
     window.addEventListener('offline', update)
     return () => {
       active = false
+      if (catalogStorage.isAndroidNative()) void catalogStorage.managerLogout()
       window.removeEventListener('online', update)
       window.removeEventListener('offline', update)
     }
@@ -196,17 +197,17 @@ export function CatalogSynchronization({
         </div>
       )}
       <p>{state?.decisions.length ?? 0} décision(s) locale(s) enregistrée(s).</p>
-      {catalogStorage.isAndroidNative() && apiAuthConfiguration.status !== 'not_configured' ? (
-        <p>
-          La publication centrale du catalogue pour cette destination API n’est pas encore
-          disponible. Le catalogue local reste utilisable.
-        </p>
-      ) : null}
-      {catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'not_configured' && (
+      {catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'configured' && (
         <>
           <Button
             disabled={busy || !!next || !!state?.conflicts.length}
-            onClick={() => setPublish(!publish)}
+            onClick={() => {
+              if (publish) {
+                setAuthenticated(false)
+                void catalogStorage.managerLogout()
+              }
+              setPublish(!publish)
+            }}
           >
             Proposer une publication centrale
           </Button>
@@ -223,52 +224,45 @@ export function CatalogSynchronization({
                   if (!scope.organizationId || !scope.festivalId)
                     throw new Error('Enrôlez la tablette avant de publier.')
                   const { version } = await catalogStorage.publishCatalog({
-                    email,
-                    password,
                     body: {
                       ...content,
+                      schemaVersion: 1,
                       organizationId: scope.organizationId,
                       festivalId: scope.festivalId,
                       expectedRevision: active?.revision ?? 0,
                     },
                   })
-                  setPassword('')
+                  setAuthenticated(false)
                   setPublish(false)
                   await service.distribution.stage(version, {
                     organizationId: scope.organizationId,
                     festivalId: scope.festivalId,
                   })
-                }).finally(() => setPassword(''))
+                }).finally(() => {
+                  setAuthenticated(false)
+                  void catalogStorage.managerLogout()
+                })
               }}
             >
               <p>
-                Publication globale explicite avec un compte Supabase habilité. Le PIN local ne
-                suffit pas. Les données commerciales doivent être confirmées ; le serveur refuse une
-                révision dépassée.
+                Vérifiez les produits, prix, TVA et compositions avant cette publication globale. La
+                première publication initialise le catalogue partagé depuis cette tablette. Le PIN
+                local ne suffit pas ; un compte responsable habilité est requis.
               </p>
-              <label className="block">
-                Compte Supabase
-                <input
-                  className="ml-3 min-h-12 border p-2"
-                  type="email"
-                  required
-                  autoComplete="username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                Mot de passe
-                <input
-                  className="ml-3 min-h-12 border p-2"
-                  type="password"
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </label>
-              <Button type="submit" disabled={busy}>
+              <Button
+                disabled={busy || authenticated}
+                onClick={() =>
+                  void run(async () => {
+                    const result = await catalogStorage.managerLogin()
+                    if (result.status !== 'authenticated')
+                      throw new Error('Connexion responsable refusée. Réessayez.')
+                    setAuthenticated(true)
+                  })
+                }
+              >
+                {authenticated ? 'Compte responsable connecté' : 'Se connecter pour publier'}
+              </Button>
+              <Button type="submit" disabled={busy || !authenticated}>
                 Publier les modifications sur toutes les tablettes
               </Button>
             </form>

@@ -4,7 +4,7 @@ Samhain POS est une caisse tactile conçue pour l'encaissement sur tablette Andr
 
 Le catalogue est une donnée locale administrable. Il est conservé dans Room/SQLite sur Android et dans IndexedDB sur le web ; `src/data/initialCatalog.ts` sert uniquement de seed lors de la première utilisation. La build de production contrôle ce seed et les informations administratives avant de générer le moindre artefact.
 
-La [distribution versionnée du catalogue Supabase (#115)](docs/catalog-distribution.md) télécharge et valide des publications complètes sans attendre le réseau pour vendre. Administration → Catalogue partagé permet leur activation sur une caisse au repos et la résolution explicite des conflits. Les éditions et ruptures locales sont conservées ; les anciennes migrations de prix ne sont appliquées qu'une fois. Le transport authentifié est Android ; le cache transactionnel IndexedDB reste disponible sur le Web.
+La [distribution versionnée du catalogue MongoDB (#135)](docs/catalog-distribution.md) télécharge et valide des publications complètes sans attendre le réseau pour vendre. Administration → Catalogue partagé permet leur activation sur une caisse au repos et la résolution explicite des conflits. Les éditions et ruptures locales sont conservées ; les anciennes migrations de prix ne sont appliquées qu'une fois. Le transport authentifié est Android ; le cache transactionnel IndexedDB reste disponible sur le Web.
 
 ## Fonctionnalités présentes
 

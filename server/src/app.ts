@@ -19,6 +19,7 @@ import type { AuthService } from './tablet-auth/service.ts'
 import { PersistenceError } from './persistence/errors.ts'
 import { ledgerRoutes } from './ledger/routes.ts'
 import { syncError } from './ledger/errors.ts'
+import { catalogRoutes } from './catalog/routes.ts'
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -247,6 +248,15 @@ export async function buildApp(
   // Bootstrap routes verify possession themselves; manager/tablet handlers also perform
   // cryptographic and transactional authorization. Other API routes remain deny-by-default.
   if (authService) await app.register(authRoutes(authService), { prefix: '/api/v1' })
+  if (authService && dependencies.database.mongo)
+    await app.register(
+      catalogRoutes(
+        dependencies.database.mongo.client,
+        dependencies.database.mongo.db,
+        authService,
+      ),
+      { prefix: '/api/v1' },
+    )
   if (authService && dependencies.database.mongo)
     await app.register(
       ledgerRoutes(dependencies.database.mongo.client, dependencies.database.mongo.db, authService),
