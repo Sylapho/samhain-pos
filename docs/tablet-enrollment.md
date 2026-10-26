@@ -69,6 +69,13 @@ Exécuter `pnpm android:install-native`, puis `pnpm android:sync:test` ou la com
 7. L’approbation produit une invitation à 256 bits, valable dix minutes, hashée uniquement côté serveur. L’interface la consomme nativement sans la renvoyer au bridge. Une approbation externe peut transmettre le code par un canal contrôlé et l’activer dans le champ temporaire.
 8. Attendre l’état retourné par activation : `authorized`, `rejected` ou `needs_recovery`. Une approbation seule ne donne pas de session métier. Répéter avec la deuxième installation et vérifier que les chaînes et générations restent distinctes.
 
+L’ouverture du navigateur verrouille le mode responsable local et ferme l’écran de configuration.
+Après retour, rouvrir la configuration de caisse et saisir le PIN si demandé. L’écran relit alors
+le statut de la session responsable conservée uniquement en mémoire native : une connexion encore
+valide affiche « Déconnecter le responsable » sans recommencer OIDC. Cette lecture ne transmet
+aucun jeton au JavaScript, ne prolonge ni la session OIDC ni le déverrouillage local et ne remplace
+pas les contrôles serveur lors de l’examen et de l’approbation.
+
 Si la réponse d’approbation est perdue, le serveur ne peut restituer une invitation dont il ne conserve que le hash. Un retry administratif exact renvoie `INVITATION_UNAVAILABLE` ; une **nouvelle approbation explicite** renouvelle l’invitation et invalide l’ancienne. Après cinq codes incorrects, lancer une nouvelle demande puis faire approuver. Une activation perdue peut en revanche récupérer sa réponse de session chiffrée pendant 60 s avec le même UUID et les mêmes octets signés, tant que cette session reste vivante.
 
 ## Protocole et sessions

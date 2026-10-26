@@ -17,7 +17,7 @@ class CatalogStoragePlugin : Plugin() {
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private val store: RoomCatalogStore by lazy { RoomCatalogStore(SamhainPosDatabase.getInstance(context)) }
     private val auth by lazy { ApiTabletAuthService.get(context) }
-    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context))) }
+    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), networkExecutor) }
 
     @PluginMethod
     fun getCatalogSnapshot(call: PluginCall) = execute(call) { store.snapshot() }

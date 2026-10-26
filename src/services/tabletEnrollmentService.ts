@@ -75,6 +75,12 @@ export class TabletEnrollmentService {
     return result
   }
 
+  async managerStatus(): Promise<boolean> {
+    this.requireResponsible()
+    if (!this.configured || !this.native) return false
+    return (await this.native.managerStatus()).authenticated === true
+  }
+
   async managerLogin(): Promise<void> {
     this.requireResponsible()
     const result = await this.requiredNative().managerLogin()
