@@ -27,7 +27,7 @@ export function ledgerRoutes(client: MongoClient, db: Db, auth: AuthService): Fa
         try {
           const token = bearer(request),
             signed = proof(request)
-          const signal = AbortSignal.any([request.signal, AbortSignal.timeout(15000)])
+          const signal = AbortSignal.any([request.operationSignal, AbortSignal.timeout(15000)])
           const ingest = endpoint === 'ingest' ? validateRequest(request.body, 'ingest') : null
           const legacy = endpoint === 'legacy' ? validateRequest(request.body, 'legacy') : null
           const prefix = endpoint === 'prefix' ? validateRequest(request.body, 'prefix') : null
