@@ -27,6 +27,7 @@ declare module 'fastify' {
   }
   interface FastifyRequest {
     rawBody: Buffer | null
+    operationSignal: AbortSignal
   }
 }
 
@@ -69,7 +70,6 @@ export async function buildApp(
     trustProxy,
     bodyLimit: config.bodyLimit,
     requestTimeout: config.requestTimeoutMs,
-    handlerTimeout: config.requestTimeoutMs,
     connectionTimeout: config.requestTimeoutMs,
     keepAliveTimeout: 5000,
     return503OnClosing: true,
@@ -86,6 +86,7 @@ export async function buildApp(
   })
   app.server.headersTimeout = config.requestTimeoutMs
   app.decorateRequest('rawBody', null)
+  app.decorateRequest('operationSignal')
   app.removeAllContentTypeParsers()
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
     try {
@@ -148,6 +149,29 @@ export async function buildApp(
     )
   })
   app.addHook('onRequest', async (request, reply) => {
+    // IncomingMessage emits "close" after a normally completed POST body as well.
+    // Abort work only for an interrupted request, an unfinished response closing,
+    // or the bounded handler deadline. Fastify 5.12's request.signal uses raw close.
+    const controller = new AbortController()
+    request.operationSignal = controller.signal
+    const abortRequest = () => controller.abort()
+    const cleanup = () => {
+      clearTimeout(deadline)
+      request.raw.off('aborted', abortRequest)
+      reply.raw.off('close', closeResponse)
+      reply.raw.off('finish', cleanup)
+    }
+    const closeResponse = () => {
+      if (!reply.raw.writableFinished) controller.abort()
+      cleanup()
+    }
+    const deadline = setTimeout(() => {
+      controller.abort()
+      if (!reply.sent) void reply.send(new ApiError(503, 'SERVER_UNAVAILABLE'))
+    }, config.requestTimeoutMs)
+    request.raw.once('aborted', abortRequest)
+    reply.raw.once('close', closeResponse)
+    reply.raw.once('finish', cleanup)
     reply.header('X-Request-ID', request.id).header('Cache-Control', 'no-store')
     if (config.environment === 'production' && request.protocol !== 'https')
       throw new ApiError(400, 'HTTPS_REQUIRED')

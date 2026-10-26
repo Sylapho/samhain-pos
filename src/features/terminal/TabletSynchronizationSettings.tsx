@@ -42,6 +42,16 @@ export function TabletSynchronizationSettings({
         if (active) setError('Impossible de lire l’autorisation. Les ventes restent locales.')
       },
     )
+    // The system browser unmounts this screen when the local responsible mode locks.
+    // Read only the native session flag after reopening; credentials stay native.
+    void service.managerStatus().then(
+      (connected) => {
+        if (active) setManagerConnected(connected)
+      },
+      () => {
+        if (active) setManagerConnected(false)
+      },
+    )
     return () => {
       active = false
     }

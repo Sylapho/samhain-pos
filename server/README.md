@@ -124,6 +124,9 @@ réseau est celle du driver ; aucune boucle de recréation de clients n'est ajou
 - Pas de CORS ouvert par défaut. Origine navigateur inconnue : 403 ; origines autorisées
   et preflight explicites. Les applications natives sans `Origin` ne reçoivent aucun droit
   supplémentaire. CORS ne remplace pas l'authentification.
+- Le signal d'annulation métier suit l'interruption du corps, la fermeture d'une réponse
+  inachevée et l'échéance du handler. La fin normale de lecture d'un POST ne l'annule pas.
+  Les tests HTTP réels couvrent cette distinction ; une injection de requête seule ne suffit pas.
 - JSON UTF-8 uniquement, `Content-Encoding` refusé. Les octets sont conservés dans
   `request.rawBody` après lecture bornée, avant parsing. Les futures preuves #132 doivent
   vérifier ces octets exacts et leur action, jamais un `JSON.stringify(request.body)`.

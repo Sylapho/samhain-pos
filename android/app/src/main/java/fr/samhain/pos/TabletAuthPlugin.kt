@@ -1,5 +1,6 @@
 package fr.samhain.pos
 
+import android.util.Log
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -14,7 +15,7 @@ import org.json.JSONObject
 class TabletAuthPlugin : Plugin() {
     private val executor = Executors.newSingleThreadExecutor()
     private val auth by lazy { ApiTabletAuthService.get(context) }
-    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context))) }
+    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), executor) }
     @PluginMethod fun getStatus(call: PluginCall) = execute(call) { auth.status(call.getBoolean("verify",false) ?: false) }
     @PluginMethod fun requestEnrollment(call: PluginCall) = execute(call) {
         auth.requestEnrollment(call.getString("terminalId") ?: error("missing"),call.getBoolean("reconnect",false) ?: false)
@@ -24,20 +25,37 @@ class TabletAuthPlugin : Plugin() {
         auth.managerOperation(call.getString("action") ?: error("missing"),call.getObject("body") ?: error("missing"),manager.token())
     }
     @PluginMethod fun managerLogin(call: PluginCall) {
+        Log.i("SamhainOidc", "stage=login_requested")
         executor.execute {
             try {
                 val intent = manager.begin()
                 activity.runOnUiThread {
-                    try { startActivityForResult(call, intent, "managerResult") }
-                    catch (_: Exception) { manager.cancel(); call.resolve(JSObject().put("status", "authorization_denied")) }
+                    try {
+                        startActivityForResult(call, intent, "managerResult")
+                        Log.i("SamhainOidc", "stage=browser_activity_started")
+                    }
+                    catch (_: Exception) {
+                        Log.w("SamhainOidc", "stage=browser_activity_failed")
+                        manager.cancel(); call.resolve(JSObject().put("status", "authorization_denied"))
+                    }
                 }
-            } catch (error: TabletAuthFailure) { call.resolve(JSObject().put("status", error.code)) }
-            catch (_: Exception) { call.resolve(JSObject().put("status", "authorization_denied")) }
+            } catch (error: TabletAuthFailure) {
+                Log.w("SamhainOidc", "stage=login_setup_failed kind=api")
+                call.resolve(JSObject().put("status", error.code))
+            }
+            catch (_: Exception) {
+                Log.w("SamhainOidc", "stage=login_setup_failed kind=native")
+                call.resolve(JSObject().put("status", "authorization_denied"))
+            }
         }
     }
     @ActivityCallback private fun managerResult(call: PluginCall?, result: ActivityResult) {
+        Log.i("SamhainOidc", "stage=activity_result resultCode=${result.resultCode} callPresent=${call != null}")
         if (call == null) { manager.cancel(); return }
         manager.complete(result.data) { value -> call.resolve(JSObject(value.toString())) }
+    }
+    @PluginMethod fun managerStatus(call: PluginCall) = execute(call) {
+        JSONObject().put("authenticated", manager.isAuthenticated())
     }
     @PluginMethod fun managerLogout(call: PluginCall) { manager.logout(); call.resolve() }
     @PluginMethod fun inspectEnrollment(call: PluginCall) = execute(call) {

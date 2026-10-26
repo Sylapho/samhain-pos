@@ -10,6 +10,7 @@ function bridge(): NativeTabletAuth {
     prepareReplacement: vi.fn(async () => ({ status: 'needs_recovery' as const })),
     inspectEnrollment: vi.fn(),
     managerLogin: vi.fn(async () => ({ status: 'authenticated' as const })),
+    managerStatus: vi.fn(async () => ({ authenticated: false })),
     managerLogout: vi.fn(async () => {}),
     managerOperation: vi.fn(async () => ({ status: 'revoked' as const })),
   }
@@ -47,7 +48,18 @@ describe('enrôlement natif séparé des opérations locales', () => {
     await expect(service.request('terminal')).rejects.toThrow('verrouillé')
     await expect(service.activate('code')).rejects.toThrow('verrouillé')
     await expect(service.status(true)).rejects.toThrow('verrouillé')
+    await expect(service.managerStatus()).rejects.toThrow('verrouillé')
+    expect(native.managerStatus).not.toHaveBeenCalled()
     expect(native.requestEnrollment).not.toHaveBeenCalled()
+  })
+  it('relit seulement le statut natif sans relancer une connexion responsable', async () => {
+    const native = bridge()
+    native.managerStatus = vi.fn(async () => ({ authenticated: true }))
+    const service = new TabletEnrollmentService(native, true, () => {})
+    expect(await service.managerStatus()).toBe(true)
+    expect(native.managerLogin).not.toHaveBeenCalled()
+    native.managerStatus = vi.fn(async () => ({ authenticated: false }))
+    expect(await service.managerStatus()).toBe(false)
   })
   it('transmet la révocation sans toucher un repository financier', async () => {
     const service = new TabletEnrollmentService(bridge(), true, () => {})

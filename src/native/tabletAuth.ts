@@ -53,6 +53,7 @@ export interface NativeTabletAuth {
   activate(options: { invitationCode: string }): Promise<TabletAuthorization>
   prepareReplacement(): Promise<TabletAuthorization>
   managerLogin(): Promise<{ status: 'authenticated' | TabletAuthorizationStatus }>
+  managerStatus(): Promise<{ authenticated: boolean }>
   managerLogout(): Promise<void>
   managerOperation(options: {
     action: 'approve' | 'reject' | 'revoke'
