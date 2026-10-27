@@ -18,6 +18,12 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ManagerOidcSessionTest {
+    private class MemoryVault : CredentialVault {
+        private var value: String? = null
+        override fun read(): JSONObject? = value?.let { JSONObject(it) }
+        override fun write(value: JSONObject) { this.value = value.toString() }
+        override fun clear() { value = null }
+    }
     private class Transport(private val verify: () -> JSONObject) : ApiAuthTransport {
         override fun get(path: String, token: String?): JSONObject {
             assertEquals("/api/v1/auth/manager", path)
@@ -36,12 +42,12 @@ class ManagerOidcSessionTest {
         val session = ManagerOidcSession(ApplicationProvider.getApplicationContext<Context>(), Transport {
             calls.incrementAndGet()
             JSONObject().put("authenticated", true)
-        }, executor)
+        }, executor, MemoryVault())
         val done = CountDownLatch(1)
         val result = AtomicReference<String>()
         try {
             assertFalse(session.isAuthenticated())
-            session.verifyManager("test-manager-token", System.currentTimeMillis() + 60000, 0) {
+            session.verifyManager("test-manager-token", System.currentTimeMillis() + 120000, session.generation()) {
                 result.set(it.getString("status")); done.countDown()
             }
             assertTrue(done.await(5, TimeUnit.SECONDS))
@@ -64,9 +70,9 @@ class ManagerOidcSessionTest {
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
             JSONObject().put("authenticated", true)
-        }, executor)
+        }, executor, MemoryVault())
         try {
-            session.verifyManager("test-manager-token", System.currentTimeMillis() + 60000, 0) {
+            session.verifyManager("test-manager-token", System.currentTimeMillis() + 120000, session.generation()) {
                 result.set(it.getString("status")); done.countDown()
             }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -88,9 +94,9 @@ class ManagerOidcSessionTest {
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
             JSONObject().put("authenticated", true)
-        }, executor)
+        }, executor, MemoryVault())
         try {
-            session.verifyManager("test-manager-token", System.currentTimeMillis() + 60000, 0) {
+            session.verifyManager("test-manager-token", System.currentTimeMillis() + 120000, session.generation()) {
                 result.set(it.getString("status")); done.countDown()
             }
             assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -107,11 +113,11 @@ class ManagerOidcSessionTest {
         val executor = Executors.newSingleThreadExecutor()
         val session = ManagerOidcSession(ApplicationProvider.getApplicationContext<Context>(), Transport {
             JSONObject().put("authenticated", false)
-        }, executor)
+        }, executor, MemoryVault())
         val done = CountDownLatch(1)
         val result = AtomicReference<String>()
         try {
-            session.verifyManager("test-manager-token", System.currentTimeMillis() + 60000, 0) {
+            session.verifyManager("test-manager-token", System.currentTimeMillis() + 120000, session.generation()) {
                 result.set(it.getString("status")); done.countDown()
             }
             assertTrue(done.await(5, TimeUnit.SECONDS))

@@ -17,7 +17,8 @@ class CatalogStoragePlugin : Plugin() {
     private val networkExecutor = Executors.newSingleThreadExecutor()
     private val store: RoomCatalogStore by lazy { RoomCatalogStore(SamhainPosDatabase.getInstance(context)) }
     private val auth by lazy { ApiTabletAuthService.get(context) }
-    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), networkExecutor) }
+    private val managerDelegate = lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), networkExecutor) }
+    private val manager by managerDelegate
 
     @PluginMethod
     fun getCatalogSnapshot(call: PluginCall) = execute(call) { store.snapshot() }
@@ -47,6 +48,13 @@ class CatalogStoragePlugin : Plugin() {
                 call.resolve(JSObject(ApiAuthHttp(ApiAuthConfiguration.load(context)).post(
                     "/api/v1/catalog/publications", manager.token(), call.requiredObject("body")
                 ).toString()))
+            } catch (error: TabletAuthFailure) {
+                val message = when(error.code) {
+                    "session_expired", "authorization_denied", "revoked" -> "Accès responsable expiré ou refusé. Reconnectez le compte ou vérifiez ses droits. Le catalogue local est conservé."
+                    "server_unreachable" -> "Connexion indisponible. Réessayez au retour du réseau. Le catalogue local est conservé."
+                    else -> "Publication refusée. Vérifiez les droits du compte et la version publiée. Le catalogue local est conservé."
+                }
+                call.reject(message, "CATALOG_PUBLISH_ERROR")
             } catch (_: Exception) { call.reject("Publication refusée ou révision dépassée. Rechargez la version publiée.", "CATALOG_PUBLISH_ERROR") }
         }
     }
@@ -72,6 +80,14 @@ class CatalogStoragePlugin : Plugin() {
 
     @PluginMethod
     fun managerLogout(call: PluginCall) { manager.logout(); call.resolve() }
+
+    @PluginMethod
+    fun managerStatus(call: PluginCall) {
+        networkExecutor.execute {
+            try { call.resolve(JSObject().put("authenticated", manager.isAuthenticated())) }
+            catch (_: Exception) { call.reject("Connexion responsable indisponible. Reconnectez le compte.", "MANAGER_SESSION_ERROR") }
+        }
+    }
 
     @PluginMethod
     fun initializeCatalog(call: PluginCall) = execute(call) { store.initialize(call.requiredArray("products")) }
@@ -124,7 +140,7 @@ class CatalogStoragePlugin : Plugin() {
         getArray(name) ?: throw IllegalArgumentException("Le champ $name est requis.")
 
     override fun handleOnDestroy() {
-        manager.dispose()
+        if (managerDelegate.isInitialized()) manager.dispose()
         databaseExecutor.shutdown()
         networkExecutor.shutdown()
         super.handleOnDestroy()

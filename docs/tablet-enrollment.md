@@ -6,7 +6,7 @@ La caisse, les paiements, les impressions, Room et l’outbox fonctionnent sans 
 
 Les neuf routes d’authentification `/api/v1` de l’ADR sont implémentées dans `server/src/tablet-auth/`. Android utilise `ApiTabletAuthService`, le coffre existant et la clé RSA Android Keystore. Le bridge expose des états publics, jamais les access/refresh tokens. Le Web reste une prévisualisation locale sans enrôlement simulé.
 
-Les routes financières HTTP #133 sont implémentées. Depuis #134, le worker financier utilise la configuration API et ses credentials natifs, avec confirmations séparées par destination et rattrapage des anciens événements. Voir [le runbook de migration Android](android-mongodb-synchronization.md). Le [catalogue MongoDB #135](catalog-distribution.md) réutilise cette configuration et les preuves natives. Sa publication requiert une session responsable OIDC temporaire et le droit distinct `publish_catalog`. Aucun formulaire Supabase ne reçoit une identité API. Ne pas interpréter les acquittements Supabase comme des confirmations MongoDB. Leur retrait appartient à #138. Le catalogue local reste utilisable hors ligne.
+Les routes financières HTTP #133 sont implémentées. Depuis #134, le worker financier utilise la configuration API et ses credentials natifs, avec confirmations séparées par destination et rattrapage des anciens événements. Voir [le runbook de migration Android](android-mongodb-synchronization.md). Le [catalogue MongoDB #135](catalog-distribution.md) réutilise cette configuration et les preuves natives. Sa publication requiert une session responsable OIDC renouvelable et le droit distinct `publish_catalog`. Aucun formulaire Supabase ne reçoit une identité API. Ne pas interpréter les acquittements Supabase comme des confirmations MongoDB. Leur retrait appartient à #138. Le catalogue local reste utilisable hors ligne.
 
 ## Préparer le serveur et OIDC
 
@@ -64,17 +64,100 @@ Exécuter `pnpm android:install-native`, puis `pnpm android:sync:test` ou la com
 2. Déverrouiller le mode responsable local. Toucher **Demander l’enrôlement / reconnecter**.
 3. Le natif conserve l’identité et la clé existantes exploitables. Une installation neuve crée explicitement son identité à cette première demande. Il transmet un dossier complet issu de Room : chaîne, terminal, restauration, tuples du préfixe, commandes legacy. L’opération et son UUID sont persistés avant envoi. La demande reste `pending`, sans droit financier, pendant au plus 24 h.
 4. Examiner le dossier complet par `GET /api/v1/tablet-enrollments/:requestId?organizationId=…&festivalId=…` avec un access token responsable. Cette consultation vérifie `manage_enrollment` dans le périmètre ; un identifiant étranger connu ne contourne pas l’isolation. Les demandes non encore attribuées sont accessibles seulement par leur UUID communiqué par la tablette. La liste paginée retourne celles déjà attribuées au périmètre autorisé ; elle ne publie pas toutes les installations candidates globalement.
-5. Sur la tablette, choisir l’approbation ou le refus et **Se connecter au compte responsable**. Android ouvre le navigateur système ; AppAuth gère code, state, nonce et PKCE. Le token reste uniquement dans la mémoire native, expire et est revalidé par l’API à chaque action. Le bouton de déconnexion efface cette session locale, sans prétendre fermer le compte chez le fournisseur.
+5. Sur la tablette, choisir l’approbation ou le refus et **Se connecter au compte responsable**. Android ouvre le navigateur système ; AppAuth gère code, state, nonce et PKCE. Les jetons d’accès et de renouvellement restent dans un coffre Android chiffré distinct, protégé par Keystore et exclu des sauvegardes. L’accès est renouvelé automatiquement avant une action quand il approche de son expiration ; l’API vérifie toujours le jeton et les droits de chaque action. Le bouton de déconnexion efface cette session locale, sans prétendre fermer le compte chez le fournisseur.
 6. Renseigner les UUID organisation/festival/chaîne confirmés. Pour un remplacement, fournir l’installation retirée après examen des preuves. Le serveur vérifie les droits vivants en transaction, jamais un rôle transmis par le formulaire.
 7. L’approbation produit une invitation à 256 bits, valable dix minutes, hashée uniquement côté serveur. L’interface la consomme nativement sans la renvoyer au bridge. Une approbation externe peut transmettre le code par un canal contrôlé et l’activer dans le champ temporaire.
 8. Attendre l’état retourné par activation : `authorized`, `rejected` ou `needs_recovery`. Une approbation seule ne donne pas de session métier. Répéter avec la deuxième installation et vérifier que les chaînes et générations restent distinctes.
 
 L’ouverture du navigateur verrouille le mode responsable local et ferme l’écran de configuration.
 Après retour, rouvrir la configuration de caisse et saisir le PIN si demandé. L’écran relit alors
-le statut de la session responsable conservée uniquement en mémoire native : une connexion encore
+le statut local de la session responsable conservée dans le coffre natif : une connexion encore
 valide affiche « Déconnecter le responsable » sans recommencer OIDC. Cette lecture ne transmet
-aucun jeton au JavaScript, ne prolonge ni la session OIDC ni le déverrouillage local et ne remplace
+aucun jeton au JavaScript, ne renouvelle pas elle-même la session OIDC ni le déverrouillage local et ne remplace
 pas les contrôles serveur lors de l’examen et de l’approbation.
+
+### Conserver le compte responsable pendant cinq jours
+
+La session est partagée entre les écrans d’enrôlement et de publication. Fermer l’écran,
+publier un catalogue ou arrêter le processus Android n’efface plus le coffre responsable.
+La lecture du statut est locale : elle indique qu’un accès ou un renouvellement est disponible,
+pas que Keycloak ou l’API viennent de le valider. Les actions restent protégées par le mode
+responsable local et les capacités serveur existantes.
+
+Dans la console Keycloak, sélectionner le realm `samhain` :
+
+1. **Realm settings → Sessions** : `SSO Session Idle` et `SSO Session Max` à **5 jours**
+   (432 000 secondes). Vérifier aussi les valeurs Remember Me si ce mode est utilisé.
+   Ces paramètres du realm peuvent concerner d’autres clients ; examiner leur impact avant enregistrement.
+2. Pour le client Android réellement configuré par `OIDC_CLIENT_ID`, vérifier dans
+   **Clients → client → Advanced** que `Client Session Idle` et `Client Session Max`
+   n’imposent pas une durée plus courte. Une valeur d’héritage utilise les limites du realm.
+3. Conserver `Access Token Lifespan` court, par exemple **5 minutes**. Le serveur Samhain
+   accepte par défaut un âge de jeton de 1 heure (`OIDC_MAX_TOKEN_AGE_SECONDS`) ; inutile
+   de le porter à cinq jours. Le renouvellement émet un nouveau jeton court.
+4. Garder le client Android public, Authorization Code + PKCE S256, sans secret embarqué.
+   Le flux doit retourner un refresh token. Aucun scope `offline_access` n’est nécessaire.
+
+Référence : [durées de session et jetons Keycloak](https://www.keycloak.org/docs/latest/server_admin/index.html#_timeouts).
+Ces instructions ne prouvent pas que la configuration hébergée a été modifiée.
+Le 27 octobre 2026, la console du realm `samhain` sur `auth.samhain.arthurdubos.fr`
+a confirmé l’enregistrement de `SSO Session Idle = 5 jours` et `SSO Session Max = 5 jours`,
+puis les mêmes valeurs ont été relues après rechargement. Avant modification, les valeurs
+étaient respectivement 7 jours et 7 heures. Le client `samhain-android` hérite des durées
+du realm, utilise les refresh tokens et conserve PKCE S256 avec authentification client désactivée.
+La durée d’accès héritée est de 5 minutes. Ce constat de configuration ne constitue pas
+une validation de synchronisation réelle sur tablette avec la nouvelle APK.
+
+Le plafond de cinq jours se compte depuis la connexion initiale, même en usage continu.
+Une nouvelle connexion est nécessaire après ce plafond, révocation ou déconnexion volontaire.
+Un refus définitif de renouvellement efface le coffre responsable ; une panne réseau le conserve.
+Le changement d’issuer, client ou endpoints exige une nouvelle connexion et aucun refresh token
+n’est transmis au nouveau fournisseur. Le coffre est isolé par origine API et destination.
+Les requêtes concurrentes des deux plugins sérialisent la rotation ; le nouveau refresh token
+est enregistré avant la vérification API suivante. Une réponse tardive ne rétablit pas un compte déconnecté.
+La révocation Keycloak est constatée au renouvellement ; un JWT déjà émis peut rester accepté
+jusqu’à son expiration. Le retrait d’une capacité Samhain est vérifié par chaque action serveur.
+
+Après installation de l’APK mise à jour, se connecter une fois. Vérifier sur une tablette de test :
+
+- publication puis fermeture/réouverture de l’écran sans nouvelle connexion ;
+- arrêt du processus et redémarrage de la tablette, puis publication ;
+- expiration d’un access token court et renouvellement automatique ;
+- coupure réseau au renouvellement, conservation du catalogue et reprise après reconnexion ;
+- révocation de la session Keycloak puis renouvellement refusé ; retrait de `publish_catalog`
+  puis publication refusée, sans modification du catalogue local ;
+- déconnexion volontaire depuis un écran, compte également déconnecté dans l’autre ;
+- limite maximale de session, testée avec une durée courte dans un environnement isolé.
+
+Les tests JVM/Robolectric ne remplacent pas ces vérifications Keycloak et matériel.
+
+Validation du 27 octobre 2026, sur une Samsung SM-X236B :
+
+- 538 tests web, lint et compilation de production réussis ;
+- 30 tests JVM/Robolectric ciblés réussis en debug, dont 14 tests de session responsable ;
+- les mêmes 14 tests de session réussis en release et APK release signée assemblée ;
+- certificat SHA-256 de la nouvelle APK identique à celui installé
+  (`8628a1077edc5497dd427a0640c8a686d2f62c9c3c73f2cfa80ff09209c9f632`) ;
+- mise à jour `adb install -r` réussie, sans désinstallation ni effacement des données ;
+- première connexion Keycloak réelle acceptée par l’API et affichage
+  « Compte responsable connecté » confirmé par l’utilisateur ;
+- après `am force-stop` puis relance, le même affichage sans nouvelle connexion a été
+  confirmé par l’utilisateur. Ce contrôle prouve la restauration locale, pas un renouvellement serveur ;
+- après redémarrage Android complet, le même affichage sans nouvelle connexion a été
+  confirmé par l’utilisateur ;
+- lors d’une tentative de publication hors réseau, l’utilisateur a confirmé le message
+  « Connexion indisponible. Réessayez au retour du réseau. Le catalogue local est conservé. » ;
+- la console Keycloak du client Android montre la même session régulière ouverte à 18 h 31,
+  avec une dernière activité à 20 h 48, donc au-delà des 5 minutes du premier access token.
+  L’utilisateur a ensuite confirmé une publication réussie après retour réseau sans nouvelle
+  connexion Keycloak. La reprise et le renouvellement après expiration sont donc vérifiés sur tablette ;
+- l’unique session Android de test a été déconnectée dans la console Keycloak, qui affiche
+  ensuite « No sessions ». Après expiration du dernier jeton, l’utilisateur a confirmé le refus
+  « Accès responsable expiré ou refusé. Reconnectez le compte ou vérifiez ses droits.
+  Le catalogue local est conservé ». Le blocage après révocation est donc vérifié sur tablette.
+  L’utilisateur a ensuite confirmé la reconnexion volontaire et le retour de l’état connecté :
+  la tablette est remise en service. La console Keycloak confirme une nouvelle session Android
+  ouverte à 20 h 59, distincte de celle révoquée.
 
 Si la réponse d’approbation est perdue, le serveur ne peut restituer une invitation dont il ne conserve que le hash. Un retry administratif exact renvoie `INVITATION_UNAVAILABLE` ; une **nouvelle approbation explicite** renouvelle l’invitation et invalide l’ancienne. Après cinq codes incorrects, lancer une nouvelle demande puis faire approuver. Une activation perdue peut en revanche récupérer sa réponse de session chiffrée pendant 60 s avec le même UUID et les mêmes octets signés, tant que cette session reste vivante.
 

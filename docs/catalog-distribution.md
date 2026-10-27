@@ -99,7 +99,9 @@ sans nouvelle publication aveugle.
 3. Construire/synchroniser l'APK avec la configuration publique existante #134.
    Aucun credential MongoDB, secret serveur ou token responsable ne passe dans Vite,
    les assets, les archives ou le bridge JavaScript. Les credentials tablette restent
-   dans le vault ; la session responsable OIDC reste temporaire en mémoire native.
+   dans le vault ; la session responsable OIDC utilise un coffre Android chiffré distinct,
+   partagé entre les écrans et renouvelé à la demande. Publier ou fermer l’écran ne
+   déconnecte pas le compte. Voir [les durées et essais Keycloak](tablet-enrollment.md#conserver-le-compte-responsable-pendant-cinq-jours).
 4. Enrôler chaque tablette vers cette API. Aucune session Supabase n'est copiée.
 5. Sur la première tablette, saisir/importer et vérifier le catalogue réel. Dans
    Administration → Catalogue partagé, se connecter comme responsable puis choisir
