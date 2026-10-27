@@ -76,6 +76,16 @@ export function CatalogSynchronization({
 
   useEffect(() => {
     let active = true
+    if (catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'configured') {
+      void catalogStorage.managerStatus().then(
+        (value) => {
+          if (active) setAuthenticated(value.authenticated)
+        },
+        () => {
+          if (active) setAuthenticated(false)
+        },
+      )
+    }
     void service.distribution
       .status()
       .then((value) => {
@@ -89,7 +99,6 @@ export function CatalogSynchronization({
     window.addEventListener('offline', update)
     return () => {
       active = false
-      if (catalogStorage.isAndroidNative()) void catalogStorage.managerLogout()
       window.removeEventListener('online', update)
       window.removeEventListener('offline', update)
     }
@@ -109,6 +118,13 @@ export function CatalogSynchronization({
           : 'Échange impossible. Le catalogue local est conservé.',
       )
     } finally {
+      if (catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'configured') {
+        try {
+          setAuthenticated((await catalogStorage.managerStatus()).authenticated)
+        } catch {
+          setAuthenticated(false)
+        }
+      }
       try {
         setState(await service.distribution.status())
       } catch {
@@ -199,13 +215,22 @@ export function CatalogSynchronization({
       <p>{state?.decisions.length ?? 0} décision(s) locale(s) enregistrée(s).</p>
       {catalogStorage.isAndroidNative() && apiAuthConfiguration.status === 'configured' && (
         <>
+          {authenticated && (
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  await catalogStorage.managerLogout()
+                  setAuthenticated(false)
+                })
+              }
+            >
+              Déconnecter le compte
+            </Button>
+          )}
           <Button
             disabled={busy || !!next || !!state?.conflicts.length}
             onClick={() => {
-              if (publish) {
-                setAuthenticated(false)
-                void catalogStorage.managerLogout()
-              }
               setPublish(!publish)
             }}
           >
@@ -232,15 +257,11 @@ export function CatalogSynchronization({
                       expectedRevision: active?.revision ?? 0,
                     },
                   })
-                  setAuthenticated(false)
                   setPublish(false)
                   await service.distribution.stage(version, {
                     organizationId: scope.organizationId,
                     festivalId: scope.festivalId,
                   })
-                }).finally(() => {
-                  setAuthenticated(false)
-                  void catalogStorage.managerLogout()
                 })
               }}
             >
