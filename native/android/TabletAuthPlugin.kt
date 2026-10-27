@@ -15,7 +15,8 @@ import org.json.JSONObject
 class TabletAuthPlugin : Plugin() {
     private val executor = Executors.newSingleThreadExecutor()
     private val auth by lazy { ApiTabletAuthService.get(context) }
-    private val manager by lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), executor) }
+    private val managerDelegate = lazy { ManagerOidcSession(context, ApiAuthHttp(ApiAuthConfiguration.load(context)), executor) }
+    private val manager by managerDelegate
     @PluginMethod fun getStatus(call: PluginCall) = execute(call) { auth.status(call.getBoolean("verify",false) ?: false) }
     @PluginMethod fun requestEnrollment(call: PluginCall) = execute(call) {
         auth.requestEnrollment(call.getString("terminalId") ?: error("missing"),call.getBoolean("reconnect",false) ?: false)
@@ -83,5 +84,5 @@ class TabletAuthPlugin : Plugin() {
             catch (_: Exception) { call.reject("Vérification native impossible. Les données locales sont conservées.","TABLET_AUTH_RECOVERY_REQUIRED") }
         }
     }
-    override fun handleOnDestroy() { manager.dispose(); executor.shutdown(); super.handleOnDestroy() }
+    override fun handleOnDestroy() { if (managerDelegate.isInitialized()) manager.dispose(); executor.shutdown(); super.handleOnDestroy() }
 }
