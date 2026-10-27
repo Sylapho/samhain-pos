@@ -19,7 +19,7 @@ class TabletAuthPlugin : Plugin() {
     private val manager by managerDelegate
     @PluginMethod fun getStatus(call: PluginCall) = execute(call) { auth.status(call.getBoolean("verify",false) ?: false) }
     @PluginMethod fun requestEnrollment(call: PluginCall) = execute(call) {
-        auth.requestEnrollment(call.getString("terminalId") ?: error("missing"),call.getBoolean("reconnect",false) ?: false)
+        auth.requestEnrollment(call.getString("terminalId") ?: error("missing"),call.getString("organizationId") ?: error("missing"),call.getString("festivalId") ?: error("missing"),call.getBoolean("reconnect",false) ?: false)
     }
     @PluginMethod fun activate(call: PluginCall) = execute(call) { auth.activate(call.getString("invitationCode") ?: error("missing")) }
     @PluginMethod fun managerOperation(call: PluginCall) = execute(call) {

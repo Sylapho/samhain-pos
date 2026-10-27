@@ -6,6 +6,8 @@ décrit leur contrat, validation financière et recette locale. Aucun raccordeme
 Android ni déploiement réel n’est effectué.
 
 Évolution #132 : le manifeste v1 est figé dans `server/src/persistence/schema-v1.ts`.
+La migration v3 ajoute le périmètre demandé optionnel aux dossiers d’enrôlement. Les manifests
+v1 et v2 et leurs checksums sont conservés ; les anciens dossiers restent valides sans réécriture.
 La migration v2 ajoute les champs Auth et l’index de reprise des rotations, sans modifier
 les documents financiers. `samhain_runtime_v2` ajoute uniquement la mise à jour des plages
 de terminaux nécessaire au remplacement ; v1 reste inchangé. Suivre le

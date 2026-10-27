@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { Db, Document, IndexDescriptionInfo } from 'mongodb'
 import { definitions } from './schema.ts'
 import { definitions as baseline } from './schema-v1.ts'
+import { definitions as authBaseline } from './schema-v2.ts'
 import { PersistenceError } from './errors.ts'
 import type { SchemaMigration } from './model.ts'
 
@@ -21,10 +22,14 @@ export const migrations = [
   { version: 1, checksum: createHash('sha256').update(stable(baseline)).digest('hex') },
   {
     version: 2,
+    checksum: createHash('sha256').update(stable(authBaseline)).digest('hex'),
+  },
+  {
+    version: 3,
     checksum: createHash('sha256').update(stable(definitions)).digest('hex'),
   },
 ]
-export const migration = migrations[1]!
+export const migration = migrations[2]!
 
 export async function verifyTopology(db: Db, signal?: AbortSignal): Promise<void> {
   const hello = await db.command({ hello: 1 }, { ...(signal ? { signal } : {}) })
@@ -75,8 +80,11 @@ async function inspect(db: Db, complete: boolean, signal?: AbortSignal): Promise
       Object.keys(settings.validator).length &&
       stable(settings.validator) !== stable(definition.validator) &&
       (complete ||
-        stable(settings.validator) !==
-          stable(baseline.find((item) => item.name === definition.name)?.validator))
+        ![baseline, authBaseline].some(
+          (version) =>
+            stable(settings.validator) ===
+            stable(version.find((item) => item.name === definition.name)?.validator),
+        ))
     )
       throw new PersistenceError('SCHEMA_INCOMPATIBLE', definition.name)
     if (

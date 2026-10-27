@@ -35,7 +35,7 @@ test(
     await migrate(f.db)
     await migrate(f.db)
     assert.deepEqual(await f.db.collection('schemaMigrations').findOne({ version: 1 }), before)
-    assert.equal(await f.db.collection('schemaMigrations').countDocuments(), 2)
+    assert.equal(await f.db.collection('schemaMigrations').countDocuments(), migrations.length)
     for (const name of ['ledgerEvents', 'sales', 'syncReceipts', 'chains', 'catalogVersions'])
       assert.equal(await f.db.collection(name).countDocuments(), 0)
   },

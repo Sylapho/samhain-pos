@@ -172,10 +172,66 @@ describe('paramètres de synchronisation responsable', () => {
     )
     await screen.findByText('Tablette non enrôlée')
     const action = screen.getByRole('button', { name: 'Demander l’enrôlement / reconnecter' })
+    expect(action).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Organisation — Identifiant UUID'), {
+      target: { value: 'invalide' },
+    })
+    expect(
+      screen.getByText('L’identifiant de l’organisation doit être un UUID valide.'),
+    ).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Organisation — Identifiant UUID'), {
+      target: { value: ' a1b6b2ab-e2e9-4a81-b5c1-56c54d7d22f3 ' },
+    })
+    expect(action).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Festival — Identifiant UUID'), {
+      target: { value: '18bdec64-385a-4f86-958f-184a81635c96' },
+    })
     fireEvent.click(action)
     fireEvent.click(action)
     expect(bridge.requestEnrollment).toHaveBeenCalledTimes(1)
+    expect(bridge.requestEnrollment).toHaveBeenCalledWith({
+      terminalId: 'terminal',
+      organizationId: 'a1b6b2ab-e2e9-4a81-b5c1-56c54d7d22f3',
+      festivalId: '18bdec64-385a-4f86-958f-184a81635c96',
+      reconnect: false,
+    })
     finish?.({ status: 'pending', requestId: 'request' })
     await waitFor(() => expect(screen.getByText(/en attente d’approbation/)).toBeVisible())
+  })
+  it('restaure le périmètre natif et le confirme sans nouvelle saisie', async () => {
+    const requestedScope = {
+      organizationId: 'a1b6b2ab-e2e9-4a81-b5c1-56c54d7d22f3',
+      festivalId: '18bdec64-385a-4f86-958f-184a81635c96',
+    }
+    const native = {
+      getStatus: vi.fn(async () => ({
+        status: 'pending' as const,
+        requestId: 'request',
+        chainId: 'chain',
+        requestedScope,
+        enrollmentPrepared: true,
+      })),
+      managerStatus: vi.fn(async () => ({ authenticated: true })),
+    } as unknown as NativeTabletAuth
+    render(
+      <TabletSynchronizationSettings
+        terminalId="terminal"
+        service={new TabletEnrollmentService(native, true, () => {})}
+      />,
+    )
+    await screen.findByText(/Périmètre demandé/)
+    expect(screen.getByLabelText('Organisation — Identifiant UUID')).toHaveValue(
+      requestedScope.organizationId,
+    )
+    expect(screen.getByLabelText('Festival — Identifiant UUID')).toHaveAttribute('readonly')
+    fireEvent.click(screen.getByRole('button', { name: 'Approbation par un responsable serveur' }))
+    expect(screen.getByLabelText('Organisation (identifiant confirmé)')).toHaveValue(
+      requestedScope.organizationId,
+    )
+    expect(screen.getByLabelText('Festival (identifiant confirmé)')).toHaveValue(
+      requestedScope.festivalId,
+    )
+    expect(screen.getByLabelText('Organisation (identifiant confirmé)')).toHaveAttribute('readonly')
+    expect(screen.getByRole('button', { name: 'Autoriser côté serveur' })).toBeDisabled()
   })
 })

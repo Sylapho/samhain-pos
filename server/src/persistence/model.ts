@@ -38,6 +38,7 @@ export type EnrollmentRequest = Versioned & {
   expiresAt: Date
   createdAt: Date
   approvedScope?: ChainScope & { replacesInstallationId?: string }
+  requestedScope?: Scope
   approvedBy?: Subject
   approvedAt?: Date
   invitationHash?: string
