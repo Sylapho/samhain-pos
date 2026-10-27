@@ -28,19 +28,27 @@ internal class ApiTabletAuthService(
                     return@synchronized activate(JSONObject(stored.getString("activationPayload")).getString("invitationCode"))
                 val body=JSONObject().put("installationId",stored.getString("installationId"))
                 val pending=!stored.has("session")
+                if(pending&&!stored.has("requestId")&&stored.has("enrollmentPayload")) {
+                    val saved=JSONObject(stored.getString("enrollmentPayload"))
+                    return@synchronized requestEnrollment(saved.getJSONObject("dossier").getString("terminalId"),saved.optString("organizationId"),saved.optString("festivalId"))
+                }
                 if(pending)body.put("requestId",stored.getString("requestId"))
                 val result=signed("/api/v1/tablets/status","status",body,if(pending)null else accessToken(),if(pending)stored.getString("requestId") else null)
                 remember(result);publicState(vault.read()!!)
             }catch(error:TabletAuthFailure){failure(error.code)}catch(_:Exception){failure("needs_recovery")}
         }
     }
-    fun requestEnrollment(terminalId:String,reconnect:Boolean=false):JSONObject=synchronized(TabletAuthService.SESSION_LOCK){
+    fun requestEnrollment(terminalId:String,organizationId:String,festivalId:String,reconnect:Boolean=false):JSONObject=synchronized(TabletAuthService.SESSION_LOCK){
         if(config.status!="configured")return@synchronized state("not_configured")
         try{
             require(terminalId.isNotBlank())
-            val destination=http.get("/api/v1/auth/config")
-            require(destination.getInt("protocolVersion")==1&&destination.getString("destinationId")==config.destinationId)
+            val organization=organizationId.trim().lowercase()
+            val festival=festivalId.trim().lowercase()
+            val uuid=Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
             var stored=vault.read()
+            val previousPayload=stored?.optString("enrollmentPayload")?.takeIf{it.isNotBlank()}?.let{JSONObject(it)}
+            val legacyRetry=!reconnect&&previousPayload!=null&&!previousPayload.has("organizationId")
+            require(legacyRetry||(uuid.matches(organization)&&uuid.matches(festival)))
             if(stored==null){
                 // Read failure is recovery, never evidence that a previous identity did not exist.
                 val previous=previousVault.read() ?: identityVault?.read()
@@ -57,14 +65,23 @@ internal class ApiTabletAuthService(
                 signer.sign("samhain-api-identity-check".toByteArray(Charsets.UTF_8))
                 require(stored.getString("publicKey")==signer.publicKey())
             }
-            if(reconnect||!stored.has("enrollmentPayload")){
+            val saved=stored.optString("enrollmentPayload").takeIf{it.isNotBlank()}?.let{JSONObject(it)}
+            if(saved!=null&&!reconnect) {
+                require(!saved.has("organizationId")||(saved.getString("organizationId")==organization&&saved.getString("festivalId")==festival))
+                if(stored.has("session"))return@synchronized publicState(stored)
+            }
+            if(reconnect)require(publicState(stored).getString("status") in setOf("rejected","revoked","session_expired","attempts_exceeded","invitation_expired","authorization_denied"))
+            if(reconnect||saved==null){
                 // Persist the operation before sending. No Room/outbox mutation and no legacy token copy.
-                val body=JSONObject().put("operationRequestId",UUID.randomUUID().toString()).put("installationId",stored.getString("installationId")).put("publicKey",stored.getString("publicKey")).put("dossier",dossier(terminalId))
+                val body=JSONObject().put("operationRequestId",UUID.randomUUID().toString()).put("installationId",stored.getString("installationId")).put("publicKey",stored.getString("publicKey")).put("dossier",dossier(terminalId)).put("organizationId",organization).put("festivalId",festival)
                 stored.put("enrollmentPayload",body.toString()).put("status","pending")
+                stored.remove("requestId")
                 stored.remove("session");stored.remove("rotationPayload");stored.remove("activationPayload")
                 vault.write(stored)
             }
             val body=JSONObject(stored.getString("enrollmentPayload"))
+            val destination=http.get("/api/v1/auth/config")
+            require(destination.getInt("protocolVersion")==1&&destination.getString("destinationId")==config.destinationId)
             val result=signed("/api/v1/tablet-enrollments","request",body,null)
             stored=vault.read()!!;stored.put("requestId",result.getString("requestId")).put("status",if(result.getString("status")=="rejected")"rejected" else "pending")
             vault.write(stored);publicState(stored)
@@ -181,6 +198,13 @@ internal class ApiTabletAuthService(
     private fun remember(result:JSONObject){
         val stored=vault.read()?:throw TabletAuthFailure("needs_recovery")
         val status=result.getString("status")
+        val requested=stored.optString("enrollmentPayload").takeIf{it.isNotBlank()}?.let{JSONObject(it)}
+        if(requested?.has("organizationId")==true) {
+            for(field in listOf("organizationId","festivalId")) {
+                if(result.has(field))require(result.getString(field)==requested.getString(field))
+                if(status=="authorized")require(result.has(field))
+            }
+        }
         if(result.has("chainId")){
             require(result.getString("installationId")==stored.getString("installationId"))
             val expected=JSONObject(stored.getString("enrollmentPayload")).getJSONObject("dossier").getString("chainId")
@@ -195,6 +219,11 @@ internal class ApiTabletAuthService(
     }
     private fun publicState(stored:JSONObject):JSONObject{
         val result=JSONObject().put("status",stored.optString("status","not_enrolled")).put("installationId",stored.getString("installationId"))
+        stored.optString("enrollmentPayload").takeIf{it.isNotBlank()}?.let {
+            result.put("enrollmentPrepared",true)
+            val payload=JSONObject(it)
+            if(payload.has("organizationId"))result.put("requestedScope",JSONObject().put("organizationId",payload.getString("organizationId")).put("festivalId",payload.getString("festivalId")))
+        }
         stored.optJSONObject("binding")?.let{binding->for(field in PUBLIC_FIELDS)if(binding.has(field))result.put(field,binding.get(field))}
         if(stored.has("requestId"))result.put("requestId",stored.getString("requestId"))
         if(stored.has("checkedAt"))result.put("checkedAt",stored.getString("checkedAt"))
@@ -207,7 +236,7 @@ internal class ApiTabletAuthService(
         return result
     }
     private fun failure(code:String):JSONObject{
-        try{vault.read()?.let{if(code in setOf("revoked","authorization_denied","needs_recovery","rejected","session_expired")){it.put("status",code);vault.write(it)}}}catch(_:Exception){}
+        try{vault.read()?.let{if(code in setOf("revoked","authorization_denied","needs_recovery","rejected","session_expired","invitation_expired","attempts_exceeded")){it.put("status",code);vault.write(it)}}}catch(_:Exception){}
         return try{vault.read()?.let{publicState(it).put("status",code)}?:state(code)}catch(_:Exception){state(code)}
     }
     private fun validateSession(value:JSONObject){require(value.getString("access_token").isNotBlank()&&value.getString("refresh_token").isNotBlank()&&SyncProtocol.safeSequence(value.get("expires_at"))>now()&&value.getString("token_type")=="bearer")}

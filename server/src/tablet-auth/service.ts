@@ -418,6 +418,7 @@ export function createAuthService(
         publicKey: string
         operationRequestId: string
         dossier: Dossier
+        requestedScope?: Scope
       },
       proof: Proof,
     ) {
@@ -449,6 +450,17 @@ export function createAuthService(
             expiresAt: existing.expiresAt.toISOString(),
           }
         }
+        if (
+          existing &&
+          ['pending', 'approved'].includes(existing.status) &&
+          existing.expiresAt > new Date() &&
+          !(
+            existing.status === 'approved' &&
+            ((existing.invitationExpiresAt && existing.invitationExpiresAt <= new Date()) ||
+              existing.attempts >= 5)
+          )
+        )
+          reject('EVENT_CONTENT_CONFLICT', 409)
         const value: AuthEnrollment = {
           documentSchemaVersion: 1,
           authVersion: 1,
@@ -456,6 +468,7 @@ export function createAuthService(
           installationId: body.installationId,
           publicKeySpki: body.publicKey,
           dossierCanonical: stable(body.dossier),
+          ...(body.requestedScope ? { requestedScope: body.requestedScope } : {}),
           operationRequestId: body.operationRequestId,
           requestFingerprint: fingerprint,
           status: 'pending',
@@ -481,6 +494,9 @@ export function createAuthService(
         const value = await requests.findOne({ requestId, authVersion: 1 }, { session })
         if (
           !value ||
+          (value.requestedScope &&
+            (value.requestedScope.organizationId !== scope.organizationId ||
+              value.requestedScope.festivalId !== scope.festivalId)) ||
           (value.approvedScope &&
             (value.approvedScope.organizationId !== scope.organizationId ||
               value.approvedScope.festivalId !== scope.festivalId))
@@ -490,6 +506,7 @@ export function createAuthService(
           requestId,
           installationId: value!.installationId,
           status: value!.status,
+          ...(value!.requestedScope ? { requestedScope: value!.requestedScope } : {}),
           dossier: JSON.parse(value!.dossierCanonical) as unknown,
           publicKeyFingerprint: digest(value!.publicKeySpki),
           expiresAt: value!.expiresAt.toISOString(),
@@ -513,8 +530,21 @@ export function createAuthService(
           .find(
             {
               authVersion: 1,
-              'approvedScope.organizationId': scope.organizationId,
-              'approvedScope.festivalId': scope.festivalId,
+              $and: [
+                {
+                  $or: [
+                    {
+                      'requestedScope.organizationId': scope.organizationId,
+                      'requestedScope.festivalId': scope.festivalId,
+                    },
+                    {
+                      requestedScope: { $exists: false },
+                      'approvedScope.organizationId': scope.organizationId,
+                      'approvedScope.festivalId': scope.festivalId,
+                    },
+                  ],
+                },
+              ],
               ...(after
                 ? {
                     $or: [
@@ -536,6 +566,7 @@ export function createAuthService(
           requestId: row.requestId,
           installationId: row.installationId,
           status: row.status,
+          ...(row.requestedScope ? { requestedScope: row.requestedScope } : {}),
           expiresAt: row.expiresAt.toISOString(),
         }))
         const last = rows[limit - 1]
@@ -573,6 +604,9 @@ export function createAuthService(
         const request = await requests.findOne({ requestId, authVersion: 1 }, { session })
         if (
           !request ||
+          (request.requestedScope &&
+            (request.requestedScope.organizationId !== body.organizationId ||
+              request.requestedScope.festivalId !== body.festivalId)) ||
           (request.approvedScope &&
             (request.approvedScope.organizationId !== body.organizationId ||
               request.approvedScope.festivalId !== body.festivalId))
@@ -899,6 +933,7 @@ export function createAuthService(
         return {
           requestId,
           installationId,
+          ...(request.requestedScope ? request.requestedScope : {}),
           status:
             request.status === 'rejected'
               ? 'rejected'

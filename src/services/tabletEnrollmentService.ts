@@ -7,6 +7,9 @@ import {
 import { apiAuthConfiguration } from '../config/apiAuthRuntime'
 import { getResponsibleModeService } from './responsibleModeService'
 
+export const isEnrollmentUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.trim().toLowerCase())
+
 export const tabletAuthorizationMessages: Record<TabletAuthorizationStatus, string> = {
   not_configured: 'Synchronisation non configurée',
   not_enrolled: 'Tablette non enrôlée',
@@ -49,9 +52,16 @@ export class TabletEnrollmentService {
     return this.native.getStatus({ verify })
   }
 
-  async request(terminalId: string, reconnect = false): Promise<TabletAuthorization> {
+  async request(
+    options: Parameters<NativeTabletAuth['requestEnrollment']>[0],
+  ): Promise<TabletAuthorization> {
     this.requireResponsible()
-    return this.requiredNative().requestEnrollment({ terminalId, reconnect })
+    const native = this.requiredNative()
+    const organizationId = options.organizationId.trim().toLowerCase()
+    const festivalId = options.festivalId.trim().toLowerCase()
+    if (!isEnrollmentUuid(organizationId) || !isEnrollmentUuid(festivalId))
+      throw new Error('Saisissez un identifiant UUID valide pour l’organisation et le festival.')
+    return native.requestEnrollment({ ...options, organizationId, festivalId })
   }
 
   async activate(invitationCode: string): Promise<TabletAuthorization> {

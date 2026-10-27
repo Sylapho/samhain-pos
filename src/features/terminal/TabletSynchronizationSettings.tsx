@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button'
 import type { TabletAuthorization } from '../../native/tabletAuth'
 import {
   tabletAuthorizationMessages,
+  isEnrollmentUuid,
   tabletEnrollmentService,
   type TabletEnrollmentService,
 } from '../../services/tabletEnrollmentService'
@@ -31,12 +32,40 @@ export function TabletSynchronizationSettings({
   const [festivalId, setFestivalId] = useState('')
   const [chainId, setChainId] = useState('')
   const [replacesInstallationId, setReplacesInstallationId] = useState('')
+  const [requestedOrganization, setRequestedOrganization] = useState('')
+  const [requestedFestival, setRequestedFestival] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const newRequest = [
+    'rejected',
+    'revoked',
+    'session_expired',
+    'attempts_exceeded',
+    'invitation_expired',
+    'authorization_denied',
+  ].includes(authorization.status)
+  const scopeLocked =
+    (!!authorization.enrollmentPrepared && !newRequest) ||
+    (!!authorization.requestedScope && !newRequest)
+  const requestOrganization = scopeLocked
+    ? (authorization.requestedScope?.organizationId ?? '')
+    : requestedOrganization
+  const requestFestival = scopeLocked
+    ? (authorization.requestedScope?.festivalId ?? '')
+    : requestedFestival
+  const validScope = isEnrollmentUuid(requestOrganization) && isEnrollmentUuid(requestFestival)
   useEffect(() => {
     if (service.initialStatus().status === 'not_configured') return
     let active = true
     void service.status().then(
       (value) => {
-        if (active) setAuthorization(value)
+        if (active) {
+          setAuthorization(value)
+          setRequestedOrganization(
+            value.requestedScope?.organizationId ?? value.organizationId ?? '',
+          )
+          setRequestedFestival(value.requestedScope?.festivalId ?? value.festivalId ?? '')
+          setLoaded(true)
+        }
       },
       () => {
         if (active) setError('Impossible de lire l’autorisation. Les ventes restent locales.')
@@ -64,6 +93,7 @@ export function TabletSynchronizationSettings({
     setError(null)
     try {
       setAuthorization(await operation())
+      setLoaded(true)
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -94,29 +124,73 @@ export function TabletSynchronizationSettings({
       ) : null}
       {authorization.status !== 'not_configured' ? (
         <>
+          <label className="mt-3 block font-bold">
+            Organisation — Identifiant UUID
+            <input
+              className={inputStyle}
+              required
+              autoComplete="off"
+              spellCheck={false}
+              readOnly={scopeLocked}
+              disabled={pending || !loaded}
+              value={requestOrganization}
+              onChange={(event) => setRequestedOrganization(event.target.value)}
+              aria-invalid={!!requestOrganization && !isEnrollmentUuid(requestOrganization)}
+            />
+          </label>
+          {requestOrganization && !isEnrollmentUuid(requestOrganization) ? (
+            <p role="alert">L’identifiant de l’organisation doit être un UUID valide.</p>
+          ) : null}
+          <label className="mt-3 block font-bold">
+            Festival — Identifiant UUID
+            <input
+              className={inputStyle}
+              required
+              autoComplete="off"
+              spellCheck={false}
+              readOnly={scopeLocked}
+              disabled={pending || !loaded}
+              value={requestFestival}
+              onChange={(event) => setRequestedFestival(event.target.value)}
+              aria-invalid={!!requestFestival && !isEnrollmentUuid(requestFestival)}
+            />
+          </label>
+          {requestFestival && !isEnrollmentUuid(requestFestival) ? (
+            <p role="alert">L’identifiant du festival doit être un UUID valide.</p>
+          ) : null}
+          {authorization.requestedScope ? (
+            <p className="mt-2 break-all text-sm">
+              Périmètre demandé : organisation {authorization.requestedScope.organizationId},
+              festival {authorization.requestedScope.festivalId}. L’approbation serveur reste
+              obligatoire.
+            </p>
+          ) : null}
+          {newRequest ? (
+            <p className="mt-2 text-sm">
+              Une nouvelle demande remplacera le dossier d’enrôlement. L’identité et les ventes
+              locales sont conservées.
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <Button disabled={pending} onClick={() => void run(() => service.status(true))}>
               Vérifier / rafraîchir la session
             </Button>
             <Button
-              disabled={pending || authorization.status === 'authorized'}
+              disabled={pending || !loaded || !validScope || authorization.status === 'authorized'}
               onClick={() =>
                 void run(() =>
-                  service.request(
+                  service.request({
                     terminalId,
-                    [
-                      'session_expired',
-                      'needs_recovery',
-                      'revoked',
-                      'authorization_denied',
-                      'attempts_exceeded',
-                      'rejected',
-                    ].includes(authorization.status),
-                  ),
+                    organizationId: requestOrganization,
+                    festivalId: requestFestival,
+                    reconnect: newRequest,
+                  }),
                 )
               }
             >
-              Demander l’enrôlement / reconnecter
+              {newRequest
+                ? 'Créer une nouvelle demande / reconnecter'
+                : 'Demander l’enrôlement / reconnecter'}
             </Button>
           </div>
           {authorization.requestId ? (
@@ -150,8 +224,14 @@ export function TabletSynchronizationSettings({
                 disabled={pending}
                 onClick={() => {
                   setChainId(authorization.chainId ?? '')
-                  setOrganizationId(authorization.organizationId ?? '')
-                  setFestivalId(authorization.festivalId ?? '')
+                  setOrganizationId(
+                    authorization.requestedScope?.organizationId ??
+                      authorization.organizationId ??
+                      '',
+                  )
+                  setFestivalId(
+                    authorization.requestedScope?.festivalId ?? authorization.festivalId ?? '',
+                  )
                   setManagerAction('approve')
                 }}
               >
@@ -163,6 +243,14 @@ export function TabletSynchronizationSettings({
                 disabled={pending}
                 onClick={() => {
                   setChainId(authorization.chainId ?? '')
+                  setOrganizationId(
+                    authorization.requestedScope?.organizationId ??
+                      authorization.organizationId ??
+                      '',
+                  )
+                  setFestivalId(
+                    authorization.requestedScope?.festivalId ?? authorization.festivalId ?? '',
+                  )
                   setManagerAction('reject')
                 }}
               >
@@ -259,6 +347,7 @@ export function TabletSynchronizationSettings({
                       required
                       className={inputStyle}
                       value={organizationId}
+                      readOnly={!!authorization.requestedScope}
                       onChange={(event) => setOrganizationId(event.target.value)}
                     />
                   </label>
@@ -268,6 +357,7 @@ export function TabletSynchronizationSettings({
                       required
                       className={inputStyle}
                       value={festivalId}
+                      readOnly={!!authorization.requestedScope}
                       onChange={(event) => setFestivalId(event.target.value)}
                     />
                   </label>

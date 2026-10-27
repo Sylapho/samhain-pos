@@ -17,6 +17,85 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ApiTabletAuthServiceTest {
+    @Test fun reconnectUsesEffectiveSessionExpiryAndPreservesIdentity() {
+        val vault=Vault(); val http=transport(vault)
+        val auth=service(vault,http)
+        auth.requestEnrollment("terminal",organization,festival)
+        auth.activate("invitation")
+        val before=vault.read()!!
+        val expired=service(vault,http,now={1001})
+        assertEquals("session_expired",expired.status().getString("status"))
+        val next=expired.requestEnrollment("terminal",organization,festival,true)
+        assertEquals("pending",next.getString("status"))
+        assertEquals(before.getString("installationId"),next.getString("installationId"))
+        assertNotEquals(before.getString("enrollmentPayload"),vault.read()!!.getString("enrollmentPayload"))
+    }
+    @Test fun scopePersistsBeforeDiscoveryAndRejectedRequestCanBeExplicitlyReplaced() {
+        val vault=Vault(); val normal=transport(vault)
+        val offline=object:ApiAuthTransport by normal {
+            override fun get(path:String,token:String?):JSONObject = throw TabletAuthFailure("server_unreachable")
+        }
+        service(vault,offline).requestEnrollment("terminal",organization,festival)
+        val before=vault.read()!!
+        val original=before.getString("enrollmentPayload")
+        assertEquals(organization,JSONObject(original).getString("organizationId"))
+        val restarted=service(vault,normal)
+        assertEquals("pending",restarted.status(true).getString("status"))
+        assertEquals(original,vault.read()!!.getString("enrollmentPayload"))
+        val stored=vault.read()!!; stored.put("status","rejected");vault.write(stored)
+        val replaced=restarted.requestEnrollment("terminal",festival,organization,true)
+        assertEquals("pending",replaced.getString("status"))
+        assertEquals(before.getString("installationId"),replaced.getString("installationId"))
+        assertEquals(before.getString("publicKey"),vault.read()!!.getString("publicKey"))
+        val next=JSONObject(vault.read()!!.getString("enrollmentPayload"))
+        assertNotEquals(JSONObject(original).getString("operationRequestId"),next.getString("operationRequestId"))
+        assertEquals(festival,next.getString("organizationId"))
+    }
+    @Test fun enrollmentScopeSurvivesLostResponseRestartAndExactRetry() {
+        val vault=Vault(); val normal=transport(vault)
+        var sent:String?=null
+        val lost=object:ApiAuthTransport by normal {
+            override fun signed(path:String,token:String?,raw:String,nonce:String,signature:String):JSONObject {
+                sent=raw
+                assertEquals(raw,vault.read()!!.getString("enrollmentPayload"))
+                throw TabletAuthFailure("server_unreachable")
+            }
+        }
+        val pending=service(vault,lost).requestEnrollment("terminal",organization,festival)
+        assertEquals("server_unreachable",pending.getString("status"))
+        assertEquals(organization,pending.getJSONObject("requestedScope").getString("organizationId"))
+        val before=vault.read()!!
+        assertEquals(festival,JSONObject(sent!!).getString("festivalId"))
+        val retry=object:ApiAuthTransport by normal {
+            override fun signed(path:String,token:String?,raw:String,nonce:String,signature:String):JSONObject {
+                assertEquals(sent,raw)
+                return normal.signed(path,token,raw,nonce,signature)
+            }
+        }
+        val restarted=service(vault,retry)
+        assertEquals(festival,restarted.status().getJSONObject("requestedScope").getString("festivalId"))
+        assertEquals("pending",restarted.status(true).getString("status"))
+        assertEquals(before.getString("installationId"),vault.read()!!.getString("installationId"))
+        assertEquals(sent,vault.read()!!.getString("enrollmentPayload"))
+        restarted.requestEnrollment("terminal",festival,organization)
+        assertEquals(sent,vault.read()!!.getString("enrollmentPayload"))
+        restarted.requestEnrollment("terminal",organization,festival,true)
+        assertEquals(sent,vault.read()!!.getString("enrollmentPayload"))
+    }
+    @Test fun invalidScopeDoesNotCreateIdentityAndForeignActivationDoesNotStoreSession() {
+        val vault=Vault(); val normal=transport(vault)
+        assertEquals("needs_recovery",service(vault,normal).requestEnrollment("terminal","bad",festival).getString("status"))
+        assertNull(vault.data)
+        val auth=service(vault,normal)
+        auth.requestEnrollment("terminal",organization,festival)
+        val foreign=object:ApiAuthTransport by normal {
+            override fun signed(path:String,token:String?,raw:String,nonce:String,signature:String):JSONObject =
+                normal.signed(path,token,raw,nonce,signature).put("organizationId",festival)
+        }
+        assertEquals("needs_recovery",service(vault,foreign).activate("invitation").getString("status"))
+        assertFalse(vault.read()!!.has("session"))
+        assertEquals(organization,auth.status().getJSONObject("requestedScope").getString("organizationId"))
+    }
     @Test fun catalogDownloadUsesApiProofAndRejectsCorruptionForeignScopeAndDisconnect() {
         val vault = Vault()
         val binding = JSONObject().put("organizationId","org").put("festivalId","festival").put("chainId","chain").put("enrollmentGeneration",1)
@@ -57,6 +136,8 @@ class ApiTabletAuthServiceTest {
         override fun write(value: JSONObject) { data = value.toString() }
         override fun clear() { data = null }
     }
+    private val organization = "a1b6b2ab-e2e9-4a81-b5c1-56c54d7d22f3"
+    private val festival = "18bdec64-385a-4f86-958f-184a81635c96"
     private val config = ApiAuthConfiguration("configured", "https://api.example.invalid", "11111111-1111-4111-8111-111111111111")
     private val signer = object : InstallationSigner {
         override fun publicKey() = "test-public"
@@ -78,8 +159,8 @@ class ApiTabletAuthServiceTest {
                     assertTrue(vault.read()!!.has("rotationStartedAt"))
                     rotations.incrementAndGet(); session(3000, "api-rotated")
                 }
-                path.endsWith("/activate") -> JSONObject().put("status", "authorized").put("installationId", vault.read()!!.getString("installationId")).put("chainId", "chain").put("session", session())
-                path.endsWith("/status") -> JSONObject().put("status", "authorized")
+                path.endsWith("/activate") -> JSONObject().put("organizationId",organization).put("festivalId",festival).put("status", "authorized").put("installationId", vault.read()!!.getString("installationId")).put("chainId", "chain").put("session", session())
+                path.endsWith("/status") -> JSONObject().put("status", "authorized").put("organizationId",organization).put("festivalId",festival)
                 else -> JSONObject().put("status", "pending").put("requestId", "request")
             }
         }
@@ -87,7 +168,7 @@ class ApiTabletAuthServiceTest {
     @Test fun migratesIdentityAndKeyWithoutCopyingSupabaseTokensOrMutatingPreviousVault() {
         val previous = Vault(); previous.write(JSONObject().put("installationId", "existing-installation").put("session", JSONObject().put("access_token", "old-supabase-secret")))
         val before = previous.data; val vault = Vault()
-        val result = service(vault, transport(vault), previous).requestEnrollment("terminal")
+        val result = service(vault, transport(vault), previous).requestEnrollment("terminal", organization, festival)
         assertEquals("pending", result.getString("status"))
         assertEquals("existing-installation", result.getString("installationId"))
         assertEquals(before, previous.data)
@@ -101,7 +182,7 @@ class ApiTabletAuthServiceTest {
             override fun sign(message: ByteArray): String = throw IllegalStateException("lost key")
         }
         val vault = Vault()
-        assertEquals("needs_recovery", service(vault, transport(vault), previous, broken).requestEnrollment("terminal").getString("status"))
+        assertEquals("needs_recovery", service(vault, transport(vault), previous, broken).requestEnrollment("terminal", organization, festival).getString("status"))
         assertNull(vault.data)
     }
     @Test fun changingApiDestinationKeepsIdentityFromItsSeparateEncryptedIdentityRecord() {
@@ -110,7 +191,7 @@ class ApiTabletAuthServiceTest {
         val auth = ApiTabletAuthService(config, vault, Vault(), signer, transport(vault), {
             JSONObject().put("chainId", "existing-chain").put("terminalId", it).put("restored", false).put("prefix", JSONArray()).put("legacyOrderIds", JSONArray())
         }, { bound = true }, identityVault = identity)
-        val result = auth.requestEnrollment("terminal")
+        val result = auth.requestEnrollment("terminal", organization, festival)
         assertEquals("existing-api-installation", result.getString("installationId"))
         assertEquals("pending", result.getString("status"))
         assertFalse(bound)
@@ -118,7 +199,7 @@ class ApiTabletAuthServiceTest {
     }
     @Test fun refreshSerializesAcrossNativeInstancesAndPersistsBeforeUse() {
         val vault = Vault(); val rotations = AtomicInteger(); val http = transport(vault, rotations)
-        val auth = service(vault, http); auth.requestEnrollment("terminal"); auth.activate("test-invitation")
+        val auth = service(vault, http); auth.requestEnrollment("terminal", organization, festival); auth.activate("test-invitation")
         val pool = Executors.newFixedThreadPool(4)
         try {
             val results = pool.invokeAll((1..4).map { Callable { service(vault, http, now = { 990 }).status(true) } })
@@ -130,7 +211,7 @@ class ApiTabletAuthServiceTest {
     }
     @Test fun lostRefreshResponseRetriesExactBytesOnceBoundedAndDoesNotEraseCredentials() {
         val vault = Vault(); val normal = transport(vault); val auth = service(vault, normal)
-        auth.requestEnrollment("terminal"); auth.activate("test-invitation")
+        auth.requestEnrollment("terminal", organization, festival); auth.activate("test-invitation")
         var sent: String? = null
         val lost = object : ApiAuthTransport by normal {
             override fun signed(path: String, token: String?, raw: String, nonce: String, signature: String): JSONObject {

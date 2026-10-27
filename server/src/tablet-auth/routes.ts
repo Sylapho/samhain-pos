@@ -74,13 +74,19 @@ export function authRoutes(service: AuthService): FastifyPluginAsync {
     })
     api.post('/tablet-enrollments', async (request) => {
       const body = record(request.body)
-      keys(body, ['operationRequestId', 'installationId', 'publicKey', 'dossier'])
+      keys(
+        body,
+        ['operationRequestId', 'installationId', 'publicKey', 'dossier'],
+        ['organizationId', 'festivalId'],
+      )
+      const requested = 'organizationId' in body || 'festivalId' in body ? scope(body) : undefined
       return service.request(
         {
           operationRequestId: uuid(body.operationRequestId),
           installationId: uuid(body.installationId),
           publicKey: text(body.publicKey, 2000),
           dossier: dossier(body.dossier),
+          ...(requested ? { requestedScope: requested } : {}),
         },
         proof(request),
       )

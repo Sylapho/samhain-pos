@@ -28,6 +28,8 @@ export type TabletAuthorization = {
   enrollmentGeneration?: number
   serverHead?: { sequence: number; hash: string | null }
   prepared?: boolean
+  enrollmentPrepared?: boolean
+  requestedScope?: { organizationId: string; festivalId: string }
   checkedAt?: string
 }
 
@@ -48,6 +50,8 @@ export interface NativeTabletAuth {
   getStatus(options: { verify: boolean }): Promise<TabletAuthorization>
   requestEnrollment(options: {
     terminalId: string
+    organizationId: string
+    festivalId: string
     reconnect: boolean
   }): Promise<TabletAuthorization>
   activate(options: { invitationCode: string }): Promise<TabletAuthorization>
