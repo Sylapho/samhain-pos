@@ -5,6 +5,10 @@
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
+    "dashboard:build": "tsc -p dashboard/tsconfig.json && vite build --config dashboard/vite.config.ts",
+    "dashboard:package": "node scripts/package-dashboard.mjs",
+    "dashboard:start": "pnpm --dir server dashboard",
+    "dashboard": "pnpm dashboard:build && pnpm dashboard:start",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",

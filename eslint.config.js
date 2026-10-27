@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist', 'android', 'server/dist', 'server/node_modules'] },
+  { ignores: ['dist', 'dashboard/dist', 'android', 'server/dist', 'server/node_modules'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
