@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { epsonUsbPrinter, type UsbPrinterDevice } from '../../native/epsonUsbPrinter'
 import { getPreferredUsbPrinter } from '../../services/printerSelectionService'
 import { printUsbTestTicket } from '../../services/printerTestService'
@@ -58,6 +58,10 @@ function openDialog(onStatusChanged = vi.fn()) {
 }
 
 describe('configuration de l’imprimante', () => {
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
@@ -74,6 +78,22 @@ describe('configuration de l’imprimante', () => {
     expect(await screen.findByText('Imprimante non détectée')).toBeInTheDocument()
     expect(screen.getByText(/Aucune imprimante détectée/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Connecter' })).toBeDisabled()
+  })
+
+  it('ne garde pas un ancien statut prêt et conserve le bouton Actualiser', async () => {
+    vi.useFakeTimers()
+    openDialog()
+    await act(() => vi.advanceTimersByTimeAsync(0))
+    expect(screen.getByText('Imprimante connectée')).toBeInTheDocument()
+    await act(() => vi.advanceTimersByTimeAsync(60_000))
+    expect(screen.getByText('État de l’imprimante non vérifié')).toBeInTheDocument()
+    expect(screen.queryByText('L’imprimante est connectée et prête.')).not.toBeInTheDocument()
+    expect(epsonUsbPrinter.getStatus).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Actualiser' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(screen.getByText('Imprimante connectée')).toBeInTheDocument()
   })
 
   it('demande la permission puis annonce l’imprimante prête', async () => {

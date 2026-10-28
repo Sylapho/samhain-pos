@@ -135,3 +135,32 @@ Conclusion à signer : incidents et divergences, critères non obtenus, archive
 finale vérifiée, décision GO/NO-GO et version concernée. Une case vide n'est pas
 une réussite. Voir [runbook](supabase-deployment-runbook.md) et
 [matrice de preuves](supabase-integration-validation.md).
+
+## Surveillance du statut — issue #103
+
+Scénarios à exécuter pour #19, sur la tablette et sa WebView réelles. Cette liste est une procédure,
+pas un compte rendu de tests exécutés. Noter version APK/WebView, horaires et observations.
+Voir [le mécanisme de surveillance et de coordination](printer-status.md).
+
+1. Au lancement visible : vérifier le premier contrôle, puis une actualisation à 60 secondes,
+   sans sondes à trois secondes. Sur navigateur web : aucun polling USB répété.
+2. Débrancher/rebrancher l’imprimante ; vérifier « Non détectée », puis « Connectée » au contrôle
+   suivant ou après Actualiser, sans bloquer la saisie ni le paiement d’une vente de test.
+3. Ouvrir/fermer le capot et retirer/remettre le papier. Vérifier les libellés correspondants, puis
+   leur disparition uniquement après une nouvelle observation matérielle.
+4. Laisser l’application en arrière-plan au moins trois minutes, écran éteint puis dans une autre
+   application. Contrôler avec instrumentation/debugger que le timeout est supprimé et qu’aucun
+   appel natif `getStatus` supplémentaire n’est demandé. Au retour, vérifier le contrôle immédiat
+   et l’absence de statut « Connectée » issu seulement de l’ancienne observation. Répéter ces cycles.
+5. Imprimer plusieurs commandes successives. Faire coïncider un transfert long avec l’échéance
+   du contrôle, puis avec Actualiser et le retour au premier plan. Observer « Impression en cours »
+   et vérifier qu’aucune sonde ne revendique l’interface entre les documents ou leurs coupes.
+6. Provoquer une déconnexion, un manque de papier ou un capot ouvert pendant ces essais. Vérifier
+   l’absence d’interruption causée par une sonde, les résultats partiels/ambigus conservés et
+   l’absence de réimpression automatique. Reprendre uniquement par les actions manuelles existantes.
+7. Après erreur, vérifier qu’une nouvelle observation et une impression normale sont possibles,
+   confirmant la libération des ressources. Laisser une observation vieillir au-delà de 60 secondes
+   avec une sonde impossible : aucune certitude « prête » ne doit subsister, y compris en configuration.
+
+Pour chaque étape, relever les documents demandés/sortis, les états persistés, l’absence de double
+revendication USB et les messages affichés. Tout écart nécessite un diagnostic avant validation #19.

@@ -46,6 +46,16 @@ describe('statut réel de l’imprimante', () => {
     vi.mocked(epsonUsbPrinter.getStatus).mockResolvedValue(readyHardwareStatus)
   })
 
+  it.each([
+    ['USB_PERMISSION_REQUIRED', 'permission-required'],
+    ['USB_PRINTER_BUSY', 'printing'],
+    ['USB_STATUS_BUSY', 'status-unavailable'],
+  ])('traduit %s sans annoncer une disponibilité matérielle', async (code, status) => {
+    vi.mocked(epsonUsbPrinter.getDevices).mockResolvedValue({ devices: [printer] })
+    vi.mocked(epsonUsbPrinter.getStatus).mockRejectedValue({ code })
+    await expect(getPrinterStatus()).resolves.toBe(status)
+  })
+
   it('n’annonce pas une imprimante sur une plateforme sans intégration USB', async () => {
     vi.mocked(epsonUsbPrinter.isAndroidNative).mockReturnValue(false)
 

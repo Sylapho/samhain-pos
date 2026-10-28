@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button } from '../../components/ui/Button'
-import { epsonUsbPrinter, type UsbPrinterDevice } from '../../native/epsonUsbPrinter'
+import {
+  epsonUsbPrinter,
+  isUsbPrinting,
+  subscribeUsbPrinting,
+  type UsbPrinterDevice,
+} from '../../native/epsonUsbPrinter'
+import { PRINTER_CHECK_INTERVAL_MS } from '../status/usePrinterStatus'
 import {
   getPrinterStatusForDevice,
   printerStatusFromError,
@@ -23,7 +29,7 @@ const configurationStatusLabels: Record<PrinterStatus, string> = {
   unavailable: 'Réglage disponible uniquement sur la tablette',
   'permission-required': 'Connexion à autoriser',
   ready: 'Imprimante connectée',
-  printing: 'Impression de test en cours…',
+  printing: 'Impression en cours',
   disconnected: 'Imprimante non détectée',
   'paper-out': 'Plus de papier',
   'cover-open': 'Capot ouvert',
@@ -45,10 +51,41 @@ export function PrinterConfigurationDialog({
     getPreferredUsbPrinter(),
   )
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [status, setStatus] = useState<PrinterStatus>(initialStatus)
+  const [status, setStatus] = useState<PrinterStatus>(() =>
+    isUsbPrinting() ? 'unknown' : initialStatus,
+  )
   const [message, setMessage] = useState<Message | null>(null)
   const [busy, setBusy] = useState(false)
   const androidNative = epsonUsbPrinter.isAndroidNative()
+  const printing = useSyncExternalStore(subscribeUsbPrinting, isUsbPrinting, () => false)
+
+  useEffect(
+    () =>
+      subscribeUsbPrinting(() => {
+        if (isUsbPrinting()) {
+          setStatus((current) => (current === 'ready' ? 'status-unavailable' : current))
+          setMessage(null)
+        }
+      }),
+    [],
+  )
+
+  useEffect(() => {
+    if (status !== 'ready') return
+    const expire = () => {
+      setStatus('status-unavailable')
+      setMessage(null)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') expire()
+    }
+    const timer = window.setTimeout(expire, PRINTER_CHECK_INTERVAL_MS)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [status])
 
   const relevantDevices = useMemo(
     () => devices.filter((device) => device.epson || device.hasBulkOutEndpoint),
@@ -95,6 +132,7 @@ export function PrinterConfigurationDialog({
           }
         } else {
           const nextStatus = await getPrinterStatusForDevice(next)
+          if (nextStatus === 'printing') return
           setStatus(nextStatus)
           if (!preserveMessage && nextStatus === 'ready') {
             setMessage({ kind: 'success', text: 'L’imprimante est connectée et prête.' })
@@ -124,6 +162,10 @@ export function PrinterConfigurationDialog({
       const saved = savePreferredUsbPrinter(device)
       setPreferred(saved)
       const nextStatus = await getPrinterStatusForDevice(device)
+      if (nextStatus === 'printing') {
+        setMessage(null)
+        return
+      }
       setStatus(nextStatus)
       setMessage({
         kind: nextStatus === 'ready' ? 'success' : 'info',
@@ -175,6 +217,10 @@ export function PrinterConfigurationDialog({
       const saved = savePreferredUsbPrinter(connectedDevice)
       setPreferred(saved)
       const nextStatus = await getPrinterStatusForDevice(connectedDevice)
+      if (nextStatus === 'printing') {
+        setMessage(null)
+        return
+      }
       setStatus(nextStatus)
       setMessage({
         kind: nextStatus === 'ready' ? 'success' : 'error',
@@ -227,11 +273,7 @@ export function PrinterConfigurationDialog({
       aria-labelledby="printer-configuration-title"
     >
       <header className="sticky top-0 z-10 flex min-h-16 items-center gap-4 border-b border-stone-700 bg-[#18231e] px-4 py-2 text-white sm:px-6">
-        <Button
-          variant="headerSecondary"
-          className="min-h-11 px-4 py-2"
-          onClick={onClose}
-        >
+        <Button variant="headerSecondary" className="min-h-11 px-4 py-2" onClick={onClose}>
           Retour
         </Button>
         <h1 id="printer-configuration-title" className="text-xl font-black">
@@ -243,7 +285,10 @@ export function PrinterConfigurationDialog({
         <section className="border-b border-stone-300 pb-5" aria-label="État de l’imprimante">
           <p className="text-sm font-bold text-stone-600">État actuel</p>
           <p className="mt-1 text-2xl font-black" aria-live="polite">
-            {configurationStatusLabels[status]}
+            {configurationStatusLabels[printing ? 'printing' : status]}
+          </p>
+          <p className="mt-1 text-sm font-bold text-stone-600">
+            Le statut correspond au dernier contrôle. Actualisez-le en cas de doute.
           </p>
           <p className="mt-3 font-bold">
             Imprimante sélectionnée : <span className="font-black">{selectedLabel}</span>
