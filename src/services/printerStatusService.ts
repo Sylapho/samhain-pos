@@ -50,6 +50,7 @@ export function printerStatusFromHardware(status: EpsonPrinterHardwareStatus): P
 
 export function printerStatusFromError(error: unknown): PrinterStatus {
   const code = getNativeErrorCode(error)
+  if (code === 'USB_PRINTER_BUSY') return 'printing'
   if (code === 'USB_DEVICE_NOT_FOUND') return 'disconnected'
   if (code?.startsWith('USB_PERMISSION')) return 'permission-required'
   return 'status-unavailable'

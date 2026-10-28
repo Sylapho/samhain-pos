@@ -175,8 +175,11 @@ export function App({
   })
   const [printerOverride, setPrinterOverride] = useState<PrinterStatus | null>(null)
   const [printerConfigurationOpen, setPrinterConfigurationOpen] = useState(false)
-  const { status: realPrinterStatus, refresh: refreshPrinterStatus } =
-    usePrinterStatus(probePrinterStatus)
+  const {
+    status: realPrinterStatus,
+    isStale: printerStatusStale,
+    refresh: refreshPrinterStatus,
+  } = usePrinterStatus(probePrinterStatus)
   const devPanelEnabled = shouldEnableDevPanel(import.meta.env)
   const printer = devPanelEnabled && printerOverride ? printerOverride : realPrinterStatus
   const feedbackTimer = useRef<number | null>(null)
@@ -648,6 +651,7 @@ export function App({
           </Button>
           <SystemStatus
             printer={printer}
+            isStale={printer === realPrinterStatus && printerStatusStale}
             onPrinterClick={() => setPrinterConfigurationOpen(true)}
           />
         </div>

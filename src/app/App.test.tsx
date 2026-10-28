@@ -652,7 +652,7 @@ describe('caisse', () => {
     render(<App probePrinterStatus={probePrinterStatus} />)
     await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
 
-    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     await vi.waitFor(() =>
       expect(screen.getByText('Imprimante : Non détectée')).toBeInTheDocument(),
     )
@@ -669,12 +669,12 @@ describe('caisse', () => {
     render(<App probePrinterStatus={probePrinterStatus} />)
     await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
 
-    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     await vi.waitFor(() =>
       expect(screen.getByText('Imprimante : Plus de papier')).toBeInTheDocument(),
     )
 
-    await vi.advanceTimersByTimeAsync(3_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     await vi.waitFor(() => expect(screen.getByText('Imprimante : Connectée')).toBeInTheDocument())
   })
 
