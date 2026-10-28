@@ -31,6 +31,21 @@ partielle, une URL invalide ou une destination non confirmée bloque la compilat
 Configuration entièrement absente : les échanges financiers sont désactivés. Aucune
 bascule vers Supabase ou vers une API de test.
 
+Avec une destination API valide, les variables Supabase héritées sont ignorées et
+Supabase est désactivé dans le manifeste compilé, même si ses anciennes valeurs
+sont incorrectes. Aucune confirmation `SAMHAIN_SUPABASE_PRODUCTION_URL` n'est alors
+nécessaire. Les deux confirmations `SAMHAIN_API_PRODUCTION_*` restent obligatoires.
+Avec `scripts/deploy-production.ps1`, elles peuvent être placées dans le même fichier
+de release contrôlé que la configuration de signature, via le paramètre `SecretsFile`.
+Elles doivent confirmer la destination réelle et ne sont pas déduites automatiquement
+des variables `VITE_*`.
+
+Le script `scripts/deploy-production.ps1` sélectionne un JDK 21 avant les commandes
+de build : `JAVA_HOME_21_X64`, `JAVA_HOME`, installations sous `%USERPROFILE%\.jdks`,
+JBR d'Android Studio, puis Java du PATH. Seul un JDK de version 21 est accepté ;
+Java 25 peut faire échouer les tests Robolectric de persistance des sessions.
+Pour imposer une installation précise, passer `-JavaHome 'C:\chemin\vers\jdk-21'`.
+
 `scripts/supabase-build.ts` conserve son nom historique et génère `samhain-build.json`
 dans `dist/`, puis `assets/public/` après Capacitor sync. Le bloc public `apiAuth`
 alimente aussi l’authentification et le worker ; aucun second fichier de configuration.

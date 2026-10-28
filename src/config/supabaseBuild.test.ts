@@ -65,6 +65,49 @@ describe('ressources Supabase compilées', () => {
     expect(await compile('production', {})).toContain('not_configured')
   })
 
+  it.each([
+    { VITE_SUPABASE_URL: 'incorrect' },
+    {
+      VITE_SUPABASE_URL: 'https://legacy.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_secret_do_not_ship',
+      VITE_SUPABASE_ENVIRONMENT: 'test',
+    },
+    {
+      VITE_SUPABASE_URL: 'https://legacy.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_legacy',
+      VITE_SUPABASE_ENVIRONMENT: 'production',
+    },
+    {
+      VITE_SUPABASE_URL: 'https://legacy.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_legacy',
+      VITE_SUPABASE_ENVIRONMENT: 'production',
+      SAMHAIN_SUPABASE_PRODUCTION_URL: 'https://legacy.supabase.co',
+    },
+  ])(
+    'ignore la configuration Supabase héritée quand la destination API est validée (%j)',
+    async (legacy) => {
+      const output = await compile(
+        'production',
+        {
+          ...legacy,
+          VITE_SAMHAIN_API_URL: 'https://api.example.invalid',
+          VITE_SAMHAIN_API_ENVIRONMENT: 'production',
+          VITE_SAMHAIN_API_DESTINATION_ID: '12345678-1234-4234-8234-123456789abc',
+          SAMHAIN_API_PRODUCTION_URL: 'https://api.example.invalid',
+          SAMHAIN_API_PRODUCTION_DESTINATION_ID: '12345678-1234-4234-8234-123456789abc',
+        },
+        'console.log(import.meta.env, __SUPABASE_CONFIGURATION__, __TABLET_API_CONFIGURATION__)',
+      )
+      expect(output).toContain('https://api.example.invalid')
+      expect(output).toContain('"supabase":{"status":"not_configured"}')
+      expect(output).not.toContain('legacy.supabase.co')
+      expect(output).not.toContain('sb_publishable_legacy')
+      expect(output).not.toContain('sb_secret_do_not_ship')
+      expect(output).not.toContain('incorrect')
+      expect(containsPrivilegedCredential(output)).toBe(false)
+    },
+  )
+
   it('bloque une clé privilégiée codée en dur et un JWT service_role', async () => {
     await expect(compile('production', {}, 'console.log("sb_secret_hardcoded")')).rejects.toThrow(
       /Secret serveur ou credential de session/,

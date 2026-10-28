@@ -43,6 +43,9 @@ describe('configuration publique de la destination API', () => {
   it('requiert les deux confirmations indépendantes pour une release', () => {
     const production = { ...environment, VITE_SAMHAIN_API_ENVIRONMENT: 'production' }
     expect(() => supabaseBuildConfiguration('production', production)).toThrow(/non confirmée/)
+    expect(() => supabaseBuildConfiguration('production', production)).toThrow(
+      /SAMHAIN_API_PRODUCTION_URL et SAMHAIN_API_PRODUCTION_DESTINATION_ID/,
+    )
     expect(
       resolveApiAuthConfiguration('production', {
         ...production,

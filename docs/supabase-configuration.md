@@ -4,6 +4,12 @@ L'[architecture #111](architecture-supabase-offline-first.md) reste la référen
 
 ## Variables et environnements
 
+Quand la destination API MongoDB est configurée et validée, la build ignore toutes les
+anciennes variables Supabase et embarque `supabase: { status: 'not_configured' }`.
+Une configuration Supabase incorrecte, incomplète ou non confirmée ne bloque donc pas
+cette destination et aucune ancienne URL/clé Supabase n'entre dans les ressources.
+Les règles ci-dessous s'appliquent lorsque l'API MongoDB n'est pas configurée.
+
 La configuration est **optionnelle**. Sans les trois variables publiques, les paramètres responsable indiquent « Synchronisation non configurée ». Une configuration partielle/invalide désactive seulement les échanges et expose une raison expurgée. Le démarrage, les repositories, les paiements et l'impression ne consultent pas cette configuration et n'attendent aucun réseau.
 
 | Variable                          | Valeur                                                                                                        |
