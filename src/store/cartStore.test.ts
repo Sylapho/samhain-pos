@@ -76,6 +76,60 @@ describe('cart store', () => {
     expect(useCartStore.getState().items[0]?.quantity).toBe(2)
   })
 
+  it('place chaque nouveau produit en tête du panier', () => {
+    const cart = useCartStore.getState()
+    cart.addItem(createCartItemDraft(burger))
+    cart.addItem(createCartItemDraft(coca))
+    cart.addItem(createCartItemDraft(water))
+
+    expect(useCartStore.getState().items.map((item) => item.productId)).toEqual([
+      water.id,
+      coca.id,
+      burger.id,
+    ])
+  })
+
+  it('remonte une ligne identique en incrémentant sa quantité sans changer son snapshot', () => {
+    const cart = useCartStore.getState()
+    const draft = createCartItemDraft(burger)
+    cart.addItem(draft)
+    const original = useCartStore.getState().items[0]!
+    cart.addItem(createCartItemDraft(coca))
+    cart.addItem(createCartItemDraft(water))
+    cart.addItem({ ...draft, unitPriceCents: draft.unitPriceCents + 100 })
+
+    const { items } = useCartStore.getState()
+    expect(items.map((item) => item.productId)).toEqual([burger.id, water.id, coca.id])
+    expect(items[0]).toEqual({ ...original, quantity: 2 })
+    expect(getCartTotalCents(items)).toBe(
+      2 * draft.unitPriceCents + coca.priceCents! + water.priceCents!,
+    )
+  })
+
+  it('conserve l’ordre lors des changements manuels de quantité et des suppressions', () => {
+    const cart = useCartStore.getState()
+    cart.addItem(createCartItemDraft(burger))
+    cart.addItem(createCartItemDraft(coca))
+    cart.addItem(createCartItemDraft(water))
+    const originalOrder = useCartStore.getState().items.map((item) => item.lineId)
+    const middleLineId = originalOrder[1]!
+
+    cart.incrementItem(middleLineId)
+    expect(useCartStore.getState().items.map((item) => item.lineId)).toEqual(originalOrder)
+    expect(useCartStore.getState().items[1]?.quantity).toBe(2)
+    cart.decrementItem(middleLineId)
+    expect(useCartStore.getState().items.map((item) => item.lineId)).toEqual(originalOrder)
+    expect(useCartStore.getState().items[1]?.quantity).toBe(1)
+
+    cart.removeItem(middleLineId)
+    expect(useCartStore.getState().items.map((item) => item.lineId)).toEqual([
+      originalOrder[0],
+      originalOrder[2],
+    ])
+    cart.decrementItem(originalOrder[0]!)
+    expect(useCartStore.getState().items.map((item) => item.lineId)).toEqual([originalOrder[2]])
+  })
+
   it('sépare deux variantes différentes', () => {
     useCartStore
       .getState()
