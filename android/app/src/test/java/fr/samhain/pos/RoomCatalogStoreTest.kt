@@ -39,6 +39,34 @@ class RoomCatalogStoreTest {
     }
 
     @Test
+    fun confidenceAndMarkerCommitTogetherAndRejectStaleSnapshot() = onDatabaseThread {
+        val source = product("seed", "Personnalisé", 650).put("active", false)
+            .put("dataConfidence", "temporary").put("variants", JSONArray().put(
+                JSONObject().put("id", "variant").put("name", "Format").put("priceCents", 750)))
+        store.initialize(JSONArray().put(source))
+        val stale = store.snapshot().put("distribution", JSONObject().put("publicationConfidenceMigratedV1", true))
+        store.update(JSONObject(source.toString()).put("name", "Édition concurrente"))
+        try { store.commit(stale); org.junit.Assert.fail("Stale migration accepted") }
+        catch (expected: IllegalArgumentException) { assertTrue(expected.message!!.contains("CATALOG_CHANGED")) }
+        assertTrue(store.snapshot().isNull("distribution"))
+
+        val snapshot = store.snapshot().put("distribution", JSONObject().put("publicationConfidenceMigratedV1", true))
+        val row = snapshot.getJSONArray("products").getJSONObject(0)
+        row.put("dataConfidence", "confirmed")
+        row.getJSONArray("variants").getJSONObject(0).put("dataConfidence", "confirmed")
+        store.commit(snapshot)
+        val after = RoomCatalogStore(database).snapshot()
+        assertTrue(after.getJSONObject("distribution").getBoolean("publicationConfidenceMigratedV1"))
+        val stored = after.getJSONArray("products").getJSONObject(0)
+        assertEquals("Édition concurrente", stored.getString("name"))
+        assertFalse(stored.getBoolean("active"))
+        assertEquals(650, stored.getInt("priceCents"))
+        assertEquals("confirmed", stored.getString("dataConfidence"))
+        assertEquals("confirmed", stored.getJSONArray("variants").getJSONObject(0).getString("dataConfidence"))
+        assertEquals(750, stored.getJSONArray("variants").getJSONObject(0).getInt("priceCents"))
+    }
+
+    @Test
     fun stagesAndActivatesWithAtomicRevisionAndKeepsLocalWrites() = onDatabaseThread {
         store.initialize(JSONArray().put(product("seed", "Initial", 500)))
         val first = store.snapshot()
@@ -79,11 +107,11 @@ class RoomCatalogStoreTest {
     fun rollbackRestoresCategoriesProductsAndVersionAfterMidCommitFailure() = onDatabaseThread {
         store.initialize(JSONArray().put(product("seed", "Initial", 500)))
         val before = store.snapshot()
-        val snapshot = JSONObject(before.toString()).put("distribution", JSONObject())
+        val snapshot = JSONObject(before.toString()).put("distribution", JSONObject().put("publicationConfidenceMigratedV1", true))
         val rows = snapshot.getJSONArray("categories")
         rows.getJSONObject(0).put("label", "Changed before failure")
         rows.getJSONObject(1).put("label", "Changed before failure")
-        snapshot.getJSONArray("products").getJSONObject(0).put("priceCents", 800)
+        snapshot.getJSONArray("products").getJSONObject(0).put("dataConfidence", "confirmed")
         try { store.commit(snapshot); org.junit.Assert.fail("Duplicate label accepted") }
         catch (_: android.database.sqlite.SQLiteConstraintException) { }
         assertEquals(before.toString(), store.snapshot().toString())

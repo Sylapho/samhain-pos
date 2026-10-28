@@ -38,10 +38,38 @@ function Administration({
 }
 
 describe('Administration du catalogue', () => {
+  it('affiche la confirmation migrée et permet de la retirer durablement', async () => {
+    const state = await setup()
+    render(<Administration {...state} />)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Modifier' })[0]!)
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Prix, TVA et composition vérifiés pour publication',
+    })
+    expect(checkbox).toBeChecked()
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('checkbox', {
+          name: 'Prix, TVA et composition vérifiés pour publication',
+        }),
+      ).not.toBeInTheDocument(),
+    )
+    await state.service.loadCatalog()
+    expect((await state.service.getProducts())[0]?.dataConfidence).toBe('temporary')
+    fireEvent.click(screen.getByRole('button', { name: 'Ajouter un produit' }))
+    expect(
+      screen.getByRole('checkbox', { name: 'Prix, TVA et composition vérifiés pour publication' }),
+    ).not.toBeChecked()
+  })
+
   it('crée un produit et désactive puis réactive sans suppression', async () => {
     const state = await setup()
     render(<Administration {...state} />)
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter un produit' }))
+    expect(
+      screen.getByRole('checkbox', { name: 'Prix, TVA et composition vérifiés pour publication' }),
+    ).not.toBeChecked()
     fireEvent.change(screen.getByLabelText('Nom'), { target: { value: 'Soupe' } })
     fireEvent.change(screen.getByLabelText('Prix TTC (€)'), { target: { value: '4,50' } })
     fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
@@ -49,6 +77,9 @@ describe('Administration du catalogue', () => {
     expect(await state.service.getProducts()).toContainEqual(
       expect.objectContaining({ name: 'Soupe', priceCents: 450 }),
     )
+    expect(
+      (await state.service.loadCatalog()).find(({ name }) => name === 'Soupe')?.dataConfidence,
+    ).not.toBe('confirmed')
     fireEvent.click(screen.getAllByRole('button', { name: 'Désactiver' })[0]!)
     fireEvent.click(await screen.findByRole('button', { name: 'Réactiver' }))
     await waitFor(() =>

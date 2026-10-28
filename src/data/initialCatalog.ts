@@ -1,4 +1,5 @@
 import type { Product } from '../types/catalog.ts'
+import { confirmedCatalogProduct } from './confirmedCatalogProduct.ts'
 
 const seedProducts: Omit<Product, 'active' | 'displayOrder'>[] = [
   {
@@ -256,8 +257,6 @@ const seedProducts: Omit<Product, 'active' | 'displayOrder'>[] = [
  * Catalogue utilisé exclusivement pour initialiser une installation vierge.
  * Les lectures runtime passent toujours par CatalogService.
  */
-export const initialCatalogProducts: Product[] = seedProducts.map((product, displayOrder) => ({
-  ...product,
-  active: true,
-  displayOrder,
-}))
+export const initialCatalogProducts: Product[] = seedProducts.map((product, displayOrder) =>
+  confirmedCatalogProduct({ ...product, active: true, displayOrder }),
+)
