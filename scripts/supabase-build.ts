@@ -21,10 +21,21 @@ export function containsPrivilegedCredential(content: string): boolean {
 }
 
 export function supabaseBuildConfiguration(mode: string, environment: SupabaseBuildEnvironment) {
-  const supabase = resolveSupabaseConfiguration(mode, environment)
   const apiAuth = resolveApiAuthConfiguration(mode, environment)
   if (apiAuth.status === 'invalid')
-    throw new Error('Configuration API invalide ou destination de production non confirmée.')
+    throw new Error(
+      'Configuration API invalide ou destination de production non confirmée. ' +
+        'Vérifiez VITE_SAMHAIN_API_URL, VITE_SAMHAIN_API_ENVIRONMENT et ' +
+        'VITE_SAMHAIN_API_DESTINATION_ID. En production, confirmez aussi ' +
+        'SAMHAIN_API_PRODUCTION_URL et SAMHAIN_API_PRODUCTION_DESTINATION_ID ' +
+        'dans l’environnement de release. Cette erreur ne concerne pas Supabase.',
+    )
+  // The API destination owns remote operations; legacy Supabase values must not
+  // enable a second transport or impose a release confirmation for an unused service.
+  const supabase =
+    apiAuth.status === 'configured'
+      ? ({ status: 'not_configured' } as const)
+      : resolveSupabaseConfiguration(mode, environment)
   return {
     // Raw VITE_* values must never be exposed, even through an import.meta.env object spread.
     envPrefix: [],
