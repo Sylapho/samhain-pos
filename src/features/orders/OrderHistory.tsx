@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/Button'
+import { useVisibleViewport } from '../../components/ui/useVisibleViewport'
 import { formatTicketDateTime, paymentMethodLabels } from '../../printing/format'
 import {
   getCompletedDocumentsFromPrintError,
@@ -75,6 +76,7 @@ export function OrderHistory({
   createOperationId = () => globalThis.crypto.randomUUID(),
   products = [],
 }: Props) {
+  const viewport = useVisibleViewport()
   const [orders, setOrders] = useState<Order[]>([])
   const [corrections, setCorrections] = useState<CorrectionLedgerEntry[]>([])
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
@@ -254,17 +256,23 @@ export function OrderHistory({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/70 p-3 sm:p-5"
+      className="fixed z-50 flex items-center justify-center bg-stone-950/70 p-3 sm:p-5"
+      style={{
+        left: viewport.left,
+        top: viewport.top,
+        width: viewport.width,
+        height: viewport.height,
+      }}
       role="dialog"
       aria-modal="true"
       aria-label="Historique des commandes"
       onClick={onClose}
     >
       <section
-        className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[12px] border border-stone-300 bg-[#fffdf8] sm:max-h-[calc(100dvh-2.5rem)]"
+        className="flex h-full max-h-full min-h-0 min-w-0 w-full max-w-6xl flex-col overflow-hidden rounded-[12px] border border-stone-300 bg-[#fffdf8]"
         onClick={(event) => event.stopPropagation()}
       >
-        <header className="flex items-center justify-between gap-4 border-b border-stone-300 px-4 py-3 sm:px-5">
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-stone-300 px-4 py-3 sm:px-5">
           <div>
             <h2 id="order-history-title" className="text-2xl font-black">
               Historique
@@ -279,7 +287,7 @@ export function OrderHistory({
         </header>
 
         <nav
-          className="grid grid-cols-2 border-b border-stone-300"
+          className="grid shrink-0 grid-cols-2 border-b border-stone-300"
           aria-label="Vues de l’historique"
         >
           <button
@@ -330,7 +338,7 @@ export function OrderHistory({
         ) : orders.length === 0 ? (
           <p className="p-6 font-bold text-stone-700">Aucune commande enregistrée.</p>
         ) : (
-          <div className="grid min-h-0 flex-1 grid-rows-[minmax(11rem,0.65fr)_minmax(0,1.35fr)] lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.4fr)] lg:grid-rows-1">
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,0.65fr)_minmax(0,1.35fr)] lg:grid-cols-[minmax(18rem,0.85fr)_minmax(0,1.4fr)] lg:grid-rows-1">
             <nav
               className="min-h-0 overflow-y-auto border-b border-stone-300 bg-[#f2eee5] p-3 lg:border-r lg:border-b-0"
               aria-label="Commandes récentes"
