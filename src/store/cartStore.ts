@@ -37,14 +37,16 @@ export const useCartStore = create<CartState>()((set) => ({
   addItem: (draft) => {
     const lineId = getCartLineId(draft)
     set((state) => {
-      if (state.items.some((item) => item.lineId === lineId)) {
+      const existingItem = state.items.find((item) => item.lineId === lineId)
+      if (existingItem) {
         return {
-          items: state.items.map((item) =>
-            item.lineId === lineId ? { ...item, quantity: item.quantity + 1 } : item,
-          ),
+          items: [
+            { ...existingItem, quantity: existingItem.quantity + 1 },
+            ...state.items.filter((item) => item.lineId !== lineId),
+          ],
         }
       }
-      return { items: [...state.items, { ...draft, lineId, quantity: 1 }] }
+      return { items: [{ ...draft, lineId, quantity: 1 }, ...state.items] }
     })
   },
   incrementItem: (lineId) =>
