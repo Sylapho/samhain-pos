@@ -104,10 +104,11 @@ describe('vue des statistiques produits', () => {
       />,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: 'Produits sélectionnés (2)' }))
     fireEvent.click(screen.getByRole('button', { name: 'Tout désélectionner' }))
     expect(screen.getByText('Sélectionnez au moins un produit.')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Burger' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Burger' }))
     expect(screen.getByRole('row', { name: /Burger/ })).toBeInTheDocument()
     expect(screen.queryByRole('row', { name: /Frites/ })).not.toBeInTheDocument()
   })
