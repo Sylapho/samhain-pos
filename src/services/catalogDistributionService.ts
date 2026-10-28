@@ -1,4 +1,5 @@
 import { initialCategories } from '../data/initialCategories'
+import { confirmedCatalogProduct } from '../data/confirmedCatalogProduct'
 import { catalogStorage } from '../native/catalogStorage'
 import type { Product } from '../types/catalog'
 import type {
@@ -67,6 +68,18 @@ export class CatalogDistributionService {
   }
 
   async initialize(): Promise<void> {
+    await this.initializeLegacy()
+    await this.mutate((snapshot, state) => {
+      if (state.publicationConfidenceMigratedV1) return false
+      snapshot.products = snapshot.products.map(confirmedCatalogProduct)
+      // Keep published envelopes, merge bases and history unchanged. The marker and
+      // local products commit atomically under the repository's revision check.
+      state.publicationConfidenceMigratedV1 = true
+      return true
+    })
+  }
+
+  private async initializeLegacy(): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt++) {
       const snapshot = await this.repository.readSnapshot()
       if (snapshot.distribution?.legacyMigrated) return

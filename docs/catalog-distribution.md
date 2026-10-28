@@ -39,7 +39,23 @@ Le serveur attribue UUID opaque, révision `expectedRevision + 1`, date UTC et
 origine `api:<sujet vérifié>`. Les catégories, produits, variantes, ingrédients,
 options, prix en centimes, TVA et disponibilités gardent le contrat `catalog-v1`.
 La publication exige `dataConfidence: confirmed` pour chaque produit et variante.
-Aucune confirmation, prix, TVA ou composition n'est déduite des seeds.
+Le serveur ne déduit aucune confirmation, prix, TVA ou composition des seeds.
+
+### Confirmation ponctuelle des produits locaux existants
+
+Le catalogue initial est explicitement confirmé, variantes comprises. Au premier
+chargement de cette mise à jour, `CatalogDistributionService.initialize` confirme
+aussi tous les produits locaux existants, actifs ou inactifs, et leurs variantes.
+Cette confirmation globale a été demandée par le responsable ; elle ne modifie
+aucun autre champ commercial et ne publie rien automatiquement.
+
+Le marqueur local `publicationConfidenceMigratedV1` est enregistré dans l’état de
+distribution avec les produits, dans la même transaction `commitSnapshot` sur
+IndexedDB et Room. Le contrôle de révision relit les éditions concurrentes avant
+de réessayer. Après succès, la migration ne s’exécute plus : les nouveaux produits
+restent à vérifier et une confirmation retirée manuellement reste retirée.
+Les enveloppes actives/en attente, bases de fusion, conflits et décisions sont
+conservés. Les anciennes migrations du catalogue restent indépendantes et inchangées.
 
 Les validateurs purs existants sont hébergés dans `server/src/catalog/shared/` afin
 de compiler le backend isolément. Les chemins publics `src/services/`, `src/types/`

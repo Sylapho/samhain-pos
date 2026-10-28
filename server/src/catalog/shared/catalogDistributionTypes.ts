@@ -29,6 +29,7 @@ export type CatalogDecision = {
 }
 export type CatalogDistributionState = {
   legacyMigrated: boolean
+  publicationConfidenceMigratedV1?: boolean
   base: CatalogContent
   active?: CatalogVersion
   pending?: CatalogVersion
