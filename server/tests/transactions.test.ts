@@ -181,7 +181,11 @@ test('schema manifest prohibits financial TTL and runtime mutations of immutable
         privilege.resource.collection,
       )
     )
-      assert(privilege.actions.every((action) => action === 'find' || action === 'insert'))
+      assert(
+        privilege.actions.every(
+          (action) => action === 'find' || action === 'insert' || action === 'listIndexes',
+        ),
+      )
   assert(
     role.privileges.every(
       (privilege) =>

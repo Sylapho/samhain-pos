@@ -18,7 +18,7 @@ export function roleDefinitions(database: string) {
   })
   const read = [
     privilege('', ['listCollections']),
-    ...definitions.map(({ name }) => privilege(name, ['find'])),
+    ...definitions.map(({ name }) => privilege(name, ['find', 'listIndexes'])),
   ]
   const update = [
     'organizations',
@@ -100,11 +100,26 @@ export async function installRoles(db: Db): Promise<void> {
           .map((p) => ({ resource: p.resource, actions: [...p.actions].sort() }))
           .sort((a, b) => stable(a).localeCompare(stable(b)))
       }
-      if (
-        existing.roles.length ||
-        stable(normalize(existing.privileges)) !== stable(normalize(role.privileges))
-      )
-        throw new PersistenceError('SCHEMA_INCOMPATIBLE', 'roles')
+      const actual = stable(normalize(existing.privileges))
+      const expected = stable(normalize(role.privileges))
+      if (existing.roles.length || actual !== expected) {
+        // Older runtime roles could read documents but not the indexes checked at startup.
+        const beforeIndexRead = stable(
+          normalize(
+            role.privileges.map((item) => ({
+              ...item,
+              actions: item.actions.filter((action) => action !== 'listIndexes'),
+            })),
+          ),
+        )
+        if (
+          !role.role.startsWith('samhain_runtime_') ||
+          actual !== beforeIndexRead ||
+          existing.roles.length
+        )
+          throw new PersistenceError('SCHEMA_INCOMPATIBLE', 'roles')
+        await db.command({ updateRole: role.role, privileges: role.privileges, roles: [] })
+      }
     } else
       await db.command({ createRole: role.role, privileges: role.privileges, roles: role.roles })
   }
