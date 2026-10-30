@@ -33,9 +33,9 @@ export function TerminalConfigurationDialog({
 }: Props) {
   const [reprovisioning, setReprovisioning] = useState(false)
   const [terminalCode, setTerminalCode] = useState<TerminalCode | null>(
-    configuration?.terminalCode ?? null,
+    configuration?.terminalCode ?? 'W',
   )
-  const [displayName, setDisplayName] = useState(configuration?.displayName ?? '')
+  const [displayName, setDisplayName] = useState(configuration?.displayName ?? 'Caisse W')
   const [error, setError] = useState<string | null>(null)
   const [pendingReprovision, setPendingReprovision] = useState<TerminalProvisioningInput | null>(
     null,
@@ -232,7 +232,7 @@ export function TerminalConfigurationDialog({
             <legend className="font-black">
               {reprovisioning ? 'Nouvelle caisse' : 'Code de la caisse'}
             </legend>
-            <div className="mt-2 grid grid-cols-4 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2">
               {terminalCodes.map((code) => (
                 <Button
                   key={code}

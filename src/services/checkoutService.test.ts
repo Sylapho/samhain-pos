@@ -54,7 +54,7 @@ function setOrderSequence(
 }
 
 describe('frontière durable entre paiement et vente', () => {
-  it('finalise sans préparation quand le snapshot ne contient aucune ligne à préparer', async () => {
+  it('finalise avec préparation même si la ligne historique est marquée sans préparation', async () => {
     const { repository, service } = setup('checkout-no-preparation')
     const intent = await service.createIntent(
       [createValidCartItem({ requiresPreparation: false })],
@@ -69,9 +69,9 @@ describe('frontière durable entre paiement et vente', () => {
 
     expect(order.items[0]?.requiresPreparation).toBe(false)
     expect(order.printing).toMatchObject({
-      status: 'printed',
+      status: 'pending',
       customerReceipt: 'not_requested',
-      preparationTicket: 'not_requested',
+      preparationTicket: 'pending',
     })
     await repository.close()
   })
@@ -152,7 +152,7 @@ describe('frontière durable entre paiement et vente', () => {
     expect(first.status).toBe('confirmed')
     expect(first.printing).toMatchObject({
       status: 'pending',
-      pickupTicket: 'pending',
+      pickupTicket: 'not_requested',
       customerReceipt: 'not_requested',
       preparationTicket: 'pending',
     })

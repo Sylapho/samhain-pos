@@ -20,8 +20,8 @@ android {
     namespace = "fr.samhain.pos"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        manifestPlaceholders.appAuthRedirectScheme = "fr.samhain.pos"
-        applicationId "fr.samhain.pos"
+        manifestPlaceholders.appAuthRedirectScheme = "fr.samhain.witches"
+        applicationId "fr.samhain.witches"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

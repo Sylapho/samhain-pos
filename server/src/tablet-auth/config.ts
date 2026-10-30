@@ -73,7 +73,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv): AuthConfig | null {
     const algorithm = required('OIDC_ALGORITHM')
     if (algorithm !== 'RS256' && algorithm !== 'ES256') fail('OIDC_ALGORITHM')
     const redirectUri = required('OIDC_REDIRECT_URI')
-    if (redirectUri !== 'fr.samhain.pos:/oauth2redirect') fail('OIDC_REDIRECT_URI')
+    if (redirectUri !== 'fr.samhain.witches:/oauth2redirect') fail('OIDC_REDIRECT_URI')
     const scopes = required('OIDC_SCOPES')
     if (!scopes.split(' ').includes('openid') || scopes.length > 512) fail('OIDC_SCOPES')
     oidc = {

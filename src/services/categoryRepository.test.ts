@@ -1,7 +1,7 @@
 import { IDBFactory, IDBObjectStore } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
-import { initialCategories } from '../data/initialCategories'
-import { initialCatalogProducts } from '../data/initialCatalog'
+import { witchesCategories } from '../data/witchesCategories'
+import { witchesCatalogProducts } from '../data/witchesCatalog'
 import { CatalogService } from './catalogService'
 import { IndexedDbCatalogRepository } from './catalogRepository'
 import { openSamhainDatabase } from './indexedDbSchema'
@@ -17,7 +17,7 @@ describe('catégories persistantes et validation transactionnelle', () => {
   it('crée, renomme, désactive, réactive et réordonne avec ID stable après redémarrage', async () => {
     const { service, factory, name } = await setup()
     const created = await service.createCategory('  Nouveautés  du jour ')
-    expect(created).toMatchObject({ label: 'Nouveautés du jour', active: true, displayOrder: 6 })
+    expect(created).toMatchObject({ label: 'Nouveautés du jour', active: true, displayOrder: 3 })
     expect(created.id).toMatch(/^[0-9a-f-]{36}$/)
     await service.updateCategory(created.id, 'Spécialités')
     await service.setCategoryActive(created.id, false)
@@ -43,19 +43,19 @@ describe('catégories persistantes et validation transactionnelle', () => {
   it('refuse noms vides et doublons même avec accents, espaces, casse ou catégorie inactive', async () => {
     const { service } = await setup()
     await expect(service.createCategory(' \t ')).rejects.toThrow('nom')
-    await expect(service.createCategory('  BIERES ')).rejects.toThrow('déjà')
-    await service.setCategoryActive('bieres', false)
-    await expect(service.updateCategory('desserts', 'bières')).rejects.toThrow('déjà')
-    await expect(service.updateCategory('desserts', '  ')).rejects.toThrow('nom')
-    expect((await service.getCategories()).find(({ id }) => id === 'desserts')?.label).toBe(
-      'Desserts',
+    await expect(service.createCategory('  POTIONS ')).rejects.toThrow('déjà')
+    await service.setCategoryActive('potions', false)
+    await expect(service.updateCategory('gourmandises', 'potions')).rejects.toThrow('déjà')
+    await expect(service.updateCategory('gourmandises', '  ')).rejects.toThrow('nom')
+    expect((await service.getCategories()).find(({ id }) => id === 'gourmandises')?.label).toBe(
+      'Gourmandises',
     )
   })
 
   it('vérifie les références et garde les produits associés aux catégories inactives', async () => {
     const { service } = await setup()
     const newCategory = await service.createCategory('Nouvelle catégorie')
-    const product = { ...initialCatalogProducts[0]!, id: 'new', categoryId: newCategory.id }
+    const product = { ...witchesCatalogProducts[0]!, id: 'new', categoryId: newCategory.id }
     await service.createProduct(product)
     await service.setCategoryActive(newCategory.id, false)
     await expect(service.updateProduct({ ...product, name: 'Renommé' })).resolves.toMatchObject({
@@ -72,8 +72,8 @@ describe('catégories persistantes et validation transactionnelle', () => {
     await expect(service.updateProduct({ ...product, categoryId: 'absente' })).rejects.toThrow(
       'n’existe pas',
     )
-    await service.updateProduct({ ...product, categoryId: 'desserts' })
-    expect(await service.getProducts()).toHaveLength(initialCatalogProducts.length + 1)
+    await service.updateProduct({ ...product, categoryId: 'gourmandises' })
+    expect(await service.getProducts()).toHaveLength(witchesCatalogProducts.length + 1)
   })
 
   it('sérialise créations concurrentes et désactivation contre une affectation', async () => {
@@ -87,7 +87,7 @@ describe('catégories persistantes et validation transactionnelle', () => {
     const category = (await service.getCategories()).find(({ label }) => label === 'Concurrente')!
     const inactive = service.setCategoryActive(category.id, false)
     const create = second.createProduct({
-      ...initialCatalogProducts[0]!,
+      ...witchesCatalogProducts[0]!,
       id: 'race',
       categoryId: category.id,
     })
@@ -99,12 +99,12 @@ describe('catégories persistantes et validation transactionnelle', () => {
   it('refuse un réordonnancement incomplet, dupliqué ou obsolète sans écriture', async () => {
     const { service } = await setup()
     const before = await service.getCategories()
-    await expect(service.reorderCategories(['menus'])).rejects.toThrow('changé')
-    await expect(service.reorderCategories(before.map(() => 'menus'))).rejects.toThrow('changé')
+    await expect(service.reorderCategories(['potions'])).rejects.toThrow('changé')
+    await expect(service.reorderCategories(before.map(() => 'potions'))).rejects.toThrow('changé')
     const stale = before.map(({ id }) => id)
     await service.createCategory('Ajoutée entre-temps')
     await expect(service.reorderCategories(stale)).rejects.toThrow('changé')
-    expect((await service.getCategories()).slice(0, 6)).toEqual(before)
+    expect((await service.getCategories()).slice(0, 3)).toEqual(before)
   })
 
   it('annule toutes les positions si une écriture échoue après le premier changement', async () => {
@@ -132,12 +132,12 @@ describe('catégories persistantes et validation transactionnelle', () => {
   it('annule produits, catégories et marqueur ensemble puis permet de recommencer', async () => {
     const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'abort-seed')
     await expect(
-      repository.initialize([initialCatalogProducts[0]!, initialCatalogProducts[0]!]),
+      repository.initialize([witchesCatalogProducts[0]!, witchesCatalogProducts[0]!]),
     ).rejects.toThrow()
     expect(await repository.getProducts()).toEqual([])
     expect(await repository.getCategories()).toEqual([])
-    expect((await repository.initialize(initialCatalogProducts)).initialized).toBe(true)
-    expect(await repository.getCategories()).toEqual(initialCategories)
+    expect((await repository.initialize(witchesCatalogProducts)).initialized).toBe(true)
+    expect(await repository.getCategories()).toEqual(witchesCategories)
   })
 
   it('migre IndexedDB v5 avec produits déjà initialisés, IDs historiques et ventes intacts', async () => {
@@ -146,12 +146,12 @@ describe('catégories persistantes et validation transactionnelle', () => {
       const request = factory.open('legacy', 5)
       request.onupgradeneeded = () => {
         request.result.createObjectStore('products', { keyPath: 'id' }).add({
-          ...initialCatalogProducts[0],
+          ...witchesCatalogProducts[0],
           id: 'legacy',
           name: 'Personnalisé',
           categoryId: 'ancienne-categorie',
         })
-        request.transaction!.objectStore('products').add(initialCatalogProducts[1]!)
+        request.transaction!.objectStore('products').add(witchesCatalogProducts[1]!)
         request.result
           .createObjectStore('catalogMetadata', { keyPath: 'key' })
           .add({ key: 'catalog-initialized-v1', initializedAt: 'kept' })
@@ -164,7 +164,7 @@ describe('catégories persistantes et validation transactionnelle', () => {
     })
     legacy.close()
     const repository = new IndexedDbCatalogRepository(factory, 'legacy')
-    const result = await repository.initialize(initialCatalogProducts)
+    const result = await repository.initialize(witchesCatalogProducts)
     expect(result.initialized).toBe(false)
     expect(result.products).toHaveLength(2)
     expect(result.products).toContainEqual(
@@ -175,14 +175,14 @@ describe('catégories persistantes et validation transactionnelle', () => {
       }),
     )
     const categories = await repository.getCategories()
-    expect(categories.slice(0, 6)).toEqual(initialCategories)
-    expect(categories[6]).toMatchObject({ id: 'ancienne-categorie', active: false })
-    await repository.updateCategory('menus', 'Menus personnalisés')
-    await repository.setCategoryActive('menus', false)
-    await repository.initialize(initialCatalogProducts)
-    expect(await repository.getCategories()).toHaveLength(7)
+    expect(categories.slice(0, 3)).toEqual(witchesCategories)
+    expect(categories[3]).toMatchObject({ id: 'ancienne-categorie', active: false })
+    await repository.updateCategory('potions', 'Menus personnalisés')
+    await repository.setCategoryActive('potions', false)
+    await repository.initialize(witchesCatalogProducts)
+    expect(await repository.getCategories()).toHaveLength(4)
     expect((await repository.getCategories())[0]).toMatchObject({
-      id: 'menus',
+      id: 'potions',
       label: 'Menus personnalisés',
       active: false,
     })

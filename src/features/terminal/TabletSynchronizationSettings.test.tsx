@@ -5,8 +5,8 @@ import { TabletEnrollmentService } from '../../services/tabletEnrollmentService'
 import type { NativeTabletAuth, TabletAuthorization } from '../../native/tabletAuth'
 
 const scope = {
-  organizationId: 'a1b6b2ab-e2e9-4a81-b5c1-56c54d7d22f3',
-  festivalId: '18bdec64-385a-4f86-958f-184a81635c96',
+  organizationId: '70381b38-b90b-4181-9d80-e76c4d98a67c',
+  festivalId: '9c5bafa9-4953-43dd-ab8c-47274576eb1c',
 }
 const pending: TabletAuthorization = {
   status: 'pending',

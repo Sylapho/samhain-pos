@@ -879,7 +879,6 @@ function DocumentStatuses({ order }: { order: Order }) {
   }
   return (
     <div className="mt-2 text-sm text-stone-800" aria-live="polite">
-      <p>Bon de retrait : {labels[order.printing.pickupTicket]}</p>
       <p>Reçu de caisse : {labels[order.printing.customerReceipt]}</p>
       <p>Ticket de préparation : {labels[order.printing.preparationTicket]}</p>
     </div>
@@ -893,8 +892,8 @@ function PreparationWarning({ order }: { order: Order }) {
       className="mt-4 border-2 border-amber-500 bg-amber-100 p-3 font-black text-amber-950"
       role="alert"
     >
-      Attention : le ticket de préparation n’a pas été imprimé. La cuisine peut ne pas avoir reçu
-      cette commande.
+      Attention : le ticket de préparation n’a pas été imprimé. L’équipe de préparation peut ne
+      pas avoir reçu cette commande.
     </div>
   )
 }
@@ -911,7 +910,6 @@ function ReprintButtons({
   onReprint: (selection: PrintSelection) => void
 }) {
   const available = [
-    ...(order.printing.pickupTicket !== 'not_requested' ? (['pickupTicket'] as const) : []),
     'customerReceipt' as const,
     ...(order.printing.preparationTicket !== 'not_requested'
       ? (['preparationTicket'] as const)
@@ -920,11 +918,6 @@ function ReprintButtons({
   const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
   return (
     <div className="grid gap-2 sm:grid-cols-2">
-      {order.printing.pickupTicket !== 'not_requested' ? (
-        <Button disabled={busy} onClick={() => onReprint(['pickupTicket'])}>
-          {printing?.includes('pickupTicket') ? 'Impression en cours…' : 'Bon de retrait'}
-        </Button>
-      ) : null}
       <Button
         variant={hasPreparationTicket ? 'secondary' : 'primary'}
         disabled={busy}

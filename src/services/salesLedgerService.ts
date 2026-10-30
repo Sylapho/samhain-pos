@@ -11,7 +11,7 @@ import type {
   RefundLineSelection,
 } from '../types/salesLedger'
 import type { TerminalConfiguration, TerminalIdentity } from '../types/terminal'
-import { terminalCodes } from '../types/terminal'
+import { supportedTerminalCodes } from '../types/terminal'
 import { createLedgerSource } from './ledgerSource'
 import {
   calculateClosureTotals,
@@ -394,7 +394,7 @@ export function requireArchiveTerminalIdentity(archive: SalesArchive): TerminalI
     !terminal ||
     typeof terminal.terminalId !== 'string' ||
     !terminal.terminalId.trim() ||
-    !terminalCodes.includes(terminal.terminalCode) ||
+    !supportedTerminalCodes.some((code) => code === terminal.terminalCode) ||
     typeof terminal.displayName !== 'string' ||
     !terminal.displayName.trim()
   ) {

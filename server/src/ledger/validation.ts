@@ -68,6 +68,6 @@ export function terminal(value: unknown): JsonObject {
   keys(v, ['terminalId', 'terminalCode', 'displayName'])
   text(v.terminalId, true)
   text(v.displayName)
-  assert(['A', 'B', 'C', 'D'].includes(text(v.terminalCode)))
+  assert(['A', 'B', 'C', 'D', 'W'].includes(text(v.terminalCode)))
   return v
 }

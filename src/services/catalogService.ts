@@ -1,7 +1,7 @@
 import { validateProduct } from './productValidation'
 export { validateProduct } from './productValidation'
 import { Capacitor } from '@capacitor/core'
-import { initialCatalogProducts } from '../data/initialCatalog'
+import { witchesCatalogProducts } from '../data/witchesCatalog'
 import { catalogStorage } from '../native/catalogStorage'
 import { type Category, type Product } from '../types/catalog'
 import {
@@ -23,7 +23,7 @@ export class CatalogService {
   readonly distribution: CatalogDistributionService
   constructor(
     private readonly repository: CatalogRepository,
-    private readonly seed: readonly Product[] = initialCatalogProducts,
+    private readonly seed: readonly Product[] = witchesCatalogProducts,
   ) {
     this.distribution = new CatalogDistributionService(repository, seed)
   }

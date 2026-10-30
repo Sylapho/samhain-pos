@@ -1,4 +1,4 @@
-import { initialCategories } from '../data/initialCategories'
+import { witchesCategories } from '../data/witchesCategories'
 import { confirmedCatalogProduct } from '../data/confirmedCatalogProduct'
 import { catalogStorage } from '../native/catalogStorage'
 import type { Product } from '../types/catalog'
@@ -88,7 +88,7 @@ export class CatalogDistributionService {
         legacyMigrated: true,
         base: {
           products: this.seed.map(migrateLegacy),
-          categories: structuredClone([...initialCategories]),
+          categories: structuredClone([...witchesCategories]),
         },
         conflicts: [],
         decisions: [],

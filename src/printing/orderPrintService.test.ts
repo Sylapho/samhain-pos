@@ -20,15 +20,13 @@ describe('orchestration d’impression', () => {
     },
   }
 
-  it('ordonne retrait, reçu, préparation avec une coupe après chaque document', () => {
+  it('ordonne reçu puis préparation avec une coupe après chaque document', () => {
     const job = buildOrderPrintJob(printPreviewOrder)
     expect(
       job.steps.map((step) =>
         step.type === 'document' ? step.documentType : `cut:${step.afterDocument}`,
       ),
     ).toEqual([
-      'pickupTicket',
-      'cut:pickupTicket',
       'customerReceipt',
       'cut:customerReceipt',
       'preparationTicket',
@@ -38,26 +36,26 @@ describe('orchestration d’impression', () => {
 
   it('peut désactiver le ticket client sans supprimer la préparation', () => {
     const job = buildOrderPrintJob(printPreviewOrder, {
-      selection: ['pickupTicket', 'preparationTicket'],
+      selection: ['preparationTicket'],
     })
     expect(
       job.steps.map((step) => (step.type === 'document' ? step.documentType : step.type)),
-    ).toEqual(['pickupTicket', 'cut', 'preparationTicket', 'cut'])
+    ).toEqual(['preparationTicket', 'cut'])
   })
 
   it('ne valide les informations légales que si le reçu financier est sélectionné', () => {
     const validateBusinessInfo = vi.mocked(assertReceiptBusinessInfoCanBePrinted)
     validateBusinessInfo.mockClear()
 
-    buildOrderPrintJob(printPreviewOrder, { selection: ['pickupTicket'] })
+    buildOrderPrintJob(printPreviewOrder, { selection: ['preparationTicket'] })
     expect(validateBusinessInfo).not.toHaveBeenCalled()
 
     buildOrderPrintJob(printPreviewOrder, { selection: ['customerReceipt'] })
     expect(validateBusinessInfo).toHaveBeenCalledOnce()
   })
 
-  it('réduit une sélection des deux tickets au seul ticket client sans préparation', () => {
-    const job = buildOrderPrintJob(orderWithoutPreparation, {
+  it('réduit une sélection au seul ticket client lorsque la commande est vide', () => {
+    const job = buildOrderPrintJob({ ...orderWithoutPreparation, items: [] }, {
       selection: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
     })
     expect(job.documents.map((document) => document.type)).toEqual(['customerReceipt'])
@@ -73,7 +71,7 @@ describe('orchestration d’impression', () => {
     const service = new OrderPrintService({ printJob })
 
     await expect(
-      service.printOrder(orderWithoutPreparation, {
+      service.printOrder({ ...orderWithoutPreparation, items: [] }, {
         selection: ['preparationTicket'],
         reprint: true,
       }),
@@ -85,7 +83,7 @@ describe('orchestration d’impression', () => {
     const printJob = vi.fn<ReceiptPrinter['printJob']>(async () => ({
       ok: true as const,
       bytesWritten: 123,
-      completedDocuments: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      completedDocuments: ['customerReceipt', 'preparationTicket'],
       warnings: [],
     }))
     const printer: ReceiptPrinter = { printJob }
@@ -94,7 +92,7 @@ describe('orchestration d’impression', () => {
     await service.printOrder(printPreviewOrder)
 
     expect(printJob).toHaveBeenCalledOnce()
-    expect(printJob.mock.calls[0]?.[0]).toHaveLength(6)
+    expect(printJob.mock.calls[0]?.[0]).toHaveLength(4)
   })
 
   it('réimprime seulement le document demandé avec les mêmes identifiants', async () => {

@@ -1,4 +1,4 @@
-package __APP_PACKAGE__
+package fr.samhain.pos
 
 import android.content.Context
 import androidx.room.Room
@@ -170,13 +170,13 @@ class RoomOrderStoreTest {
             catalog.initialize(JSONArray())
             assertEquals(1, catalog.getAll().getJSONArray("products").length())
             assertEquals("ancienne", catalog.getAll().getJSONArray("products").getJSONObject(0).getString("categoryId"))
-            assertEquals(7, migrated.categoryDao().getAll().size)
+            assertEquals(4, migrated.categoryDao().getAll().size)
             assertFalse(migrated.categoryDao().findById("ancienne")!!.active)
-            catalog.updateCategory("menus", "Personnalisé")
-            catalog.setCategoryActive("menus", false)
+            catalog.updateCategory("potions", "Personnalisé")
+            catalog.setCategoryActive("potions", false)
             catalog.initialize(JSONArray())
-            assertEquals("Personnalisé", migrated.categoryDao().findById("menus")!!.label)
-            assertFalse(migrated.categoryDao().findById("menus")!!.active)
+            assertEquals("Personnalisé", migrated.categoryDao().findById("potions")!!.label)
+            assertFalse(migrated.categoryDao().findById("potions")!!.active)
             assertEquals(financial, RoomOrderStore(migrated).snapshot().toString())
         } finally { migrated.close(); context.deleteDatabase(name) }
     }
@@ -332,15 +332,14 @@ class RoomOrderStoreTest {
                     store.confirmCheckoutPayment(id, "2026-09-01T12:02:00.000Z")
                     val order = store.finalizeCheckoutIntent(id, "2026-09-01T12:03:00.000Z")
                     val state = order.getJSONObject("printing")
-                    val operationalState = if (requiresPreparation) "pending" else "not_requested"
-                    assertEquals(operationalState, state.getString("pickupTicket"))
-                    assertEquals(operationalState, state.getString("preparationTicket"))
+                    assertEquals("not_requested", state.getString("pickupTicket"))
+                    assertEquals("pending", state.getString("preparationTicket"))
                     assertEquals(
                         if (receiptRequested) "pending" else "not_requested",
                         state.getString("customerReceipt"),
                     )
                     assertEquals(
-                        if (requiresPreparation || receiptRequested) "pending" else "printed",
+                        "pending",
                         state.getString("status"),
                     )
                     assertEquals(
@@ -366,9 +365,9 @@ class RoomOrderStoreTest {
         val order =
             store.finalizeCheckoutIntent("no-preparation", "2026-09-01T12:03:00.000Z")
         val state = order.getJSONObject("printing")
-        assertEquals("printed", state.getString("status"))
+        assertEquals("pending", state.getString("status"))
         assertEquals("not_requested", state.getString("customerReceipt"))
-        assertEquals("not_requested", state.getString("preparationTicket"))
+        assertEquals("pending", state.getString("preparationTicket"))
     }
 
     @Test

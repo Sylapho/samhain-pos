@@ -1,21 +1,11 @@
 import type { CartItem } from '../types/cart'
 import type { Order } from '../types/order'
 
-/** Legacy lines without a snapshot are treated conservatively as requiring preparation. */
-export function itemRequiresPreparation(
-  item: Pick<CartItem, 'requiresPreparation'> | Partial<Pick<CartItem, 'requiresPreparation'>>,
-): boolean {
-  return item.requiresPreparation !== false
-}
-
+/** W imprime un ticket de préparation pour chaque ligne de commande. */
 export function getPreparationItems(order: Pick<Order, 'items'>): CartItem[] {
-  return order.items.filter(itemRequiresPreparation)
+  return order.items
 }
 
 export function orderRequiresPreparation(order: Pick<Order, 'items'>): boolean {
-  return order.items.some(itemRequiresPreparation)
-}
-
-export function orderRequiresPickupTicket(order: Pick<Order, 'items'>): boolean {
-  return orderRequiresPreparation(order)
+  return order.items.length > 0
 }

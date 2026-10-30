@@ -7,7 +7,7 @@ export function normalizeOrderPrinting(
 ): OrderPrinting {
   if (!value) return unknownOrderPrinting(createdAt)
 
-  const pickupTicket = value.pickupTicket ?? 'unknown'
+  const pickupTicket = value.pickupTicket ?? 'not_requested'
   const printing: OrderPrinting = {
     status: value.status ?? 'unknown',
     pickupTicket,
@@ -18,16 +18,13 @@ export function normalizeOrderPrinting(
     ...(value.lastError ? { lastError: value.lastError } : {}),
   }
   printing.status = derivePrintStatus(printing)
-  if (value.pickupTicket === undefined) {
-    printing.lastError = 'État du bon de retrait antérieur inconnu.'
-  }
   return printing
 }
 
 export function unknownOrderPrinting(createdAt: string): OrderPrinting {
   return {
     status: 'unknown',
-    pickupTicket: 'unknown',
+    pickupTicket: 'not_requested',
     customerReceipt: 'unknown',
     preparationTicket: 'unknown',
     attempts: 0,

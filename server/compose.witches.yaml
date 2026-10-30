@@ -1,0 +1,57 @@
+name: samhain-witches-api
+services:
+  api:
+    image: samhain-witches-api:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    env_file:
+      - path: ${WITCHES_API_ENV_FILE:?Set the absolute path to the Witches API environment file}
+        required: true
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/certificates/mongo-ca.crt
+    volumes:
+      - type: bind
+        source: ${WITCHES_MONGO_CA_FILE:?Set the MongoDB CA file}
+        target: /run/certificates/mongo-ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WITCHES_SIGNING_KEY_FILE:?Set the Witches API signing key file}
+        target: /run/keys/api-signing.pem
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WITCHES_ENCRYPTION_KEY_FILE:?Set the Witches API encryption key file}
+        target: /run/keys/api-encryption.key
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      database: {}
+      proxy:
+        aliases:
+          - samhain-witches-api
+    expose:
+      - '3000'
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 100
+networks:
+  database:
+    external: true
+    name: samhain_database
+  proxy:
+    external: true
+    name: lcdd_proxy

@@ -15,7 +15,7 @@ export const indexedDbStores = {
 
 export function openSamhainDatabase(
   indexedDb: IDBFactory,
-  databaseName = 'samhain-pos',
+  databaseName = 'samhain-witches',
 ): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDb.open(databaseName, SAMHAIN_DATABASE_VERSION)

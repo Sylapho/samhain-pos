@@ -32,7 +32,7 @@ export async function authFixture(overrides: Partial<Config> = {}) {
       clientId: 'test-native',
       authorizationEndpoint: 'https://oidc.example.invalid/authorize',
       tokenEndpoint: 'https://oidc.example.invalid/token',
-      redirectUri: 'fr.samhain.pos:/oauth2redirect',
+      redirectUri: 'fr.samhain.witches:/oauth2redirect',
       scopes: 'openid test-api',
       maxAgeSeconds: 3600,
     },

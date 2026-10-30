@@ -21,7 +21,7 @@ class ManagerPersistentSessionTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val config get() = JSONObject().put("issuer", "https://identity.example/realms/pos")
         .put("clientId", "pos-android").put("authorizationEndpoint", "https://identity.example/auth")
-        .put("tokenEndpoint", "https://identity.example/token").put("redirectUri", "fr.samhain.pos:/oauth2redirect")
+        .put("tokenEndpoint", "https://identity.example/token").put("redirectUri", "fr.samhain.witches:/oauth2redirect")
     private val now = 1000000L
     private fun vault(): CredentialVault {
         val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()

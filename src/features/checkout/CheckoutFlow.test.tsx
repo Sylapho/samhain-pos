@@ -16,7 +16,7 @@ import type { ReceiptPrinter } from '../../printing/types'
 const success: PrintJobResult = {
   ok: true,
   bytesWritten: 100,
-  completedDocuments: ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+  completedDocuments: ['customerReceipt', 'preparationTicket'],
   warnings: [],
 }
 
@@ -120,9 +120,8 @@ describe('encaissement et impression', () => {
       const checkout = new CheckoutService(repository, undefined, () => terminalA)
       const items = [createValidCartItem({ requiresPreparation })]
       const expectedDocuments = [
-        ...(requiresPreparation ? ['pickupTicket' as const] : []),
         ...(printCustomerReceipt ? ['customerReceipt' as const] : []),
-        ...(requiresPreparation ? ['preparationTicket' as const] : []),
+        'preparationTicket' as const,
       ]
       const printJob = vi.fn<ReceiptPrinter['printJob']>(async (steps) => {
         const [stored] = await lifecycle.getOrders()
@@ -172,13 +171,13 @@ describe('encaissement et impression', () => {
       fireEvent.click(confirm)
       fireEvent.click(confirm)
       await screen.findByRole('heading', { name: 'Commande validée' })
-      expect(printJob).toHaveBeenCalledTimes(expectedDocuments.length ? 1 : 0)
+      expect(printJob).toHaveBeenCalledOnce()
       const [order] = await lifecycle.getOrders()
       expect(order?.printing).toMatchObject({
         status: 'printed',
-        pickupTicket: requiresPreparation ? 'printed' : 'not_requested',
+        pickupTicket: 'not_requested',
         customerReceipt: printCustomerReceipt ? 'printed' : 'not_requested',
-        preparationTicket: requiresPreparation ? 'printed' : 'not_requested',
+        preparationTicket: 'printed',
       })
       expect(await lifecycle.getOrders()).toHaveLength(1)
       await repository.close()
@@ -864,8 +863,8 @@ describe('encaissement et impression', () => {
     expect(screen.getByText('Ticket de préparation : échec — à reprendre')).toBeInTheDocument()
     expect(lifecycle.failPrinting).toHaveBeenCalledWith(
       printPreviewOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Ticket de préparation interrompu.',
       [],
     )
@@ -973,7 +972,7 @@ describe('encaissement et impression', () => {
     ).toBeInTheDocument()
     expect(lifecycle.failPrinting).toHaveBeenCalledWith(
       printPreviewOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       ['customerReceipt'],
       'Préparation partiellement transmise.',
       ['preparationTicket'],
@@ -1075,10 +1074,10 @@ describe('encaissement et impression', () => {
     const repository = new IndexedDbOrderRepository(indexedDb)
     const service = createOrderService(repository)
     const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), false)
-    await service.beginPrinting(order.id, ['pickupTicket', 'customerReceipt', 'preparationTicket'])
+    await service.beginPrinting(order.id, ['customerReceipt', 'preparationTicket'])
     await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       ['pickupTicket'],
       'Préparation interrompue',
     )
@@ -1121,8 +1120,8 @@ describe('encaissement et impression', () => {
   })
 
   it.each([
-    ['customerCut', ['pickupTicket', 'customerReceipt'], 'partial'],
-    ['preparationCut', ['pickupTicket', 'customerReceipt', 'preparationTicket'], 'printed'],
+    ['customerCut', ['customerReceipt'], 'partial'],
+    ['preparationCut', ['customerReceipt', 'preparationTicket'], 'printed'],
   ] as const)(
     'ne réimprime pas les documents terminés après %s',
     async (stage, documents, status) => {
@@ -1194,8 +1193,8 @@ describe('encaissement et impression', () => {
     const order = await service.createOrder(printPreviewOrder.items, 'card', new Date(), true)
     await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation échouée',
     )
     await service.beginPrinting(order.id, ['preparationTicket'])

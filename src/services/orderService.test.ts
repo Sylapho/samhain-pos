@@ -41,7 +41,7 @@ describe('service de commandes persistantes', () => {
     [true, false],
     [true, true],
   ])(
-    'initialise les documents indépendamment : préparation=%s, reçu=%s',
+    'prévoit toujours la préparation : ancien indicateur=%s, reçu=%s',
     async (requiresPreparation, receiptRequested) => {
       const { repository, service } = createService(new IDBFactory(), 'print-policy', 'order-1')
       const order = await service.createOrder(
@@ -51,17 +51,17 @@ describe('service de commandes persistantes', () => {
         receiptRequested,
       )
       expect(order.printing).toMatchObject({
-        status: requiresPreparation || receiptRequested ? 'pending' : 'printed',
-        pickupTicket: requiresPreparation ? 'pending' : 'not_requested',
+        status: 'pending',
+        pickupTicket: 'not_requested',
         customerReceipt: receiptRequested ? 'pending' : 'not_requested',
-        preparationTicket: requiresPreparation ? 'pending' : 'not_requested',
+        preparationTicket: 'pending',
       })
       expect(await service.getOrders()).toEqual([order])
       await repository.close()
     },
   )
 
-  it('marque la préparation non demandée quand aucune ligne ne la nécessite', async () => {
+  it('prévoit la préparation même pour une ligne remise directement', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-preparation', 'order-water')
     const draft = createCartItemDraft(water)
@@ -77,12 +77,12 @@ describe('service de commandes persistantes', () => {
     expect(order.printing).toMatchObject({
       status: 'pending',
       customerReceipt: 'pending',
-      preparationTicket: 'not_requested',
+      preparationTicket: 'pending',
     })
     await repository.close()
   })
 
-  it('termine immédiatement l’impression quand aucun document n’est demandé', async () => {
+  it('garde la préparation à imprimer même sans reçu client', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-document', 'order-water')
     const draft = createCartItemDraft(water)
@@ -95,15 +95,15 @@ describe('service de commandes persistantes', () => {
     )
 
     expect(order.printing).toMatchObject({
-      status: 'printed',
+      status: 'pending',
       customerReceipt: 'not_requested',
-      preparationTicket: 'not_requested',
+      preparationTicket: 'pending',
     })
-    expect(await service.getRecoverableOrders()).toEqual([])
+    expect(await service.getRecoverableOrders()).toEqual([order])
     await repository.close()
   })
 
-  it('ne fait jamais évoluer un ticket de préparation non demandé pendant la reprise', async () => {
+  it('reprend le ticket de préparation de toute commande', async () => {
     const indexedDb = new IDBFactory()
     const { repository, service } = createService(indexedDb, 'no-preparation-retry', 'order-water')
     const draft = createCartItemDraft(water)
@@ -119,29 +119,29 @@ describe('service de commandes persistantes', () => {
       'customerReceipt',
       'preparationTicket',
     ])
-    expect(started.printing.preparationTicket).toBe('not_requested')
+    expect(started.printing.preparationTicket).toBe('unknown')
 
     const failed = await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       [],
       'Imprimante indisponible',
     )
     expect(failed.printing).toMatchObject({
       status: 'failed',
       customerReceipt: 'failed',
-      preparationTicket: 'not_requested',
+      preparationTicket: 'failed',
     })
 
     const completed = await service.completePrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       ['customerReceipt'],
     )
     expect(completed.printing).toMatchObject({
-      status: 'printed',
+      status: 'partial',
       customerReceipt: 'printed',
-      preparationTicket: 'not_requested',
+      preparationTicket: 'failed',
     })
     await repository.close()
   })
@@ -356,19 +356,19 @@ describe('service de commandes persistantes', () => {
 
     await first.service.beginPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
     const partial = await first.service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation interrompue.',
       createdAt,
     )
     expect(partial.printing).toMatchObject({
       status: 'partial',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'failed',
       attempts: 1,
@@ -407,13 +407,13 @@ describe('service de commandes persistantes', () => {
     )
     await first.service.beginPrinting(
       firstOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
     const deferredOrder = await first.service.failPrinting(
       firstOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation interrompue.',
       createdAt,
     )
@@ -456,7 +456,7 @@ describe('service de commandes persistantes', () => {
       paymentMethod: 'cash',
       printing: {
         status: 'printed',
-        pickupTicket: 'printed',
+        pickupTicket: 'not_requested',
         customerReceipt: 'printed',
         preparationTicket: 'printed',
       },
@@ -475,13 +475,13 @@ describe('service de commandes persistantes', () => {
 
     await first.service.beginPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
     const ambiguous = await first.service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation partiellement transmise.',
       ['preparationTicket'],
       createdAt,
@@ -489,7 +489,7 @@ describe('service de commandes persistantes', () => {
 
     expect(ambiguous.printing).toMatchObject({
       status: 'unknown',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'unknown',
     })
@@ -499,7 +499,7 @@ describe('service de commandes persistantes', () => {
     const [recovered] = await restarted.service.getRecoverableOrders()
     expect(recovered?.printing).toMatchObject({
       status: 'unknown',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'unknown',
     })
@@ -515,14 +515,14 @@ describe('service de commandes persistantes', () => {
     const order = await service.createOrder(createValidOrderItems(), 'card', createdAt, true)
     await service.beginPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
 
     const ambiguous = await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket'],
+      ['customerReceipt', 'preparationTicket'],
+      [],
       'Ticket client partiellement transmis.',
       ['customerReceipt'],
       createdAt,
@@ -530,7 +530,7 @@ describe('service de commandes persistantes', () => {
 
     expect(ambiguous.printing).toMatchObject({
       status: 'unknown',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'unknown',
       preparationTicket: 'failed',
     })
@@ -548,20 +548,20 @@ describe('service de commandes persistantes', () => {
     )
     await secondService.beginPrinting(
       secondOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
     const retryable = await secondService.failPrinting(
       secondOrder.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket'],
+      ['customerReceipt', 'preparationTicket'],
+      [],
       'Aucun octet envoyé.',
       [],
       createdAt,
     )
     expect(retryable.printing).toMatchObject({
-      status: 'partial',
-      pickupTicket: 'printed',
+      status: 'failed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'failed',
       preparationTicket: 'failed',
     })
@@ -575,25 +575,25 @@ describe('service de commandes persistantes', () => {
 
     expect(order.printing).toMatchObject({
       status: 'pending',
-      pickupTicket: 'pending',
+      pickupTicket: 'not_requested',
       customerReceipt: 'not_requested',
       preparationTicket: 'pending',
     })
     expect(await service.getRecoverableOrders()).toEqual([order])
     await service.beginPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       createdAt,
     )
     const printed = await service.completePrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
+      ['preparationTicket'],
       createdAt,
     )
     expect(printed.printing).toMatchObject({
       status: 'printed',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'not_requested',
       preparationTicket: 'printed',
     })
@@ -611,8 +611,8 @@ describe('service de commandes persistantes', () => {
     ])
     await first.service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation échouée',
     )
     await first.service.beginPrinting(order.id, ['preparationTicket'])
@@ -624,7 +624,7 @@ describe('service de commandes persistantes', () => {
     )
     expect(failed.printing).toMatchObject({
       status: 'partial',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'failed',
     })
@@ -635,7 +635,7 @@ describe('service de commandes persistantes', () => {
     const [recovered] = await restarted.service.getRecoverableOrders()
     expect(recovered?.printing).toMatchObject({
       status: 'unknown',
-      pickupTicket: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'unknown',
       attempts: 3,
@@ -649,8 +649,8 @@ describe('service de commandes persistantes', () => {
     const order = await service.createOrder(createValidOrderItems(), 'card', createdAt, true)
     await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
-      ['pickupTicket', 'customerReceipt'],
+      ['customerReceipt', 'preparationTicket'],
+      ['customerReceipt'],
       'Préparation échouée',
     )
     const started = await service.beginPrinting(order.id, [
@@ -661,14 +661,14 @@ describe('service de commandes persistantes', () => {
     expect(started.printing.customerReceipt).toBe('printed')
     const failed = await service.failPrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       [],
       'Déconnexion',
     )
     expect(failed.printing.customerReceipt).toBe('printed')
     const completed = await service.completePrinting(
       order.id,
-      ['pickupTicket', 'customerReceipt', 'preparationTicket'],
+      ['customerReceipt', 'preparationTicket'],
       ['preparationTicket'],
     )
     expect(completed.printing.status).toBe('printed')

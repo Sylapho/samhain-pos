@@ -98,7 +98,7 @@ export function captureIndexedDbEvent(
 export class IndexedDbOutboxRepository {
   constructor(
     private readonly indexedDb: IDBFactory,
-    private readonly databaseName = 'samhain-pos',
+    private readonly databaseName = 'samhain-witches',
   ) {}
 
   async entries(): Promise<OutboxEntry[]> {

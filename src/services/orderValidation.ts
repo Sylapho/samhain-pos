@@ -4,7 +4,7 @@ import type { DataConfidence, ProductIngredient, VatRate } from '../types/catalo
 import type { PaymentMethod, PaymentStatus } from '../types/order'
 import type { LedgerSource } from '../types/salesLedger'
 import {
-  terminalCodes,
+  supportedTerminalCodes,
   type TerminalCode,
   type TerminalConfiguration,
   type TerminalIdentity,
@@ -74,7 +74,7 @@ function boolean(value: unknown, label: string): boolean {
 }
 
 function isTerminalCode(value: unknown): value is TerminalCode {
-  return terminalCodes.some((code) => code === value)
+  return supportedTerminalCodes.some((code) => code === value)
 }
 
 function validateIsoTimestamp(value: unknown, label: string): string {

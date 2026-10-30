@@ -120,8 +120,8 @@ export default function App() {
   return (
     <>
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Samhain · Suivi des ventes">
-          SAMHAIN<span>Suivi des ventes</span>
+        <a className="brand" href="/" aria-label="Samhain Witches · Suivi des ventes">
+          SAMHAIN WITCHES<span>Suivi des ventes</span>
         </a>
         <span className="readonly">Consultation · lecture seule</span>
       </header>
@@ -505,7 +505,7 @@ export default function App() {
           </>
         )}
         <footer>
-          Samhain · Consultation MongoDB · Aucune modification de la caisse depuis cet écran.
+          Samhain Witches · Consultation MongoDB · Aucune modification de la caisse depuis cet écran.
         </footer>
       </main>
     </>

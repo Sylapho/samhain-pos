@@ -1,4 +1,4 @@
-import { initialCatalogProducts } from '../data/initialCatalog.ts'
+import { witchesCatalogProducts } from '../data/witchesCatalog.ts'
 import type { Product } from '../types/catalog.ts'
 import { assertCatalogReadyForProduction } from './catalog.ts'
 import {
@@ -25,7 +25,7 @@ export function assertProductionBuildReady(
   { command, mode }: BuildContext,
   {
     businessInfo = receiptBusinessInfo,
-    catalog = initialCatalogProducts,
+    catalog = witchesCatalogProducts,
   }: ProductionConfiguration = {},
 ): void {
   if (command !== 'build' || mode !== 'production') return

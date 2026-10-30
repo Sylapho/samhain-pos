@@ -28,7 +28,7 @@ describe('configuration de la caisse', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Changer la caisse utilisée' }))
-    fireEvent.click(screen.getByRole('button', { name: 'B' }))
+    fireEvent.click(screen.getByRole('button', { name: 'W' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
     fireEvent.click(screen.getByRole('button', { name: 'Confirmer le changement' }))
     expect(screen.getByRole('button', { name: 'Confirmer le changement' })).toBeDisabled()
@@ -55,8 +55,9 @@ describe('configuration de la caisse', () => {
     expect(screen.getByText('Synchronisation non configurée')).toBeVisible()
     expect(screen.getByRole('button', { name: 'Enregistrer le nom' })).toBeEnabled()
   })
-  it('impose un code A à D au premier provisioning et propose le nom correspondant', () => {
-    const onProvision = vi.fn().mockReturnValue(configuration)
+  it('propose uniquement W au premier provisioning', () => {
+    const witchesConfiguration = { ...configuration, terminalCode: 'W' as const, displayName: 'Caisse W' }
+    const onProvision = vi.fn().mockReturnValue(witchesConfiguration)
     const onConfigured = vi.fn()
 
     render(
@@ -69,22 +70,23 @@ describe('configuration de la caisse', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: 'Configurer la tablette' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'A' }))
-    expect(screen.getByLabelText('Nom visible')).toHaveValue('Caisse A')
+    expect(screen.getByRole('button', { name: 'Configurer la tablette' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'W' })).toBeInTheDocument()
+    for (const code of ['A', 'B', 'C', 'D']) expect(screen.queryByRole('button', { name: code })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Nom visible')).toHaveValue('Caisse W')
     fireEvent.click(screen.getByRole('button', { name: 'Configurer la tablette' }))
 
-    expect(onProvision).toHaveBeenCalledWith({ terminalCode: 'A', displayName: 'Caisse A' })
-    expect(onConfigured).toHaveBeenCalledWith(configuration)
+    expect(onProvision).toHaveBeenCalledWith({ terminalCode: 'W', displayName: 'Caisse W' })
+    expect(onConfigured).toHaveBeenCalledWith(witchesConfiguration)
   })
 
   it('sépare le renommage du reprovisionnement explicite', () => {
     const renamed = { ...configuration, displayName: 'Caisse accueil' }
     const reprovisioned = {
       ...configuration,
-      terminalId: 'terminal-b',
-      terminalCode: 'B' as const,
-      displayName: 'Caisse B',
+      terminalId: 'terminal-w',
+      terminalCode: 'W' as const,
+      displayName: 'Caisse W',
     }
     const onRename = vi.fn().mockReturnValue(renamed)
     const onReprovision = vi.fn().mockReturnValue(reprovisioned)
@@ -123,12 +125,12 @@ describe('configuration de la caisse', () => {
     expect(screen.getByText('Nom : Caisse A')).toBeInTheDocument()
     expect(screen.getByText('Code : A')).toBeInTheDocument()
     expect(screen.queryByText(/terminal-a/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'B' }))
+    fireEvent.click(screen.getByRole('button', { name: 'W' }))
     fireEvent.click(screen.getByRole('button', { name: 'Continuer' }))
 
     expect(onReprovision).not.toHaveBeenCalled()
     expect(
-      screen.getByRole('dialog', { name: 'Changer cette tablette de Caisse A vers Caisse B ?' }),
+      screen.getByRole('dialog', { name: 'Changer cette tablette de Caisse A vers Caisse W ?' }),
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Annuler' }))
     expect(onReprovision).not.toHaveBeenCalled()
@@ -138,7 +140,7 @@ describe('configuration de la caisse', () => {
     fireEvent.click(confirm)
     fireEvent.click(confirm)
 
-    expect(onReprovision).toHaveBeenCalledWith({ terminalCode: 'B', displayName: 'Caisse B' })
+    expect(onReprovision).toHaveBeenCalledWith({ terminalCode: 'W', displayName: 'Caisse W' })
     expect(onReprovision).toHaveBeenCalledTimes(1)
   })
 

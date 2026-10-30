@@ -1,6 +1,8 @@
-export const terminalCodes = ['A', 'B', 'C', 'D'] as const
+export const terminalCodes = ['W'] as const
 
-export type TerminalCode = (typeof terminalCodes)[number]
+// Les archives historiques restent lisibles ; la liste de choix dans l'interface contient W seule.
+export const supportedTerminalCodes = ['A', 'B', 'C', 'D', 'W'] as const
+export type TerminalCode = (typeof supportedTerminalCodes)[number]
 
 export type TerminalIdentity = {
   terminalId: string

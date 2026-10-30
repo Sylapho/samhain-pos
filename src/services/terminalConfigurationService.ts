@@ -1,17 +1,16 @@
 import { synchronizationService } from './synchronizationService'
 import type {
-  TerminalCode,
   TerminalConfiguration,
   TerminalProvisioningInput,
 } from '../types/terminal'
-import { terminalCodes } from '../types/terminal'
+import { supportedTerminalCodes } from '../types/terminal'
 import { getResponsibleModeService } from './responsibleModeService'
 import {
   reprovisioningPreconditions,
   type ReprovisioningPreconditions,
 } from './reprovisioningPreconditions'
 
-const TERMINAL_CONFIGURATION_KEY = 'samhain-pos.terminal-configuration.v1'
+const TERMINAL_CONFIGURATION_KEY = 'samhain-witches.terminal-configuration.v1'
 
 export interface TerminalConfigurationRepository {
   get(): TerminalConfiguration | null
@@ -152,7 +151,7 @@ function isTerminalConfiguration(value: unknown): value is TerminalConfiguration
   return (
     typeof candidate.terminalId === 'string' &&
     candidate.terminalId.length > 0 &&
-    terminalCodes.includes(candidate.terminalCode as TerminalCode) &&
+    supportedTerminalCodes.some((code) => code === candidate.terminalCode) &&
     typeof candidate.displayName === 'string' &&
     candidate.displayName.trim().length > 0 &&
     candidate.displayName.length <= 40 &&

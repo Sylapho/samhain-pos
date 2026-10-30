@@ -1,10 +1,16 @@
-# Samhain POS
+# Samhain Witches
 
-Le [tableau de bord MongoDB](docs/mongodb-dashboard.md) permet de consulter les ventes, filtrer par tablette et exporter les commandes, en lecture seule. Démarrage local : `pnpm dashboard`. Le [déploiement public Docker/Caddy](docs/mongodb-dashboard-hosting.md) est prévu pour `dashboard.samhain.arthurdubos.fr`, sans authentification, sur activation explicite.
+Cette copie prépare une caisse indépendante **W** pour Witches Potion Bar. Le
+[guide de préparation W](docs/samhain-witches-setup.md) est la référence pour
+le catalogue, les tickets, l'identifiant Android et les futures opérations VPS.
+Les autres guides historiques proviennent de Samhain POS ; leurs domaines,
+identifiants et bases de données ne doivent pas être réutilisés tels quels pour W.
 
-Samhain POS est une caisse tactile conçue pour l'encaissement sur tablette Android pendant le festival Samhain. L'application fonctionne localement, y compris sans connexion réseau, et intègre l'impression USB ESC/POS pour une Epson TM-T88V compatible.
+Le tableau de bord MongoDB de W est séparé de celui de Samhain POS. Démarrage local : `pnpm dashboard`. Son domaine public reste à choisir avant déploiement.
 
-Le catalogue est une donnée locale administrable. Il est conservé dans Room/SQLite sur Android et dans IndexedDB sur le web ; `src/data/initialCatalog.ts` sert uniquement de seed lors de la première utilisation. La build de production contrôle ce seed et les informations administratives avant de générer le moindre artefact.
+Samhain Witches est une caisse tactile conçue pour l'encaissement sur tablette Android. L'application fonctionne localement, y compris sans connexion réseau, et intègre l'impression USB ESC/POS pour une Epson TM-T88V compatible.
+
+Le catalogue est une donnée locale administrable. Il est conservé dans Room/SQLite sur Android et dans IndexedDB sur le web ; `src/data/witchesCatalog.ts` sert uniquement de seed lors de la première utilisation. La build de production contrôle ce seed et les informations administratives avant de générer le moindre artefact.
 
 La [distribution versionnée du catalogue MongoDB (#135)](docs/catalog-distribution.md) télécharge et valide des publications complètes sans attendre le réseau pour vendre. Administration → Catalogue partagé permet leur activation sur une caisse au repos et la résolution explicite des conflits. Les éditions et ruptures locales sont conservées ; les anciennes migrations de prix ne sont appliquées qu'une fois. Le transport authentifié est Android ; le cache transactionnel IndexedDB reste disponible sur le Web.
 

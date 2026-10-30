@@ -29,7 +29,7 @@ export const documentExporter: DocumentExporter = {
   saveJson(request) {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
       throw new Error(
-        'L’enregistrement vérifié est disponible dans l’application Android Samhain POS.',
+        'L’enregistrement vérifié est disponible dans l’application Android Samhain Witches.',
       )
     }
     return nativePlugin.saveJson(request)

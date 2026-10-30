@@ -49,7 +49,7 @@ describe('rendus thermiques', () => {
     expect(ticket.preview).not.toMatch(/€|Paiement|TVA|41,50/)
   })
 
-  it('exclut les lignes remises directement du ticket de préparation', () => {
+  it('inclut toutes les lignes dans le ticket de préparation W', () => {
     const mixedOrder = {
       ...printPreviewOrder,
       items: [
@@ -65,7 +65,7 @@ describe('rendus thermiques', () => {
 
     const preparation = renderPreparationTicket(mixedOrder).preview
     expect(preparation).toContain('BURGER SPÉCIAL SAMHAIN')
-    expect(preparation).not.toContain('EAU')
+    expect(preparation).toContain('EAU')
   })
 
   it('met très visiblement en avant les ingrédients retirés uniquement en préparation', () => {

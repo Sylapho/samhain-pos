@@ -24,13 +24,13 @@ const files = [
   'server/pnpm-lock.yaml',
   'server/tsconfig.json',
   'server/src',
-  'docs/mongodb-dashboard-hosting.md',
+  'docs/samhain-witches-setup.md',
 ]
 const result = spawnSync(
   'tar',
   [
     '-czf',
-    '.tmp/samhain-dashboard-source.tar.gz',
+    '.tmp/samhain-witches-dashboard-source.tar.gz',
     '--exclude=.env',
     '--exclude=.env.*',
     '--exclude=*.pem',
@@ -49,5 +49,5 @@ if (result.error || result.status !== 0) {
   process.exitCode = 1
 } else
   console.log(
-    'Archive de déploiement : .tmp/samhain-dashboard-source.tar.gz (sans configuration locale ni secrets).',
+    'Archive de déploiement : .tmp/samhain-witches-dashboard-source.tar.gz (sans configuration locale ni secrets).',
   )

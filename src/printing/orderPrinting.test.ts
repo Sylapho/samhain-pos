@@ -30,7 +30,7 @@ describe('état persistant des documents imprimés', () => {
     ).toBe('printed')
   })
 
-  it('normalise prudemment une ancienne commande sans état de bon de retrait', () => {
+  it('normalise une ancienne commande sans état de bon de retrait pour W', () => {
     const normalized = normalizeOrderPrinting(
       {
         status: 'printed',
@@ -43,8 +43,8 @@ describe('état persistant des documents imprimés', () => {
     )
 
     expect(normalized).toMatchObject({
-      status: 'unknown',
-      pickupTicket: 'unknown',
+      status: 'printed',
+      pickupTicket: 'not_requested',
       customerReceipt: 'printed',
       preparationTicket: 'printed',
     })

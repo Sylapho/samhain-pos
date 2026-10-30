@@ -2,12 +2,17 @@
 set -eu
 
 target=/opt/les-cocottes-de-diane/proxy/Caddyfile
-fragment=/opt/samhain-dashboard/dashboard/Caddyfile
-if grep -Eq '^[[:space:]]*dashboard[.]samhain[.]arthurdubos[.]fr([[:space:]]|$)' "$target"; then
+fragment=/opt/samhain-witches-dashboard/dashboard/Caddyfile
+if grep -q 'REPLACE_WITH_WITCHES_DASHBOARD_HOST' "$fragment"; then
+  echo 'Renseignez le domaine Witches dans le fragment Caddy avant installation.' >&2
+  exit 1
+fi
+dashboard_host=$(sed -n 's/^[[:space:]]*\([^[:space:]{}]*\)[[:space:]]*{$/\1/p' "$fragment" | head -n 1)
+if [ -z "$dashboard_host" ] || grep -Fq "$dashboard_host {" "$target"; then
   echo 'Le domaine figure déjà dans Caddyfile. Vérifiez son bloc avant toute modification.' >&2
   exit 1
 fi
-backup="${target}.before-samhain-dashboard.$(date -u +%Y%m%dT%H%M%SZ)"
+backup="${target}.before-samhain-witches-dashboard.$(date -u +%Y%m%dT%H%M%SZ)"
 cp -p "$target" "$backup"
 # Append in place: preserve the inode of the file bind-mounted into the existing proxy.
 printf '\n' >> "$target"

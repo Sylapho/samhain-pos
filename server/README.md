@@ -1,4 +1,10 @@
-# Backend HTTPS Samhain POS — #130 à #133
+# Backend HTTPS Samhain Witches
+
+Pour cette copie W, suivre d'abord le [guide de préparation](../docs/samhain-witches-setup.md).
+Les commandes et identifiants Samhain POS conservés plus bas sont historiques et ne
+doivent pas être utilisés tels quels sur le VPS Witches.
+
+## Documentation historique Samhain POS — #130 à #133
 
 Fondation **Node.js 24 LTS / TypeScript strict / Fastify / driver officiel MongoDB**,
 conforme à [l'architecture #129](../docs/architecture-mongodb-offline-first.md).

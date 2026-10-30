@@ -1,6 +1,6 @@
 import { selectCompatibleEpsonPrinter, type UsbPrinterDevice } from '../native/epsonUsbPrinter'
 
-const PREFERRED_PRINTER_KEY = 'samhain-pos.preferred-usb-printer.v1'
+const PREFERRED_PRINTER_KEY = 'samhain-witches.preferred-usb-printer.v1'
 
 export type PreferredUsbPrinter = {
   vendorId: number

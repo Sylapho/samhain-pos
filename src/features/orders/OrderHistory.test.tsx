@@ -414,7 +414,7 @@ describe('historique des commandes', () => {
   it.each([
     ['Reçu de caisse', ['customerReceipt']],
     ['Préparation', ['preparationTicket']],
-    ['Tous les documents', ['pickupTicket', 'customerReceipt', 'preparationTicket']],
+    ['Tous les documents', ['customerReceipt', 'preparationTicket']],
   ] as const)(
     'réimprime exactement la commande persistée avec l’action « %s »',
     async (buttonName, selection) => {

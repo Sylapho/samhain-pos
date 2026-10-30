@@ -465,9 +465,7 @@ function OrderDetails({
   const { date, time } = formatTicketDateTime(order.createdAt)
   const summary = deriveSaleCorrectionSummary(order, corrections)
   const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
-  const hasPickupTicket = order.printing.pickupTicket !== 'not_requested'
   const allDocuments = [
-    ...(hasPickupTicket ? (['pickupTicket'] as const) : []),
     'customerReceipt' as const,
     ...(hasPreparationTicket ? (['preparationTicket'] as const) : []),
   ]
@@ -558,7 +556,6 @@ function OrderDetails({
           Impression : {printStatusLabels[order.printing.status]}
         </h4>
         <div className="mt-2 text-sm font-bold text-stone-700" aria-live="polite">
-          <p>Bon de retrait : {documentStatusLabels[order.printing.pickupTicket]}</p>
           <p>Reçu de caisse : {documentStatusLabels[order.printing.customerReceipt]}</p>
           <p>Ticket de préparation : {documentStatusLabels[order.printing.preparationTicket]}</p>
         </div>
@@ -573,11 +570,6 @@ function OrderDetails({
           La réimpression reprend les données et numéros de cette commande.
         </p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          {hasPickupTicket ? (
-            <Button disabled={printing !== null} onClick={() => onReprint(['pickupTicket'])}>
-              {printing?.includes('pickupTicket') ? 'Impression en cours…' : 'Bon de retrait'}
-            </Button>
-          ) : null}
           <Button disabled={printing !== null} onClick={() => onReprint(['customerReceipt'])}>
             {printing?.includes('customerReceipt') ? 'Impression en cours…' : 'Reçu de caisse'}
           </Button>

@@ -1,4 +1,4 @@
-export const RESPONSIBLE_CREDENTIAL_STORAGE_KEY = 'samhain-pos.responsible-credential.v1'
+export const RESPONSIBLE_CREDENTIAL_STORAGE_KEY = 'samhain-witches.responsible-credential.v1'
 export const RESPONSIBLE_CREDENTIAL_ITERATIONS = 310_000
 export const RESPONSIBLE_MODE_IDLE_TIMEOUT_MS = 5 * 60 * 1_000
 export const RESPONSIBLE_PIN_MIN_LENGTH = 4

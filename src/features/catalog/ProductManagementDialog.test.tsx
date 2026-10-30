@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { useState } from 'react'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
-import { initialCatalogProducts } from '../../data/initialCatalog'
+import { witchesCatalogProducts } from '../../data/witchesCatalog'
 import { IndexedDbCatalogRepository } from '../../services/catalogRepository'
 import { CatalogService } from '../../services/catalogService'
 import type { Category, Product } from '../../types/catalog'
@@ -10,7 +10,7 @@ import { ProductManagementDialog } from './ProductManagementDialog'
 
 async function setup() {
   const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'admin')
-  const service = new CatalogService(repository, initialCatalogProducts.slice(0, 2))
+  const service = new CatalogService(repository, witchesCatalogProducts.slice(0, 2))
   const products = await service.loadCatalog()
   return { repository, service, products, categories: await service.getCategories() }
 }
@@ -97,7 +97,7 @@ describe('Administration du catalogue', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('nom de la catégorie est requis')
     fireEvent.change(screen.getByLabelText('Nom de la catégorie'), {
-      target: { value: ' BIÈRES ' },
+      target: { value: ' POTIONS ' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('déjà ce nom')
@@ -114,7 +114,7 @@ describe('Administration du catalogue', () => {
     const renamed = await screen.findByRole('listitem', { name: 'Spécialités' })
     fireEvent.click(within(renamed).getByRole('button', { name: 'Monter' }))
     await waitFor(() =>
-      expect(within(renamed).getByRole('heading')).toHaveTextContent('6. Spécialités'),
+      expect(within(renamed).getByRole('heading')).toHaveTextContent('3. Spécialités'),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Produits' }))
     fireEvent.click(screen.getByRole('button', { name: 'Ajouter un produit' }))

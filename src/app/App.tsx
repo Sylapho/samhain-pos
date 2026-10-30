@@ -602,7 +602,7 @@ export function App({
     >
       <header className="flex min-h-16 items-center justify-between gap-4 bg-[#18231e] px-5 py-2 text-white">
         <div className="flex items-baseline gap-3">
-          <div className="text-xl font-black">Samhain POS</div>
+          <div className="text-xl font-black">Samhain Witches</div>
           <button
             type="button"
             className="min-h-11 border-l border-stone-600 pl-3 text-left text-sm font-bold text-stone-200 focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-white"

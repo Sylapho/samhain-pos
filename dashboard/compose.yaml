@@ -1,7 +1,7 @@
-name: samhain-dashboard
+name: samhain-witches-dashboard
 services:
   dashboard:
-    image: samhain-dashboard:local
+    image: samhain-witches-dashboard:local
     build:
       context: ..
       dockerfile: dashboard/Dockerfile
@@ -12,7 +12,7 @@ services:
         required: true
     environment:
       DASHBOARD_PUBLIC: 'true'
-      DASHBOARD_PUBLIC_ORIGIN: https://dashboard.samhain.arthurdubos.fr
+      DASHBOARD_PUBLIC_ORIGIN: ${WITCHES_DASHBOARD_ORIGIN:?Set the HTTPS dashboard origin}
       DASHBOARD_PORT: '4310'
       NODE_EXTRA_CA_CERTS: /run/certificates/mongo-ca.crt
     volumes:
@@ -26,7 +26,7 @@ services:
       database: {}
       proxy:
         aliases:
-          - samhain-dashboard
+          - samhain-witches-dashboard
     # Reachable only from Docker networks; HTTPS is terminated by the existing Caddy.
     expose:
       - '4310'

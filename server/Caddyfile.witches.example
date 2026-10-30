@@ -1,0 +1,5 @@
+# Add to the existing Caddyfile only after confirming DNS, certificate and service health.
+REPLACE_WITH_WITCHES_API_HOST {
+    encode zstd gzip
+    reverse_proxy samhain-witches-api:3000
+}

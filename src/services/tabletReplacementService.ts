@@ -7,7 +7,7 @@ import { requireArchiveTerminalIdentity } from './salesLedgerService'
 import type { TerminalConfigurationService } from './terminalConfigurationService'
 import { tabletAuth } from '../native/tabletAuth'
 
-const TABLET_REPLACEMENT_STATE_KEY = 'samhain-pos.tablet-replacement.v1'
+const TABLET_REPLACEMENT_STATE_KEY = 'samhain-witches.tablet-replacement.v1'
 
 export type PendingTabletReplacement = {
   schemaVersion: 1

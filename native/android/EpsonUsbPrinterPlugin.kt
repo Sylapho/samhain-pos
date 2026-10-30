@@ -879,7 +879,7 @@ class EpsonUsbPrinterPlugin : Plugin() {
         bytes.write(byteArrayOf(0x1B, 0x45, 0x01))
         writeAscii(bytes, "TOTAL                     17,50 EUR\n")
         bytes.write(byteArrayOf(0x1B, 0x45, 0x00))
-        writeAscii(bytes, "\nCaisse A\nCommande TEST-A001\n")
+        writeAscii(bytes, "\nCaisse W\nCommande TEST-W001\n")
         writeAscii(bytes, "USB-C -> USB-B\n")
         writeAscii(bytes, "\n\n\n\n")
         bytes.write(byteArrayOf(0x1D, 0x56, 0x00)) // GS V 0 : coupe

@@ -369,7 +369,7 @@ abstract class SamhainPosDatabase : RoomDatabase() {
     abstract fun catalogMetadataDao(): CatalogMetadataDao
 
     companion object {
-        const val DATABASE_NAME = "samhain-pos-room.db"
+        const val DATABASE_NAME = "samhain-witches-room.db"
 
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {

@@ -26,7 +26,7 @@ import {
   type UpdateCashFloatRequest,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
-import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/preparation'
+import { orderRequiresPreparation } from '../utils/preparation'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 import { normalizeOrderPrinting, unknownOrderPrinting } from '../printing/orderPrinting'
 import { refundLinesTotalCents, validateStructuredRefund } from './saleRefund'
@@ -39,7 +39,7 @@ const METADATA_STORE = indexedDbStores.metadata
 const CHECKOUT_INTENTS_STORE = indexedDbStores.checkoutIntents
 const SEQUENCES_KEY = 'sequences'
 export const ARCHIVE_NOTICE =
-  'Archive JSON Samhain POS. Les montants sont exprimés en centimes. Les entrées sont ordonnées par sequence et chaînées par previousHash/hash en SHA-256. Vérifier archiveHash puis chaque entrée avant consultation ou restauration.'
+  'Archive JSON Samhain Witches. Les montants sont exprimés en centimes. Les entrées sont ordonnées par sequence et chaînées par previousHash/hash en SHA-256. Vérifier archiveHash puis chaque entrée avant consultation ou restauration.'
 
 type StoredSequences = LedgerMetadataSnapshot & { key: typeof SEQUENCES_KEY }
 
@@ -589,7 +589,7 @@ export class IndexedDbOrderRepository
 
   constructor(
     private readonly indexedDb: IDBFactory,
-    private readonly databaseName = 'samhain-pos',
+    private readonly databaseName = 'samhain-witches',
   ) {}
 
   createCheckoutIntent(intent: CheckoutIntent): Promise<CheckoutIntent> {
@@ -755,9 +755,7 @@ export class IndexedDbOrderRepository
               }
               const paymentConfirmedAt = intent.paymentConfirmedAt
               const preparationRequired = orderRequiresPreparation({ items: intent.cartSnapshot })
-              const pickupTicket = orderRequiresPickupTicket({ items: intent.cartSnapshot })
-                ? 'pending'
-                : 'not_requested'
+              const pickupTicket = 'not_requested'
               const customerReceipt = intent.printCustomerReceipt ? 'pending' : 'not_requested'
               const preparationTicket = preparationRequired ? 'pending' : 'not_requested'
               const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
@@ -782,7 +780,6 @@ export class IndexedDbOrderRepository
                       receiptNumberPrefix: intent.receiptNumberPrefix,
                       printing: {
                         status:
-                          pickupTicket === 'pending' ||
                           customerReceipt === 'pending' ||
                           preparationTicket === 'pending'
                             ? 'pending'

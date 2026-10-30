@@ -6,6 +6,8 @@ import type { PrintJobResult } from '../printing/types'
 import { useCartStore } from '../store/cartStore'
 import type { Order } from '../types/order'
 import { initialCatalogProducts } from '../data/initialCatalog'
+import { witchesCatalogProducts } from '../data/witchesCatalog'
+import { witchesCategories } from '../data/witchesCategories'
 import { App as ProductionApp } from './App'
 import {
   LocalStorageTerminalConfigurationRepository,
@@ -165,9 +167,9 @@ describe('caisse', () => {
 
   it('enchaîne le provisioning initial avec la création obligatoire du PIN responsable', async () => {
     const configured = {
-      terminalId: 'terminal-c',
-      terminalCode: 'C' as const,
-      displayName: 'Caisse C',
+      terminalId: 'terminal-w',
+      terminalCode: 'W' as const,
+      displayName: 'Caisse W',
       provisionedAt: '2026-09-10T10:00:00.000Z',
     }
     const provision = vi.fn().mockReturnValue(configured)
@@ -189,10 +191,10 @@ describe('caisse', () => {
 
     expect(screen.getByRole('dialog', { name: 'Configurer cette tablette' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Valider la commande' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'C' }))
+    fireEvent.click(screen.getByRole('button', { name: 'W' }))
     fireEvent.click(screen.getByRole('button', { name: 'Configurer la tablette' }))
 
-    expect(provision).toHaveBeenCalledWith({ terminalCode: 'C', displayName: 'Caisse C' })
+    expect(provision).toHaveBeenCalledWith({ terminalCode: 'W', displayName: 'Caisse W' })
     expect(
       screen.getByRole('dialog', { name: 'Configurer le mode responsable' }),
     ).toBeInTheDocument()
@@ -204,7 +206,7 @@ describe('caisse', () => {
         screen.queryByRole('dialog', { name: 'Configurer le mode responsable' }),
       ).not.toBeInTheDocument(),
     )
-    expect(screen.getByRole('button', { name: 'Configurer Caisse C' })).toHaveTextContent('Code C')
+    expect(screen.getByRole('button', { name: 'Configurer Caisse W' })).toHaveTextContent('Code W')
   })
 
   it('demande le mode responsable avant d’ouvrir la configuration existante', async () => {
@@ -345,10 +347,12 @@ describe('caisse', () => {
       completedDocuments: ['pickupTicket', 'preparationTicket'],
     })
     const repository = new IndexedDbCatalogRepository(new IDBFactory(), 'app-sync-outage')
-    const catalog = new CatalogService(repository, initialCatalogProducts)
+    const catalog = new CatalogService(repository, witchesCatalogProducts)
     await catalog.loadCatalog()
     render(
       <App
+        initialCatalog={undefined}
+        initialCategories={undefined}
         responsibleMode={mode}
         catalogService={catalog}
         loadRecoverableOrders={async () => []}
@@ -359,8 +363,8 @@ describe('caisse', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Synchronisation des données' }))
     await screen.findByRole('heading', { name: 'Suivi non disponible' })
     fireEvent.click(screen.getByRole('button', { name: 'Fermer' }))
-    fireEvent.click(screen.getByRole('button', { name: /Assiettes/ }))
-    fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Potions/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Chocolat chaud magique, 3,00/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
     fireEvent.click(screen.getByRole('button', { name: 'Carte bancaire' }))
     fireEvent.click(screen.getByRole('button', { name: 'Préparer le paiement TPE' }))
@@ -383,12 +387,12 @@ describe('caisse', () => {
     'protège la caisse lors d’une activation distante : %s',
     async (operation) => {
       const repository = new IndexedDbCatalogRepository(new IDBFactory(), `app-sync-${operation}`)
-      const service = new CatalogService(repository, initialCatalogProducts)
+      const service = new CatalogService(repository, witchesCatalogProducts)
       await service.loadCatalog()
-      const remote = initialCatalogProducts.map((product) => ({
+      const remote = witchesCatalogProducts.map((product) => ({
         ...product,
         dataConfidence: 'confirmed',
-        ...(product.id === 'omelette' ? { priceCents: 1600 } : {}),
+        ...(product.id === 'chocolat-chaud-magique' ? { priceCents: 400 } : {}),
         variants: product.variants?.map((variant) => ({ ...variant, dataConfidence: 'confirmed' })),
       }))
       const scope = {
@@ -403,7 +407,7 @@ describe('caisse', () => {
         publishedAt: '2026-10-21T10:00:00Z',
         origin: 'supabase:fixture',
         products: remote,
-        categories: initialCategories,
+        categories: witchesCategories,
       })
       await service.distribution.stage({ payload, sha256: sha256Hex(payload) }, scope)
       const responsibleMode = new ResponsibleModeService(
@@ -421,13 +425,13 @@ describe('caisse', () => {
           loadRecoverableOrders={loadRecoverableOrders}
         />,
       )
-      await screen.findByRole('button', { name: /Menu enfant/ })
+      await screen.findByRole('button', { name: /Matcha au lait végétal/ })
       await waitFor(() => expect(loadRecoverableOrders).toHaveBeenCalled())
       if (operation === 'options')
-        fireEvent.click(screen.getByRole('button', { name: /Menu enfant/ }))
+        fireEvent.click(screen.getByRole('button', { name: /Matcha au lait végétal/ }))
       if (operation === 'panier' || operation === 'paiement') {
-        fireEvent.click(screen.getByRole('button', { name: 'Assiettes' }))
-        fireEvent.click(screen.getByRole('button', { name: /Omelette, 10,00/ }))
+        fireEvent.click(screen.getByRole('button', { name: 'Potions' }))
+        fireEvent.click(screen.getByRole('button', { name: /Chocolat chaud magique, 3,00/ }))
       }
       if (operation === 'paiement')
         fireEvent.click(screen.getByRole('button', { name: 'Valider la commande' }))
@@ -440,18 +444,20 @@ describe('caisse', () => {
         await waitFor(async () =>
           expect((await service.distribution.status()).active).toBeDefined(),
         )
-        expect((await service.getProducts()).find(({ id }) => id === 'omelette')?.priceCents).toBe(
-          1600,
-        )
+        expect(
+          (await service.getProducts()).find(({ id }) => id === 'chocolat-chaud-magique')
+            ?.priceCents,
+        ).toBe(400)
       } else {
         expect(await screen.findByRole('alert')).toHaveTextContent('Terminez')
         expect((await service.distribution.status()).active).toBeUndefined()
-        expect((await service.getProducts()).find(({ id }) => id === 'omelette')?.priceCents).toBe(
-          1000,
-        )
+        expect(
+          (await service.getProducts()).find(({ id }) => id === 'chocolat-chaud-magique')
+            ?.priceCents,
+        ).toBe(300)
         expect(useCartStore.getState().items).toEqual(before)
         if (operation === 'options')
-          expect(screen.getByRole('dialog', { name: 'Menu enfant' })).toBeInTheDocument()
+          expect(screen.getByRole('dialog', { name: 'Matcha au lait végétal' })).toBeInTheDocument()
         if (operation === 'paiement')
           expect(screen.getByRole('dialog', { name: 'Encaissement' })).toBeInTheDocument()
       }
@@ -469,12 +475,14 @@ describe('caisse', () => {
     )
     await service.loadCatalog()
     for (const category of await service.getCategories()) {
-      if (!['menus', 'desserts'].includes(category.id))
+      if (!['potions', 'gourmandises'].includes(category.id))
         await service.setCategoryActive(category.id, false)
     }
     useCartStore
       .getState()
-      .addItem(createCartItemDraft(initialCatalogProducts.find(({ id }) => id === 'crepe-sucre')!))
+      .addItem(
+        createCartItemDraft(witchesCatalogProducts.find(({ id }) => id === 'cookie-ensorcele')!),
+      )
     const cartBefore = structuredClone(useCartStore.getState().items)
     render(
       <App
@@ -487,7 +495,7 @@ describe('caisse', () => {
     )
     const navigation = await screen.findByRole('navigation', { name: 'Catégories de produits' })
     await waitFor(() =>
-      expect(within(navigation).getByRole('button', { name: 'Menus' })).toHaveAttribute(
+      expect(within(navigation).getByRole('button', { name: 'Potions' })).toHaveAttribute(
         'aria-pressed',
         'true',
       ),
@@ -504,19 +512,19 @@ describe('caisse', () => {
     await screen.findByRole('listitem', { name: 'Du jour' })
     expect(within(navigation).getByRole('button', { name: 'Du jour' })).toBeInTheDocument()
     fireEvent.click(
-      within(screen.getByRole('listitem', { name: 'Menus' })).getByRole('button', {
+      within(screen.getByRole('listitem', { name: 'Potions' })).getByRole('button', {
         name: 'Désactiver',
       }),
     )
     await waitFor(() =>
-      expect(within(navigation).queryByRole('button', { name: 'Menus' })).not.toBeInTheDocument(),
+      expect(within(navigation).queryByRole('button', { name: 'Potions' })).not.toBeInTheDocument(),
     )
-    expect(within(navigation).getByRole('button', { name: 'Desserts' })).toHaveAttribute(
+    expect(within(navigation).getByRole('button', { name: 'Gourmandises' })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
     fireEvent.click(
-      within(screen.getByRole('listitem', { name: 'Desserts' })).getByRole('button', {
+      within(screen.getByRole('listitem', { name: 'Gourmandises' })).getByRole('button', {
         name: 'Renommer',
       }),
     )

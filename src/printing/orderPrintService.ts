@@ -5,9 +5,8 @@ import { getResponsibleModeService } from '../services/responsibleModeService'
 import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { bytesToBase64 } from './escPos'
-import { orderRequiresPickupTicket, orderRequiresPreparation } from '../utils/preparation'
+import { orderRequiresPreparation } from '../utils/preparation'
 import { renderPreparationTicket } from './preparationTicketRenderer'
-import { renderPickupTicket } from './pickupTicketRenderer'
 import { getRetryableDocuments, uniquePrintSelection } from './orderPrinting'
 import { OrderPrintError } from './types'
 import type {
@@ -64,9 +63,6 @@ export function buildOrderPrintJob(
   const selection = uniquePrintSelection(options.selection ?? printDocumentTypes)
   const documents: RenderedTicket[] = []
 
-  if (selection.includes('pickupTicket') && orderRequiresPickupTicket(order)) {
-    documents.push(renderPickupTicket(order))
-  }
   if (selection.includes('customerReceipt')) {
     try {
       assertReceiptBusinessInfoCanBePrinted()
@@ -102,7 +98,7 @@ export function buildOrderPrintJob(
     selection.length > 0 &&
     selection.every(
       (document) =>
-        (document === 'pickupTicket' || document === 'preparationTicket') && !preparationRequired,
+        document === 'preparationTicket' && !preparationRequired,
     )
   if (!steps.length && !onlyInapplicableOperationalDocuments) {
     throw new OrderPrintError(

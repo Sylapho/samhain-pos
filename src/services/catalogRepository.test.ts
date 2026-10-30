@@ -35,6 +35,7 @@ describe('catalogue persistant IndexedDB', () => {
       ...structuredClone(initialCatalogProducts[0]!),
       id: 'nouveau-produit',
       name: 'Nouveau produit',
+      categoryId: 'potions',
       displayOrder: 999,
       priceCents: 425,
       variants: undefined,

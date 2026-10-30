@@ -1,4 +1,4 @@
-import { initialCategories } from '../data/initialCategories'
+import { witchesCategories } from '../data/witchesCategories'
 import type { Category, Product } from '../types/catalog'
 import type { CatalogSnapshot, CatalogCommit } from '../types/catalogDistribution'
 import type {
@@ -46,7 +46,7 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
 
   constructor(
     private readonly indexedDb: IDBFactory,
-    private readonly databaseName = 'samhain-pos',
+    private readonly databaseName = 'samhain-witches',
   ) {}
 
   async initialize(seed: readonly Product[]): Promise<CatalogInitializationResult> {
@@ -85,7 +85,7 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
             const distribution = metadata.get('distribution-v1')
             distribution.onsuccess = () => {
               if (!distribution.result)
-                for (const category of initialCategories) ensure(structuredClone(category))
+                for (const category of witchesCategories) ensure(structuredClone(category))
               for (const product of allProducts)
                 ensure({
                   id: product.categoryId,

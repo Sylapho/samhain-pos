@@ -144,7 +144,7 @@ export function buildSalesBackupFileName(archive: SalesArchive): string {
   const readableTimestamp = `${timestamp.slice(0, 8)}-${timestamp.slice(9, 15)}`
   const terminalCode = sanitizeFilePart(archive.source.terminal.terminalCode) || 'inconnue'
   const archivePart = sanitizeFilePart(archive.archiveId).slice(0, 12) || 'archive'
-  return `samhain-pos-backup-caisse-${terminalCode}-${readableTimestamp}-${archivePart}.json`
+  return `samhain-witches-backup-caisse-${terminalCode}-${readableTimestamp}-${archivePart}.json`
 }
 
 function sanitizeFilePart(value: string): string {

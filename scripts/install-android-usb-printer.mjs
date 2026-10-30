@@ -31,7 +31,15 @@ if (!appIdMatch) {
 }
 
 const appId = appIdMatch[1]
-const packageDir = path.join(androidRoot, 'app', 'src', 'main', 'java', ...appId.split('.'))
+const namespaceMatch = fs
+  .readFileSync(appBuildGradlePath, 'utf8')
+  .match(/namespace\s*=\s*['"]([^'"]+)['"]/)
+if (!namespaceMatch) {
+  console.error('Impossible de lire namespace dans android/app/build.gradle')
+  process.exit(1)
+}
+const nativePackage = namespaceMatch[1]
+const packageDir = path.join(androidRoot, 'app', 'src', 'main', 'java', ...nativePackage.split('.'))
 const mainActivityKotlinPath = path.join(packageDir, 'MainActivity.kt')
 const mainActivityJavaPath = path.join(packageDir, 'MainActivity.java')
 const pluginJavaPath = path.join(packageDir, 'EpsonUsbPrinterPlugin.java')
@@ -129,7 +137,7 @@ for (const dependency of roomDependencies) {
 if (!appBuildGradle.includes('appAuthRedirectScheme')) {
   appBuildGradle = appBuildGradle.replace(
     /defaultConfig\s*\{/,
-    'defaultConfig {\n        manifestPlaceholders.appAuthRedirectScheme = "fr.samhain.pos"',
+    `defaultConfig {\n        manifestPlaceholders.appAuthRedirectScheme = "${appId}"`,
   )
 }
 fs.writeFileSync(appBuildGradlePath, normalizeLineEndings(appBuildGradle, appGradleLineEnding))
@@ -140,10 +148,17 @@ for (const templateName of fs
   const templatePath = path.join(nativeTemplatesDir, templateName)
   const destinationPath = path.join(packageDir, templateName)
   const template = fs.readFileSync(templatePath, 'utf8')
-  fs.writeFileSync(destinationPath, template.replaceAll('__APP_PACKAGE__', appId))
+  fs.writeFileSync(destinationPath, template.replaceAll('__APP_PACKAGE__', nativePackage))
 }
 if (fs.existsSync(nativeTestTemplatesDir)) {
-  const testPackageDir = path.join(androidRoot, 'app', 'src', 'test', 'java', ...appId.split('.'))
+  const testPackageDir = path.join(
+    androidRoot,
+    'app',
+    'src',
+    'test',
+    'java',
+    ...nativePackage.split('.'),
+  )
   fs.mkdirSync(testPackageDir, { recursive: true })
   for (const templateName of fs
     .readdirSync(nativeTestTemplatesDir)
@@ -151,7 +166,7 @@ if (fs.existsSync(nativeTestTemplatesDir)) {
     const template = fs.readFileSync(path.join(nativeTestTemplatesDir, templateName), 'utf8')
     fs.writeFileSync(
       path.join(testPackageDir, templateName),
-      template.replaceAll('__APP_PACKAGE__', appId),
+      template.replaceAll('__APP_PACKAGE__', nativePackage),
     )
   }
 }
@@ -177,7 +192,7 @@ if (!fs.existsSync(mainActivityKotlinPath)) {
 
   fs.writeFileSync(
     mainActivityKotlinPath,
-    `package ${appId}\n\nimport android.os.Bundle\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        registerPlugin(CatalogStoragePlugin::class.java)\n        registerPlugin(DocumentExporterPlugin::class.java)\n        registerPlugin(TabletAuthPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}\n`,
+    `package ${nativePackage}\n\nimport android.os.Bundle\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        registerPlugin(EpsonUsbPrinterPlugin::class.java)\n        registerPlugin(OrderStoragePlugin::class.java)\n        registerPlugin(CatalogStoragePlugin::class.java)\n        registerPlugin(DocumentExporterPlugin::class.java)\n        registerPlugin(TabletAuthPlugin::class.java)\n        super.onCreate(savedInstanceState)\n    }\n}\n`,
   )
   fs.rmSync(mainActivityJavaPath)
 }

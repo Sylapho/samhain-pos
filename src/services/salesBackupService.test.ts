@@ -77,7 +77,7 @@ function exporter(
 describe('SalesBackupService', () => {
   it('génère un nom déterministe compatible avec les systèmes de fichiers', () => {
     expect(buildSalesBackupFileName(archive)).toBe(
-      'samhain-pos-backup-caisse-A-20260916-194500-archive-abcd.json',
+      'samhain-witches-backup-caisse-A-20260916-194500-archive-abcd.json',
     )
   })
 
@@ -92,12 +92,12 @@ describe('SalesBackupService', () => {
     expect(ledgerMock.exportArchive).toHaveBeenCalledOnce()
     expect(ledgerMock.verifyArchive).toHaveBeenCalledTimes(2)
     expect(documentExporter.saveJson).toHaveBeenCalledWith({
-      fileName: 'samhain-pos-backup-caisse-A-20260916-194500-archive-abcd.json',
+      fileName: 'samhain-witches-backup-caisse-A-20260916-194500-archive-abcd.json',
       content: `${JSON.stringify(archive, null, 2)}\n`,
     })
     expect(result).toMatchObject({
       status: 'verified',
-      fileName: 'samhain-pos-backup-caisse-A-20260916-194500-archive-abcd.json',
+      fileName: 'samhain-witches-backup-caisse-A-20260916-194500-archive-abcd.json',
       destination: 'content://documents/backup',
     })
   })

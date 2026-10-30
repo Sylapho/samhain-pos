@@ -1,4 +1,4 @@
-package __APP_PACKAGE__
+package fr.samhain.pos
 
 import android.content.Context
 import androidx.room.Room
@@ -281,7 +281,7 @@ class RoomCatalogStoreTest {
         JSONObject().apply {
             put("id", id)
             put("name", name)
-            put("categoryId", "assiettes")
+            put("categoryId", "potions")
             put("active", true)
             put("displayOrder", 0)
             put("requiresPreparation", true)

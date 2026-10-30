@@ -81,7 +81,7 @@ export class RoomOrderRepository
   constructor(
     private readonly nativeStorage: NativeStorage = orderStorage,
     private readonly legacyIndexedDb: IDBFactory | undefined = globalThis.indexedDB,
-    private readonly legacyDatabaseName = 'samhain-pos',
+    private readonly legacyDatabaseName = 'samhain-witches',
   ) {}
 
   async createOrder(request: OrderCreationRequest, source: LedgerSource): Promise<Order> {

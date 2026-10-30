@@ -46,7 +46,7 @@ internal class ManagerOidcSession(
             return value
         }
         val redirect = Uri.parse(config.getString("redirectUri"))
-        require(redirect.toString() == "fr.samhain.pos:/oauth2redirect")
+        require(redirect.toString() == "fr.samhain.witches:/oauth2redirect")
         val scopes = config.getJSONArray("scopes").let { values -> (0 until values.length()).map { values.getString(it) } }
         require("openid" in scopes)
         val request = AuthorizationRequest.Builder(
@@ -191,7 +191,7 @@ internal class ManagerOidcSession(
                 require(uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.fragment == null)
             }
             require(config.getString("clientId").isNotBlank())
-            require(config.getString("redirectUri") == "fr.samhain.pos:/oauth2redirect")
+            require(config.getString("redirectUri") == "fr.samhain.witches:/oauth2redirect")
         }
     }
 }

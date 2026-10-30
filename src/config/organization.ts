@@ -12,7 +12,7 @@ export type ReceiptBusinessInfo = {
 
 export const receiptBusinessInfo: ReceiptBusinessInfo = {
   organizationName: 'Association Les Trouble-fêtes',
-  eventName: 'Samhain',
+  eventName: 'Samhain Witches',
   city: 'Bernay',
   address: '24 rue Alsace Lorraine 27300 Bernay',
   siret: '923 116 628 00028',

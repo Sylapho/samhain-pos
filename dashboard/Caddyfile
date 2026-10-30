@@ -1,9 +1,5 @@
-# Append this block to /opt/les-cocottes-de-diane/proxy/Caddyfile.
-# Keep the existing sites and global configuration.
-dashboard.samhain.arthurdubos.fr {
+# Replace the hostname before installing; keep the existing Caddy sites.
+REPLACE_WITH_WITCHES_DASHBOARD_HOST {
     encode zstd gzip
-    reverse_proxy samhain-dashboard:4310 {
-        header_up Host dashboard.samhain.arthurdubos.fr
-        header_up X-Forwarded-Proto https
-    }
+    reverse_proxy samhain-witches-dashboard:4310
 }

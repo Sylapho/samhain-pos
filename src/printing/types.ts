@@ -1,6 +1,7 @@
-export const printDocumentTypes = ['pickupTicket', 'customerReceipt', 'preparationTicket'] as const
+export const printDocumentTypes = ['customerReceipt', 'preparationTicket'] as const
 
-export type PrintDocumentType = (typeof printDocumentTypes)[number]
+// Conservé dans le format persistant historique, mais W ne demande jamais ce document.
+export type PrintDocumentType = (typeof printDocumentTypes)[number] | 'pickupTicket'
 export type PrintSelection = readonly PrintDocumentType[]
 
 export type RenderedTicket = {

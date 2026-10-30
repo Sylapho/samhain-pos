@@ -94,7 +94,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             val preparationRequired = requiresPreparation(intent.getJSONArray("cartSnapshot"))
             val customerReceipt =
                 if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested"
-            val pickupTicket = if (preparationRequired) "pending" else "not_requested"
+            val pickupTicket = "not_requested"
             val preparationTicket = if (preparationRequired) "pending" else "not_requested"
             val request =
                 JSONObject().apply {
@@ -1203,7 +1203,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     "printing",
                     JSONObject()
                         .put("status", "pending")
-                        .put("pickupTicket", "pending")
+                        .put("pickupTicket", "not_requested")
                         .put("customerReceipt", "pending")
                         .put("preparationTicket", "pending")
                         .put("attempts", 0)
@@ -1239,7 +1239,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         val terminal = order.getJSONObject("terminal")
         terminal.requireNonBlank("terminalId")
         val terminalCode = terminal.requireNonBlank("terminalCode")
-        require(terminalCode in setOf("A", "B", "C", "D")) {
+        require(terminalCode in setOf("A", "B", "C", "D", "W")) {
             "Code terminal invalide."
         }
         require(orderNumberPrefix == terminalCode) {
@@ -1302,15 +1302,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
         }
     }
 
-    private fun requiresPreparation(items: JSONArray): Boolean {
-        for (index in 0 until items.length()) {
-            val item = items.getJSONObject(index)
-            if (!item.has("requiresPreparation") || item.optBoolean("requiresPreparation", true)) {
-                return true
-            }
-        }
-        return false
-    }
+    private fun requiresPreparation(items: JSONArray): Boolean = items.length() > 0
 
     private fun safeMultiply(left: Long, right: Long, label: String): Long {
         val result =

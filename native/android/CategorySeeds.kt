@@ -31,8 +31,7 @@ internal fun seedMissingCategories(db: SupportSQLiteDatabase) {
         nextOrder = maxOf(nextOrder, order + 1)
     }
     listOf(
-        "menus" to "Menus", "assiettes" to "Assiettes", "desserts" to "Desserts",
-        "boissons-chaudes" to "Boissons chaudes", "bieres" to "Bières", "sans-alcool" to "Sans alcool",
+        "potions" to "Potions", "gourmandises" to "Gourmandises", "petit-marche" to "Le petit marché",
     ).forEachIndexed { index, (id, label) -> ensure(id, label, true, index) }
     db.query("SELECT DISTINCT category_id FROM products ORDER BY category_id").use { cursor ->
         while (cursor.moveToNext()) {

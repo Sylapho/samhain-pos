@@ -36,11 +36,11 @@ class RoomCategoryStoreTest {
                 assertThrows(IllegalArgumentException::class.java) { store.update(product("one", "missing")) }
                 store.update(product("one", "new-category").put("name", "Produit renommé"))
                 store.updateCategory("new-category", "Du jour")
-                assertThrows(IllegalArgumentException::class.java) { store.updateCategory("menus", "DU JOUR") }
+                assertThrows(IllegalArgumentException::class.java) { store.updateCategory("potions", "DU JOUR") }
                 val ids = database.categoryDao().getAll().map { it.id }.reversed()
                 store.reorderCategories(JSONArray(ids))
                 val before = store.getCategories().toString()
-                assertThrows(IllegalArgumentException::class.java) { store.reorderCategories(JSONArray().put("menus")) }
+                assertThrows(IllegalArgumentException::class.java) { store.reorderCategories(JSONArray().put("potions")) }
                 assertEquals(before, store.getCategories().toString())
             }.get()
             database.close()
@@ -53,7 +53,7 @@ class RoomCategoryStoreTest {
                 assertEquals("Du jour", first.getString("label"))
                 assertFalse(first.getBoolean("active"))
                 assertEquals(0, first.getInt("displayOrder"))
-                assertEquals(7, store.getCategories().getJSONArray("categories").length())
+                assertEquals(4, store.getCategories().getJSONArray("categories").length())
                 assertEquals("new-category", store.getAll().getJSONArray("products").getJSONObject(0).getString("categoryId"))
                 store.setCategoryActive("new-category", true)
                 store.create(product("two", "new-category"))
@@ -67,13 +67,13 @@ class RoomCategoryStoreTest {
         try {
             executor.submit {
                 val store = RoomCatalogStore(database)
-                assertThrows(Exception::class.java) { store.initialize(JSONArray().put(product("duplicate", "menus")).put(product("duplicate", "menus"))) }
+                assertThrows(Exception::class.java) { store.initialize(JSONArray().put(product("duplicate", "potions")).put(product("duplicate", "potions"))) }
                 assertEquals(0, database.productDao().count())
                 assertNull(database.catalogMetadataDao().get())
                 store.initialize(JSONArray())
                 val before = store.getCategories().toString()
                 val sqlite = database.openHelper.writableDatabase
-                sqlite.execSQL("CREATE TRIGGER fail_category_update BEFORE UPDATE ON categories WHEN NEW.id = 'bieres' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
+                sqlite.execSQL("CREATE TRIGGER fail_category_update BEFORE UPDATE ON categories WHEN NEW.id = 'gourmandises' BEGIN SELECT RAISE(ABORT, 'test failure'); END")
                 assertThrows(Exception::class.java) { store.reorderCategories(JSONArray(database.categoryDao().getAll().map { it.id }.reversed())) }
                 assertEquals(before, store.getCategories().toString())
             }.get()

@@ -1,6 +1,6 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
-import { initialCategories } from '../data/initialCategories'
+import { witchesCategories } from '../data/witchesCategories'
 import type { Product } from '../types/catalog'
 import type {
   CatalogContent,
@@ -21,7 +21,7 @@ const product: Product = {
   name: 'Test',
   priceCents: 500,
   vatRate: 10,
-  categoryId: 'menus',
+  categoryId: 'potions',
   active: true,
   displayOrder: 0,
   requiresPreparation: false,
@@ -34,7 +34,7 @@ const scope = {
 }
 export function version(
   revision = 1,
-  content: CatalogContent = { products: [product], categories: [...initialCategories] },
+  content: CatalogContent = { products: [product], categories: [...witchesCategories] },
 ): CatalogVersion {
   const publication: CatalogPublication = {
     ...content,
@@ -118,7 +118,7 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(1, {
         products: [{ ...product, priceCents: 700 }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -166,24 +166,24 @@ describe('distribution transactionnelle du catalogue', () => {
     () =>
       version(1, {
         products: [{ ...product, categoryId: 'absent' }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
     () =>
       version(1, {
         products: [{ ...product, dataConfidence: 'temporary' }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
     () =>
       version(1, {
         products: [{ ...product, vatRate: 8 as Product['vatRate'] }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
     () =>
       version(1, {
         products: [{ ...product, active: 'true' as unknown as boolean }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
-    () => version(1, { products: [product, product], categories: [...initialCategories] }),
+    () => version(1, { products: [product, product], categories: [...witchesCategories] }),
   ])('rejette une version invalide sans remplacer le staging valide (%#)', async (invalidate) => {
     const { service, sync } = await setup()
     const valid = version()
@@ -198,15 +198,15 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(1, {
         products: [product],
-        categories: initialCategories.map((c) => (c.id === 'menus' ? { ...c, active: false } : c)),
+        categories: witchesCategories.map((c) => (c.id === 'potions' ? { ...c, active: false } : c)),
       }),
       scope,
     )
     await sync.activate(() => true)
     expect(await repo.getActiveCategories()).not.toContainEqual(
-      expect.objectContaining({ id: 'menus' }),
+      expect.objectContaining({ id: 'potions' }),
     )
-    expect((await repo.getProducts())[0].categoryId).toBe('menus')
+    expect((await repo.getProducts())[0].categoryId).toBe('potions')
   })
   it('conserve chaque champ local concurrent et trace la décision responsable', async () => {
     const { service, sync, repo } = await setup()
@@ -217,7 +217,7 @@ describe('distribution transactionnelle du catalogue', () => {
       priceCents: 650,
       ingredients: [{ id: 'local', name: 'Local' }],
       active: false,
-      categoryId: 'assiettes',
+      categoryId: 'gourmandises',
     })
     await sync.stage(
       version(2, {
@@ -226,10 +226,10 @@ describe('distribution transactionnelle du catalogue', () => {
             ...product,
             priceCents: 800,
             ingredients: [{ id: 'remote', name: 'Remote' }],
-            categoryId: 'desserts',
+            categoryId: 'petit-marche',
           },
         ],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -238,7 +238,7 @@ describe('distribution transactionnelle du catalogue', () => {
     expect((await service.getProducts())[0]).toMatchObject({
       priceCents: 650,
       active: false,
-      categoryId: 'assiettes',
+      categoryId: 'gourmandises',
     })
     expect((await sync.status()).conflicts.map(({ field }) => field)).toEqual(
       expect.arrayContaining(['priceCents', 'ingredients', 'categoryId']),
@@ -257,7 +257,7 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(1, {
         products: [{ ...product, priceCents: 800 }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -268,7 +268,7 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(2, {
         products: [{ ...product, priceCents: 950 }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -282,7 +282,7 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(1, {
         products: [{ ...product, availability: 'sold-out' }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -310,7 +310,7 @@ describe('distribution transactionnelle du catalogue', () => {
       await sync.stage(
         version(1, {
           products: [{ ...product, priceCents: 800 }],
-          categories: [...initialCategories],
+          categories: [...witchesCategories],
         }),
         scope,
       )
@@ -342,7 +342,7 @@ describe('distribution transactionnelle du catalogue', () => {
     const snapshot = await repo.readSnapshot()
     // IndexedDB DataCloneError after writes were queued must roll everything back.
     snapshot.categories.push({
-      ...initialCategories[0],
+      ...witchesCategories[0],
       id: 'bad',
       label: (() => 'bad') as unknown as string,
     })
@@ -361,7 +361,7 @@ describe('distribution transactionnelle du catalogue', () => {
     await sync.stage(
       version(1, {
         products: [{ ...product, priceCents: 900 }],
-        categories: [...initialCategories],
+        categories: [...witchesCategories],
       }),
       scope,
     )
@@ -382,7 +382,7 @@ describe('distribution transactionnelle du catalogue', () => {
     const legacy: Product = { ...product, id: 'cafe', priceCents: 150 }
     const { service, sync } = await setup([legacy])
     expect((await service.getProducts())[0].priceCents).toBe(200)
-    await sync.stage(version(1, { products: [legacy], categories: [...initialCategories] }), scope)
+    await sync.stage(version(1, { products: [legacy], categories: [...witchesCategories] }), scope)
     await sync.activate(() => true)
     expect((await service.loadCatalog())[0].priceCents).toBe(150)
     await service.updateProduct({ ...legacy, priceCents: 150 })
@@ -397,7 +397,7 @@ describe('distribution transactionnelle du catalogue', () => {
       sync.stage(
         version(2, {
           products: [{ ...product, priceCents: 999 }],
-          categories: [...initialCategories],
+          categories: [...witchesCategories],
         }),
         scope,
       ),

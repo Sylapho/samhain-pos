@@ -14,7 +14,6 @@ import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
 import { orderRequiresPreparation } from '../utils/preparation'
-import { orderRequiresPickupTicket } from '../utils/preparation'
 import {
   derivePrintStatus,
   normalizeOrderPrinting,
@@ -80,7 +79,7 @@ function initialPrinting(
 ): OrderPrinting {
   const printing: OrderPrinting = {
     status: 'pending',
-    pickupTicket: orderRequiresPickupTicket({ items }) ? 'pending' : 'not_requested',
+    pickupTicket: 'not_requested',
     customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
     preparationTicket: orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
     attempts: 0,
