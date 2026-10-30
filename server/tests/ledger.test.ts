@@ -110,6 +110,10 @@ test('rejects hashes, fingerprints, versions, unknown fields and noncanonical pa
 test('strict financial snapshots, historical fields and safe exact arithmetic', () => {
   const original = order()
   validateOrder(original, source.terminal.terminalId)
+  validateOrder(
+    { ...original, items: [{ ...original.items[0], vatRate: 5.5 }] },
+    source.terminal.terminalId,
+  )
   const { terminal: ignored, ...old } = original
   void ignored
   validateOrder({ ...old, registerName: 'historical' }, source.terminal.terminalId)

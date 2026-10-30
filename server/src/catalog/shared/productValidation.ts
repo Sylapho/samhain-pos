@@ -67,7 +67,7 @@ function validateOptionGroups(
 
 export function validateProduct(product: Product): Product {
   requireId(product.categoryId, 'La catégorie')
-  if (![10, 20].includes(product.vatRate)) throw new Error('Le taux de TVA est invalide.')
+  if (![5.5, 10, 20].includes(product.vatRate)) throw new Error('Le taux de TVA est invalide.')
   if (!Number.isSafeInteger(product.displayOrder) || product.displayOrder < 0) {
     throw new Error('L’ordre d’affichage doit être un entier positif.')
   }

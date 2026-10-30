@@ -175,7 +175,7 @@ function validateCartItem(value: unknown, index: number): CartItem {
     `Le prix unitaire de la ligne « ${lineId} »`,
     0,
   )
-  if (candidate.vatRate !== 10 && candidate.vatRate !== 20) {
+  if (candidate.vatRate !== 5.5 && candidate.vatRate !== 10 && candidate.vatRate !== 20) {
     throw new Error(`Le taux de TVA ${String(candidate.vatRate)} n’est pas supporté.`)
   }
   if (candidate.dataConfidence !== 'confirmed' && candidate.dataConfidence !== 'temporary') {

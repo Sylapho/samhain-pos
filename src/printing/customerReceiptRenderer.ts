@@ -1,7 +1,7 @@
 import { receiptBusinessInfo, type ReceiptBusinessInfo } from '../config/organization'
 import { printerProfile, type PrinterProfile } from '../config/printer'
 import type { Order } from '../types/order'
-import { calculateVatSummary } from '../utils/vat'
+import { calculateVatSummary, formatVatRate } from '../utils/vat'
 import { getOrderTerminalDisplayName } from '../utils/order'
 import { EscPosBuilder } from './escPos'
 import { formatTicketDateTime, formatTicketMoney, paymentMethodLabels } from './format'
@@ -45,7 +45,7 @@ export function renderCustomerReceipt(
     for (const line of fitColumns(label, formatTicketMoney(lineTotal), profile.columns)) {
       builder.line(line)
     }
-    builder.line(`  ${formatTicketMoney(item.unitPriceCents)} / unité  TVA ${item.vatRate} %`)
+    builder.line(`  ${formatTicketMoney(item.unitPriceCents)} / unité  TVA ${formatVatRate(item.vatRate)} %`)
     for (const option of item.options) {
       builder.line(`  ${option.groupName} : ${option.optionName}`)
     }
@@ -57,7 +57,7 @@ export function renderCustomerReceipt(
   }
   for (const entry of vat.breakdown) {
     for (const line of fitColumns(
-      `TVA ${entry.rate} %`,
+      `TVA ${formatVatRate(entry.rate)} %`,
       formatTicketMoney(entry.vatCents),
       profile.columns,
     ))

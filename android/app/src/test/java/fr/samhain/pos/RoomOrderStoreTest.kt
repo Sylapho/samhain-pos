@@ -287,6 +287,12 @@ class RoomOrderStoreTest {
     }
 
     @Test
+    fun acceptsDecimalVatRateWithoutChangingTheOrderTotal() = onDatabaseThread {
+        val created = store.createOrder(request("vat-55").mutateFirstItem("vatRate", 5.5), source())
+        assertEquals(5.5, created.getJSONArray("items").getJSONObject(0).getDouble("vatRate"), 0.0)
+    }
+
+    @Test
     fun checkoutIntentDoesNotConsumeSequencesAndFinalizesIdempotently() = onDatabaseThread {
         val created = store.createCheckoutIntent(checkoutIntent("intent-1"))
         assertEquals("pending_payment", created.getString("status"))

@@ -19,6 +19,11 @@ import {
 } from './validation.ts'
 import type { JsonObject } from './validation.ts'
 
+function vatRate(value: unknown): number {
+  assert(typeof value === 'number' && [5.5, 10, 20].includes(value))
+  return value
+}
+
 export function validateOrder(value: unknown, sourceTerminal: string): JsonObject {
   const v = object(value)
   keys(
@@ -79,7 +84,7 @@ export function validateOrder(value: unknown, sourceTerminal: string): JsonObjec
     text(line.name)
     assert(
       ['temporary', 'confirmed'].includes(text(line.dataConfidence)) &&
-        [10, 20].includes(integer(line.vatRate)),
+        [5.5, 10, 20].includes(vatRate(line.vatRate)),
     )
     if ('requiresPreparation' in line)
       assert(typeof line.requiresPreparation === 'boolean', 'INVALID_PAYLOAD')
@@ -232,7 +237,7 @@ export function validatePayload(value: unknown): JsonObject {
           text(line.productName)
           integer(line.quantity, 1)
           integer(line.unitPriceCents, 0)
-          assert([10, 20].includes(integer(line.vatRate)))
+          vatRate(line.vatRate)
           integer(line.grossCents, 0)
           integer(line.vatCents, 0)
         }
@@ -481,7 +486,7 @@ async function validateCorrection(
       previousQuantity = quantities.get(id) ?? 0
     assert(add(quantity, previousQuantity) <= integer(sold.quantity, 1))
     const unit = integer(sold.unitPriceCents, 0),
-      rate = integer(sold.vatRate)
+      rate = vatRate(sold.vatRate)
     const gross = multiply(unit, quantity),
       previousGross = multiply(unit, previousQuantity)
     // Frozen JS/Kotlin rounding on cumulative gross, as in saleRefund.ts; no catalog lookup.

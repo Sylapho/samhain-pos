@@ -10,6 +10,7 @@ import {
 } from '../../types/catalog'
 import { getProductStartingPriceCents } from '../../utils/cart'
 import { formatMoney } from '../../utils/money'
+import { formatVatRate } from '../../utils/vat'
 import { CategoryManagement } from './CategoryManagement'
 import { CatalogSynchronization } from './CatalogSynchronization'
 import { SynchronizationStatus } from '../responsible/SynchronizationStatus'
@@ -316,7 +317,7 @@ export function ProductManagementDialog({
                         <h3 className="truncate text-lg font-black">{product.name}</h3>
                         <p className="font-semibold text-stone-600">
                           {categories.find(({ id }) => id === product.categoryId)?.label} · TVA{' '}
-                          {product.vatRate} %
+                          {formatVatRate(product.vatRate)} %
                         </p>
                       </div>
                       <div>
@@ -462,6 +463,7 @@ function ProductEditor({
                 updateProduct({ vatRate: Number(event.target.value) as VatRate })
               }
             >
+              <option value={5.5}>5,5 %</option>
               <option value={10}>10 %</option>
               <option value={20}>20 %</option>
             </select>

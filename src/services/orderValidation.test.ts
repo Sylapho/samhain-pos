@@ -161,15 +161,15 @@ describe('validation métier des nouvelles commandes', () => {
     ).toThrow(/identifiant de ligne.*dupliqué/)
   })
 
-  it.each([10, 20])('accepte le taux de TVA %s', (vatRate) => {
+  it.each([5.5, 10, 20])('accepte le taux de TVA %s', (vatRate) => {
     expect(
       validateOrderDraft(
-        validDraft({ items: [createValidCartItem({ vatRate: vatRate as 10 | 20 })] }),
+        validDraft({ items: [createValidCartItem({ vatRate: vatRate as 5.5 | 10 | 20 })] }),
       ).items[0]?.vatRate,
     ).toBe(vatRate)
   })
 
-  it.each([0, 5.5, 5, 21])('refuse le taux de TVA inconnu %s', (vatRate) => {
+  it.each([0, 5, 5.6, 21])('refuse le taux de TVA inconnu %s', (vatRate) => {
     expect(() =>
       validateOrderDraft(validDraft({ items: [createValidCartItem({ vatRate: vatRate as 10 })] })),
     ).toThrow(/TVA.*pas supporté/)

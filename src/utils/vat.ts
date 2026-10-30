@@ -15,6 +15,8 @@ export type VatSummary = {
   breakdown: VatBreakdown[]
 }
 
+export const formatVatRate = (rate: number): string => String(rate).replace('.', ',')
+
 export function calculateIncludedVatCents(grossCents: number, vatRate: number): number {
   return Math.round((grossCents * vatRate) / (100 + vatRate))
 }

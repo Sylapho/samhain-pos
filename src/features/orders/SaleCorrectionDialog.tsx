@@ -8,6 +8,7 @@ import type { SalesLedgerService } from '../../services/salesLedgerService'
 import type { Order } from '../../types/order'
 import type { CorrectionLedgerEntry } from '../../types/salesLedger'
 import { formatMoney } from '../../utils/money'
+import { formatVatRate } from '../../utils/vat'
 import { buildRefundLines, refundLinesTotalCents } from '../../services/saleRefund'
 
 export type CorrectionAction = 'cancellation' | 'refund'
@@ -155,7 +156,7 @@ export function SaleCorrectionDialog({
                   <dd className="font-black">
                     {[...vatByRate.entries()]
                       .sort(([left], [right]) => left - right)
-                      .map(([rate, vatCents]) => `TVA ${rate} % : ${formatMoney(vatCents)}`)
+                      .map(([rate, vatCents]) => `TVA ${formatVatRate(Number(rate))} % : ${formatMoney(vatCents)}`)
                       .join(' · ')}
                   </dd>
                 </div>

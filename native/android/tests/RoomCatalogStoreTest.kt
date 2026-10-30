@@ -39,6 +39,12 @@ class RoomCatalogStoreTest {
     }
 
     @Test
+    fun decimalVatSurvivesLocalCatalogPersistence() = onDatabaseThread {
+        store.initialize(JSONArray().put(product("decimal-vat", "Produit", 1000).put("vatRate", 5.5)))
+        assertEquals(5.5, store.getAll().getJSONArray("products").getJSONObject(0).getDouble("vatRate"), 0.0)
+    }
+
+    @Test
     fun confidenceAndMarkerCommitTogetherAndRejectStaleSnapshot() = onDatabaseThread {
         val source = product("seed", "Personnalisé", 650).put("active", false)
             .put("dataConfidence", "temporary").put("variants", JSONArray().put(

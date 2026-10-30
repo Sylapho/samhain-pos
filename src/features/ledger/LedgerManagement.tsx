@@ -10,6 +10,7 @@ import type {
   IntegrityVerification,
 } from '../../types/salesLedger'
 import { formatMoney } from '../../utils/money'
+import { formatVatRate } from '../../utils/vat'
 import { CashFloatDialog } from './CashFloatDialog'
 
 export type LedgerManagementProps = {
@@ -451,7 +452,7 @@ function VatDetails({ preview }: { preview: ClosurePreview }) {
       <dl className="mt-2 grid gap-2 sm:grid-cols-2">
         {preview.vatBreakdown.map((entry) => (
           <div key={entry.rate} className="border-l-4 border-stone-400 pl-3">
-            <dt className="font-black">TVA {entry.rate} %</dt>
+            <dt className="font-black">TVA {formatVatRate(entry.rate)} %</dt>
             <dd className="font-semibold">
               TTC {formatMoney(entry.grossCents)} · TVA {formatMoney(entry.vatCents)} · HT{' '}
               {formatMoney(entry.netCents)}

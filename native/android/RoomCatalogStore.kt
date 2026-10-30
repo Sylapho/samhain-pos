@@ -168,8 +168,10 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
         require(availability == "available" || availability == "sold-out") {
             "La disponibilité du produit est invalide."
         }
-        val vatRate = product.getInt("vatRate")
-        require(vatRate == 10 || vatRate == 20) { "Le taux de TVA est invalide." }
+        val rawVatRate = product.get("vatRate")
+        require(rawVatRate is Number) { "Le taux de TVA est invalide." }
+        val vatRate = rawVatRate.toDouble()
+        require(vatRate == 5.5 || vatRate == 10.0 || vatRate == 20.0) { "Le taux de TVA est invalide." }
         val displayOrder = product.getInt("displayOrder")
         require(displayOrder >= 0) { "L’ordre d’affichage est invalide." }
         val priceCents =
@@ -184,7 +186,8 @@ class RoomCatalogStore(private val database: SamhainPosDatabase) {
             name = name,
             categoryId = categoryId,
             priceCents = priceCents,
-            vatRate = vatRate,
+            // This indexed integer is not used for calculations; productJson keeps the exact decimal rate.
+            vatRate = if (vatRate == 5.5) 55 else vatRate.toInt(),
             availability = availability,
             active = product.getBoolean("active"),
             displayOrder = displayOrder,

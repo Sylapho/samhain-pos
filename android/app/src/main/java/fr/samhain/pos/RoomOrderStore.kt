@@ -996,12 +996,12 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             }
             val unitPrice = original.requiredSafeLong("unitPriceCents")
             val gross = Math.multiplyExact(unitPrice, quantity)
-            val rate = original.requiredSafeLong("vatRate")
+            val rate = original.requiredVatRate("vatRate")
             val previousGross = Math.multiplyExact(unitPrice, refundedById[lineId] ?: 0L)
             val cumulativeGross = Math.addExact(previousGross, gross)
             val vat =
-                Math.round(cumulativeGross.toDouble() * rate.toDouble() / (100.0 + rate.toDouble())) -
-                    Math.round(previousGross.toDouble() * rate.toDouble() / (100.0 + rate.toDouble()))
+                Math.round(cumulativeGross.toDouble() * rate / (100.0 + rate)) -
+                    Math.round(previousGross.toDouble() * rate / (100.0 + rate))
             val canonical =
                 JSONObject().apply {
                     put("originalLineId", lineId)
@@ -1009,7 +1009,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                     put("productName", original.getString("name"))
                     put("quantity", quantity)
                     put("unitPriceCents", unitPrice)
-                    put("vatRate", rate)
+                    put("vatRate", original.get("vatRate"))
                     put("grossCents", gross)
                     put("vatCents", vat)
                 }
@@ -1272,9 +1272,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
             require(quantity > 0) { "La quantité de la ligne $lineId doit être strictement positive." }
             val unitPriceCents = item.requiredSafeLong("unitPriceCents")
             require(unitPriceCents >= 0) { "Le prix unitaire de la ligne $lineId est invalide." }
-            require(item.requiredSafeLong("vatRate") in setOf(10L, 20L)) {
-                "Le taux de TVA de la ligne $lineId n’est pas supporté."
-            }
+            item.requiredVatRate("vatRate")
 
             val lineTotalCents = safeMultiply(quantity, unitPriceCents, "Le total de la ligne $lineId")
             expectedItemCount = safeAdd(expectedItemCount, quantity, "Le nombre total d’articles")
@@ -1413,6 +1411,14 @@ private fun JSONObject.requiredSafeLong(key: String): Long {
         "Le champ $key dépasse la précision entière prise en charge."
     }
     return value
+}
+
+private fun JSONObject.requiredVatRate(key: String): Double {
+    val raw = get(key)
+    require(raw is Number) { "Le taux de TVA est invalide." }
+    return raw.toDouble().also {
+        require(it == 5.5 || it == 10.0 || it == 20.0) { "Le taux de TVA est invalide." }
+    }
 }
 
 private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L

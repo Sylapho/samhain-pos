@@ -14,4 +14,17 @@ describe('calcul de TVA TTC', () => {
       ],
     })
   })
+
+  it('calcule la TVA incluse à 5,5 % sans arrondir le taux', () => {
+    expect(
+      calculateVatSummary([
+        { ...printPreviewOrder.items[0]!, unitPriceCents: 1000, quantity: 1, vatRate: 5.5 },
+      ]),
+    ).toEqual({
+      grossCents: 1000,
+      netCents: 948,
+      vatCents: 52,
+      breakdown: [{ rate: 5.5, grossCents: 1000, netCents: 948, vatCents: 52 }],
+    })
+  })
 })

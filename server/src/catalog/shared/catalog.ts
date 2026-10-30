@@ -9,7 +9,7 @@ export type Category = {
 
 export type ProductAvailability = 'available' | 'sold-out'
 export type DataConfidence = 'confirmed' | 'temporary'
-export type VatRate = 10 | 20
+export type VatRate = 5.5 | 10 | 20
 
 export type ProductVariant = {
   id: string
