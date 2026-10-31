@@ -150,6 +150,40 @@ describe('cart store', () => {
     expect(useCartStore.getState().items).toHaveLength(2)
   })
 
+  it('conserve les choix et les suppléments du menu malgré une modification ultérieure du catalogue', () => {
+    const menu = products.find(({ id }) => id === 'menu-enfant')!
+    const configured: Product = {
+      ...menu,
+      optionGroups: menu.optionGroups!.map((group) =>
+        group.id === 'boisson'
+          ? {
+              ...group,
+              options: [...group.options, { id: 'oasis', name: 'Oasis', priceDeltaCents: 50 }],
+            }
+          : group,
+      ),
+    }
+    useCartStore.getState().addItem(createCartItemDraft(configured))
+    const initialLine = useCartStore.getState().items[0]!
+    useCartStore.getState().configureItem(
+      initialLine.lineId,
+      createCartItemDraft(configured, {
+        optionIdsByGroup: {
+          plat: ['steak-hache'],
+          boisson: ['oasis'],
+          dessert: ['crepe-chocolat'],
+        },
+      }),
+    )
+    const item = useCartStore.getState().items[0]!
+    expect(item.unitPriceCents).toBe(1000)
+    expect(item.options.find(({ groupId }) => groupId === 'boisson')).toEqual(
+      expect.objectContaining({ optionName: 'Oasis', priceDeltaCents: 50 }),
+    )
+    configured.optionGroups![1]!.options[2]!.name = 'Nouveau nom'
+    expect(item.options.find(({ groupId }) => groupId === 'boisson')?.optionName).toBe('Oasis')
+  })
+
   it('fusionne uniquement les produits ayant la même personnalisation', () => {
     const normal = createCartItemDraft(customizableSandwich)
     const withoutCheddar = { ...normal, removedIngredientIds: ['cheddar'] }

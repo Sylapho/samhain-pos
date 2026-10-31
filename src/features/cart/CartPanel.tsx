@@ -80,7 +80,7 @@ export function CartPanel({ onCheckout, products }: Props) {
                       ) : null}
                       {item.options.map((option) => (
                         <div
-                          key={option.groupId}
+                          key={`${option.groupId}:${option.optionId}`}
                           className="mt-1 text-sm leading-snug text-stone-600"
                         >
                           {option.groupName} : {option.optionName}

@@ -63,6 +63,129 @@ describe('Administration du catalogue', () => {
     ).not.toBeChecked()
   })
 
+  it('modifie et recharge la composition du menu sans changer les identifiants existants', async () => {
+    const state = await setup()
+    render(<Administration {...state} />)
+    fireEvent.click(
+      within(screen.getByText('Menu enfant').closest('article')!).getByRole('button', {
+        name: 'Modifier',
+      }),
+    )
+    const editor = screen.getByRole('dialog', { name: 'Modifier Menu enfant' })
+    expect(within(editor).getByText('Composition et choix du menu')).toBeInTheDocument()
+    fireEvent.change(within(editor).getAllByLabelText('Nom du groupe')[0]!, {
+      target: { value: 'Plat principal' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Ajouter un groupe' }))
+    fireEvent.change(within(editor).getAllByLabelText('Nom du groupe')[3]!, {
+      target: { value: 'Accompagnement' },
+    })
+    fireEvent.click(within(editor).getAllByRole('button', { name: 'Ajouter une option' })[3]!)
+    fireEvent.change(within(editor).getAllByLabelText('Nom du choix 1').at(-1)!, {
+      target: { value: 'Frites' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Monter le groupe Accompagnement' }))
+    fireEvent.click(
+      within(editor).getByRole('button', { name: 'Supprimer le choix Crêpe au sucre' }),
+    )
+    fireEvent.click(within(editor).getAllByRole('button', { name: 'Ajouter une option' })[1]!)
+    fireEvent.change(within(editor).getAllByLabelText('Nom du choix 3')[0]!, {
+      target: { value: 'Oasis' },
+    })
+    fireEvent.change(within(editor).getAllByLabelText('Supplément (€)')[4]!, {
+      target: { value: '0,50' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Modifier Menu enfant' }),
+      ).not.toBeInTheDocument(),
+    )
+    const menu = (await state.service.getProducts()).find(({ id }) => id === 'menu-enfant')!
+    expect(menu.optionGroups?.map(({ name }) => name)).toEqual([
+      'Plat principal',
+      'Boisson',
+      'Accompagnement',
+      'Dessert',
+    ])
+    expect(menu.optionGroups?.[0]?.id).toBe('plat')
+    expect(menu.optionGroups?.[0]?.options[0]?.id).toBe('saucisse')
+    expect(menu.optionGroups?.[1]?.options.at(-1)).toEqual(
+      expect.objectContaining({ name: 'Oasis', priceDeltaCents: 50 }),
+    )
+    expect(menu.optionGroups?.[3]?.options.some(({ id }) => id === 'crepe-sucre')).toBe(false)
+    const reloaded = new CatalogService(state.repository, initialCatalogProducts.slice(0, 2))
+    expect(
+      (await reloaded.loadCatalog()).find(({ id }) => id === 'menu-enfant')?.optionGroups,
+    ).toEqual(menu.optionGroups)
+  })
+
+  it('garde le menu intact si un groupe est vide ou si l’enregistrement échoue', async () => {
+    const state = await setup()
+    render(<Administration {...state} />)
+    fireEvent.click(
+      within(screen.getByText('Menu enfant').closest('article')!).getByRole('button', {
+        name: 'Modifier',
+      }),
+    )
+    const editor = screen.getByRole('dialog', { name: 'Modifier Menu enfant' })
+    const before = (await state.service.getProducts()).find(({ id }) => id === 'menu-enfant')!
+    fireEvent.click(within(editor).getByRole('button', { name: 'Ajouter un groupe' }))
+    fireEvent.change(within(editor).getAllByLabelText('Nom du groupe')[3]!, {
+      target: { value: 'Accompagnement' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Enregistrer' }))
+    expect(await within(editor).findByRole('alert')).toHaveTextContent('doit contenir un choix')
+    expect((await state.service.getProducts()).find(({ id }) => id === 'menu-enfant')).toEqual(
+      before,
+    )
+    fireEvent.click(
+      within(editor).getByRole('button', { name: 'Supprimer le groupe Accompagnement' }),
+    )
+    const save = vi
+      .spyOn(state.service, 'updateProduct')
+      .mockRejectedValueOnce(new Error('Stockage indisponible'))
+    fireEvent.change(within(editor).getAllByLabelText('Nom du groupe')[0]!, {
+      target: { value: 'Plat principal' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Enregistrer' }))
+    expect(await within(editor).findByRole('alert')).toHaveTextContent('Stockage indisponible')
+    expect((await state.service.getProducts()).find(({ id }) => id === 'menu-enfant')).toEqual(
+      before,
+    )
+    save.mockRestore()
+  })
+
+  it('change les choix par défaut, leur ordre et la sélection multiple', async () => {
+    const state = await setup()
+    render(<Administration {...state} />)
+    fireEvent.click(
+      within(screen.getByText('Menu enfant').closest('article')!).getByRole('button', {
+        name: 'Modifier',
+      }),
+    )
+    const editor = screen.getByRole('dialog', { name: 'Modifier Menu enfant' })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Monter le choix Jus de fruit' }))
+    fireEvent.click(within(editor).getAllByRole('button', { name: 'Aucun choix par défaut' })[1]!)
+    fireEvent.change(within(editor).getAllByLabelText('Sélection')[1]!, {
+      target: { value: 'multiple' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Supprimer le groupe Dessert' }))
+    fireEvent.click(within(editor).getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Modifier Menu enfant' }),
+      ).not.toBeInTheDocument(),
+    )
+    const groups = (await state.service.getProducts()).find(
+      ({ id }) => id === 'menu-enfant',
+    )!.optionGroups!
+    expect(groups).toHaveLength(2)
+    expect(groups[1]?.type).toBe('multiple')
+    expect(groups[1]?.options.map(({ id }) => id)).toEqual(['jus-fruit', 'eau'])
+    expect(groups[1]?.options.every(({ default: selected }) => !selected)).toBe(true)
+  })
+
   it('crée un produit et désactive puis réactive sans suppression', async () => {
     const state = await setup()
     render(<Administration {...state} />)
