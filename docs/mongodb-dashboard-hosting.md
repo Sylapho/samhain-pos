@@ -81,11 +81,37 @@ chmod 600 /opt/samhain-deploy/dashboard.env
 nano /opt/samhain-deploy/dashboard.env
 ```
 
-Remplacer uniquement le mot de passe du lecteur dans `MONGODB_URI`, et le nom
+Dans `MONGODB_URI`, remplacer le mot de passe du lecteur, et le nom
 d’utilisateur si un autre compte lecteur a été choisi. Encoder les caractères
 spéciaux du mot de passe dans l’URI (`@` devient `%40`, `#` devient `%23`, etc.).
 Ne pas réutiliser le mot de passe d’administration ou celui de l’API.
 `MONGODB_DATABASE=samhain_pos` reste inchangé.
+
+**Mise à jour vers le festival unique :** renseigner aussi les trois variables
+obligatoires avant de reconstruire/redémarrer le conteneur :
+
+```dotenv
+DASHBOARD_ORGANIZATION_ID=UUID_REEL_UTILISE_PAR_API
+DASHBOARD_FESTIVAL_ID=UUID_REEL_UTILISE_PAR_API
+DASHBOARD_FESTIVAL_START_DATE=JEUDI_REEL_AU_FORMAT_YYYY-MM-DD
+DASHBOARD_REFRESH_SECONDS=60
+DASHBOARD_STALE_MINUTES=10
+DASHBOARD_DAILY_GOAL_CENTS=
+DASHBOARD_FESTIVAL_GOAL_CENTS=
+```
+
+Les valeurs ci-dessus sont des emplacements à remplacer, pas une configuration
+exécutable. Reprendre les UUID de la configuration de l’API (le fichier de
+périmètre `/opt/samhain-deploy/scope.json` peut les contenir) et la date confirmée
+par l’exploitant. Une date autre qu’un jeudi ou des UUID manquants bloquent le
+démarrage. Aucune migration MongoDB n’est nécessaire. Les objectifs restent vides
+jusqu’à réception de valeurs confirmées ; ce sont des centimes entiers positifs.
+
+Le compte lecteur existant reste suffisant : les indicateurs de synchronisation
+ne lisent que `syncReceipts` et `chains`, sans élargir les droits vers les secrets
+d’authentification. Aucun accès au serveur de production n’est affirmé par cette
+documentation. Les fonctionnalités et limites sont détaillées dans le
+[guide du dashboard](mongodb-dashboard.md).
 
 La configuration de publication est explicite dans `dashboard/compose.yaml` :
 `DASHBOARD_PUBLIC=true` et
@@ -152,11 +178,30 @@ curl -sS -D - -o /dev/null https://dashboard.samhain.arthurdubos.fr/
 Le dashboard accepte uniquement GET. Attendre HTTP 200 et un
 certificat valide avec le navigateur avant de déclarer le site opérationnel.
 
+## Mettre à jour un dashboard déjà installé
+
+Après avoir transféré puis extrait la nouvelle archive dans `/opt/samhain-dashboard`,
+renseigner les trois paramètres obligatoires du festival dans
+`/opt/samhain-deploy/dashboard.env` comme indiqué plus haut. Conserver l’URI du
+compte lecteur et les certificats existants. Puis, sur le VPS :
+
+```bash
+cd /opt/samhain-dashboard
+export DASHBOARD_ENV_FILE=/opt/samhain-deploy/dashboard.env
+docker compose -f dashboard/compose.yaml up -d --build dashboard
+docker compose -f dashboard/compose.yaml logs --tail=30 dashboard
+```
+
+Si le domaine est déjà configuré dans Caddy, ne pas relancer `install-caddy.sh`.
+Cette mise à jour ne nécessite aucune migration de données ni reconstruction de
+l’API ou des APK. Vérifier ensuite les filtres, une vente connue et un export
+depuis le navigateur extérieur.
+
 ## Charge et limites
 
 Le mode public partage un budget global de 240 requêtes/minute (HTTP 429 au-delà).
-Un seul chargement MongoDB est admis à la fois. Le dernier festival lu est conservé
-en cache 15 secondes ; la date affichée correspond à la lecture de ce cache.
+Un seul chargement MongoDB est admis à la fois, partagé par les requêtes concurrentes.
+Le jeu de données du festival configuré est conservé en cache 15 secondes ; la date affichée correspond à la lecture de ce cache.
 Changer les filtres utilise le même jeu de données pendant ces 15 secondes.
 Une lecture dépassant 50 000 événements ou imports, ou 64 Mo de payloads cumulés,
 échoue explicitement sans présenter de résultat partiel. Les deux collections

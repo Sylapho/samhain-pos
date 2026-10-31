@@ -3,54 +3,86 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import type { Db, Document, FindCursor } from 'mongodb'
-import type { Festival, LedgerEvent, Sale } from '../persistence/model.ts'
-import { dataset, report, salesCsv } from './report.ts'
-import type { Filters } from './report.ts'
-import type { Dataset } from './types.ts'
+import type { Db } from 'mongodb'
+import type { Scope } from '../persistence/model.ts'
+import { report } from './report.ts'
+import type { Filters, DashboardSettings, ExportKind } from './types.ts'
+import { defaultPeriod, daysBetween, validDay } from './periods.ts'
+import { dashboardStore } from './store.ts'
+import { csvChunks, prepareExport } from './exports.ts'
+import { Readable } from 'node:stream'
 
-const limit = 50_000
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-async function readRows<T extends Document & { payloadCanonical: string }>(
-  cursor: FindCursor<T>,
-  budget: { bytes: number },
-): Promise<T[]> {
-  const rows: T[] = []
-  try {
-    for await (const row of cursor) {
-      budget.bytes += Buffer.byteLength(row.payloadCanonical)
-      if (rows.length >= limit || budget.bytes > 64 * 1024 * 1024) throw new Error('LIMIT')
-      rows.push(row)
-    }
-    return rows
-  } finally {
-    await cursor.close()
-  }
-}
-export function queryFilters(q: Record<string, string | undefined>): Filters {
-  if (Object.values(q).some((v) => typeof v !== 'string' && v !== undefined))
-    throw new Error('FILTER')
-  for (const value of [q.from, q.to])
-    if (
-      value &&
-      (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-        !Number.isFinite(Date.parse(value)) ||
-        new Date(value).toISOString().slice(0, 10) !== value)
-    )
-      throw new Error('FILTER')
+export function queryFilters(
+  q: Record<string, string | undefined>,
+  settings: DashboardSettings,
+): Filters {
+  const allowed = [
+    'from',
+    'to',
+    'terminal',
+    'payment',
+    'search',
+    'page',
+    'correctionPage',
+    'format',
+    'export',
+    'productIds',
+    'productQuery',
+    'corrected',
+    'compareFrom',
+    'compareTo',
+  ]
   if (
-    (q.from && q.to && q.from > q.to) ||
-    (q.payment && !['cash', 'card'].includes(q.payment)) ||
-    (q.terminal?.length ?? 0) > 512 ||
-    (q.search?.length ?? 0) > 120
+    Object.keys(q).some((k) => !allowed.includes(k)) ||
+    Object.values(q).some((v) => v !== undefined && typeof v !== 'string')
   )
     throw new Error('FILTER')
+  const defaults = defaultPeriod(settings.days[0]!.date)
+  if (q.productIds) {
+    let ids: unknown
+    try {
+      ids = JSON.parse(q.productIds)
+    } catch {
+      throw new Error('FILTER')
+    }
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 100 ||
+      ids.some((v) => typeof v !== 'string' || !v.trim() || v.length > 512)
+    )
+      throw new Error('FILTER')
+  }
+  const from = q.from || defaults.from,
+    to = q.to || defaults.to
+  for (const value of [from, to, q.compareFrom, q.compareTo])
+    if (value && !validDay(value)) throw new Error('FILTER')
+  if (
+    from > to ||
+    daysBetween(from, to) > 366 ||
+    Boolean(q.compareFrom) !== Boolean(q.compareTo) ||
+    (q.compareFrom &&
+      q.compareTo &&
+      (q.compareFrom > q.compareTo || daysBetween(q.compareFrom, q.compareTo) > 366)) ||
+    (q.payment && !['cash', 'card'].includes(q.payment)) ||
+    (q.corrected && !['any', 'with', 'without'].includes(q.corrected)) ||
+    (q.search?.length ?? 0) > 120 ||
+    (q.terminal?.length ?? 0) > 512 ||
+    (q.productIds?.length ?? 0) > 4096 ||
+    [q.page, q.correctionPage].some((v) => v && !/^[1-9]\d{0,5}$/.test(v))
+  )
+    throw new Error('FILTER')
+  if ((q.productQuery?.length ?? 0) > 120) throw new Error('FILTER')
   return {
-    from: q.from ?? '',
-    to: q.to ?? '',
+    from,
+    to,
     terminal: q.terminal ?? '',
     payment: q.payment ?? '',
     search: q.search ?? '',
+    productIds: q.productIds ?? '',
+    productQuery: q.productQuery ?? '',
+    corrected: q.corrected ?? 'any',
+    compareFrom: q.compareFrom ?? '',
+    compareTo: q.compareTo ?? '',
   }
 }
 
@@ -58,7 +90,7 @@ export async function dashboardApp(
   db: Db,
   port: number,
   dist = fileURLToPath(new URL('../../../dashboard/dist/', import.meta.url)),
-  options: { publicOrigin?: string } = {},
+  options: { publicOrigin?: string; scope: Scope; settings: DashboardSettings },
 ) {
   const publicOrigin = options.publicOrigin
   const hosts = publicOrigin
@@ -90,8 +122,7 @@ export async function dashboardApp(
         message: 'Trop de demandes. Réessayez dans une minute.',
       }),
     })
-  let loading = false
-  let cached: { scope: string; at: number; data: Dataset } | undefined
+  const readSnapshot = dashboardStore(db, options.scope)
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Cache-Control', 'no-store')
     reply.header('X-Robots-Tag', 'noindex, nofollow, noarchive')
@@ -121,7 +152,7 @@ export async function dashboardApp(
       FILTER: 'Vérifiez les dates et les filtres saisis.',
       LIMIT:
         'Ce festival dépasse la limite de lecture (50 000 ventes ou événements, ou 64 Mo). Une agrégation dédiée est nécessaire ; aucun total partiel n’est affiché.',
-      SCOPE: 'Ce festival est introuvable. Choisissez un festival de la liste.',
+      SCOPE: 'Le festival configuré est introuvable. Vérifiez la configuration du service.',
       BUSY: 'Une lecture est déjà en cours. Réessayez dans quelques secondes.',
     }
     void reply.code(known === 'FILTER' ? 400 : known === 'SCOPE' ? 404 : 503).send({
@@ -130,85 +161,44 @@ export async function dashboardApp(
         'Les données ne sont pas disponibles. Vérifiez la connexion MongoDB et les droits de lecture, puis actualisez.',
     })
   })
-  app.get('/api/scopes', async () => {
-    const scopes = await db
-      .collection<Festival>('festivals')
-      .find(
-        {},
-        { projection: { _id: 0, organizationId: 1, festivalId: 1, active: 1 }, maxTimeMS: 5000 },
-      )
-      .limit(501)
-      .toArray()
-    if (scopes.length > 500) throw new Error('LIMIT')
-    return scopes
-  })
+  app.get('/api/config', async () => ({
+    ...options.settings,
+    defaultPeriod: defaultPeriod(options.settings.days[0]!.date),
+  }))
   app.get<{ Querystring: Record<string, string | undefined> }>(
     '/api/report',
     async (req, reply) => {
-      const q = req.query
-      const filters = queryFilters(q)
-      if (
-        !uuid.test(q.organizationId ?? '') ||
-        !uuid.test(q.festivalId ?? '') ||
-        (q.page && !/^[1-9]\d{0,5}$/.test(q.page)) ||
-        (q.format && q.format !== 'csv')
-      )
+      const q = req.query,
+        filters = queryFilters(q, options.settings)
+      const kinds: ExportKind[] = [
+        'orders',
+        'lines',
+        'products',
+        'categories',
+        'tablets',
+        'corrections',
+        'days',
+        'vat',
+      ]
+      if ((q.format && q.format !== 'csv') || (q.export && !kinds.includes(q.export as ExportKind)))
         throw new Error('FILTER')
-      const scope = { organizationId: q.organizationId!, festivalId: q.festivalId! }
-      const cacheKey = `${scope.organizationId}/${scope.festivalId}`
-      if (publicOrigin && cached?.scope === cacheKey && Date.now() - cached.at < 15000) {
-        if (q.format === 'csv')
-          return reply
-            .header('Content-Disposition', 'attachment; filename="ventes-samhain.csv"')
-            .type('text/csv; charset=utf-8')
-            .send(salesCsv(cached.data, filters))
-        return {
-          ...report(cached.data, filters, Number(q.page ?? 1)),
-          generatedAt: new Date(cached.at).toISOString(),
-        }
+      const snapshot = await readSnapshot()
+      if (q.format === 'csv') {
+        const kind = (q.export ?? 'orders') as ExportKind
+        const prepared = prepareExport(snapshot.data, filters, options.settings)
+        return reply
+          .header('Content-Disposition', `attachment; filename="samhain-${kind}.csv"`)
+          .type('text/csv; charset=utf-8')
+          .send(Readable.from(csvChunks(snapshot.data, filters, options.settings, kind, prepared)))
       }
-      if (loading) throw new Error('BUSY')
-      loading = true
-      try {
-        if (!(await db.collection<Festival>('festivals').findOne(scope, { maxTimeMS: 5000 })))
-          throw new Error('SCOPE')
-        // Immutable documents, majority reads; no writes, schema changes or auth collections.
-        // One request uses one loaded dataset for all its figures and its page of sales.
-        const budget = { bytes: 0 }
-        const events = await readRows(
-          db
-            .collection<LedgerEvent>('ledgerEvents')
-            .find(
-              { ...scope, kind: { $in: ['sale', 'correction'] } },
-              { readConcern: { level: 'majority' }, maxTimeMS: 10000 },
-            )
-            .limit(limit + 1),
-          budget,
-        )
-        const legacy = await readRows(
-          db
-            .collection<Extract<Sale, { type: 'legacy' }>>('sales')
-            .find(
-              { ...scope, type: 'legacy' },
-              { readConcern: { level: 'majority' }, maxTimeMS: 10000 },
-            )
-            .limit(limit + 1),
-          budget,
-        )
-        const data = dataset(events, legacy)
-        if (publicOrigin) cached = { scope: cacheKey, at: Date.now(), data }
-        if (q.format === 'csv')
-          return reply
-            .header('Content-Disposition', 'attachment; filename="ventes-samhain.csv"')
-            .type('text/csv; charset=utf-8')
-            .send(salesCsv(data, filters))
-        return {
-          ...report(data, filters, Number(q.page ?? 1)),
-          ...(publicOrigin && cached ? { generatedAt: new Date(cached.at).toISOString() } : {}),
-        }
-      } finally {
-        loading = false
-      }
+      return report(
+        snapshot.data,
+        filters,
+        Number(q.page ?? 1),
+        options.settings,
+        Number(q.correctionPage ?? 1),
+        snapshot.generatedAt,
+      )
     },
   )
   app.get('/*', async (req, reply) => {

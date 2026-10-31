@@ -1,6 +1,6 @@
 # Samhain POS
 
-Le [tableau de bord MongoDB](docs/mongodb-dashboard.md) permet de consulter les ventes, filtrer par tablette et exporter les commandes, en lecture seule. Démarrage local : `pnpm dashboard`. Le [déploiement public Docker/Caddy](docs/mongodb-dashboard-hosting.md) est prévu pour `dashboard.samhain.arthurdubos.fr`, sans authentification, sur activation explicite.
+Le [dashboard MongoDB](docs/mongodb-dashboard.md) propose trois vues de pilotage en lecture seule : vue d’ensemble, analyse des ventes et suivi des caisses. Il est dédié à un festival configurable de quatre jours, avec statistiques horaires, produits, remboursements, TVA, actualisation et exports CSV. Les identifiants du festival et son jeudi de départ doivent être configurés côté serveur avant `pnpm dashboard`. Le [déploiement Docker/Caddy](docs/mongodb-dashboard-hosting.md) conserve l’accès public demandé sur `dashboard.samhain.arthurdubos.fr`, sans authentification.
 
 Samhain POS est une caisse tactile conçue pour l'encaissement sur tablette Android pendant le festival Samhain. L'application fonctionne localement, y compris sans connexion réseau, et intègre l'impression USB ESC/POS pour une Epson TM-T88V compatible.
 

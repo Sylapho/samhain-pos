@@ -25,6 +25,7 @@ const files = [
   'server/tsconfig.json',
   'server/src',
   'docs/mongodb-dashboard-hosting.md',
+  'docs/mongodb-dashboard.md',
 ]
 const result = spawnSync(
   'tar',

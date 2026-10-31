@@ -1,112 +1,166 @@
-import { useEffect, useState } from 'react'
-import type { Filters, Report, SaleRow } from '../../server/src/dashboard/types'
+import { useEffect, useRef, useState } from 'react'
+import type {
+  DashboardSettings,
+  Filters,
+  Report,
+  ExportKind,
+} from '../../server/src/dashboard/types'
+import { parisDay, shiftDay } from '../../server/src/dashboard/periods'
+import { Overview, Analysis, Registers } from './views'
+import { dateTime, money } from './format'
 import './style.css'
 
-type Scope = { organizationId: string; festivalId: string; active: boolean }
-const money = (cents: number) =>
-  new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(cents / 100)
-const dateTime = (at: string) =>
-  new Intl.DateTimeFormat('fr-FR', {
-    timeZone: 'Europe/Paris',
-    dateStyle: 'short',
-    timeStyle: 'short',
-  }).format(new Date(at))
-const paymentName = (name: string) => (name === 'cash' ? 'Espèces' : 'Carte bancaire')
-const dayLabel = (day: string) =>
-  new Intl.DateTimeFormat('fr-FR', {
-    timeZone: 'Europe/Paris',
-    day: 'numeric',
-    month: 'short',
-  }).format(new Date(`${day}T12:00:00Z`))
-const initial: Filters = { from: '', to: '', terminal: '', payment: '', search: '' }
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function get<T>(path: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(path, { headers: { 'X-Samhain-Dashboard': '1' }, signal })
   if (!response.ok) {
     const error = (await response.json().catch(() => ({}))) as { message?: string }
-    throw new Error(error.message ?? 'Impossible de charger les données. Réessayez.')
+    throw new Error(error.message ?? 'Lecture impossible. Réessayez.')
   }
   return response.json() as Promise<T>
 }
+type View = 'overview' | 'analysis' | 'registers'
+const exports: [ExportKind, string][] = [
+  ['orders', 'Commandes'],
+  ['lines', 'Lignes vendues'],
+  ['products', 'Produits'],
+  ['categories', 'Catégories'],
+  ['tablets', 'Tablettes'],
+  ['corrections', 'Corrections'],
+  ['days', 'Journées'],
+  ['vat', 'Synthèse TVA'],
+]
 export default function App() {
-  const [scopes, setScopes] = useState<Scope[]>([])
-  const [scopeIndex, setScopeIndex] = useState('')
-  const [draft, setDraft] = useState(initial)
-  const [filters, setFilters] = useState(initial)
-  const [page, setPage] = useState(1)
-  const [revision, setRevision] = useState(0)
-  const [result, setResult] = useState<{ key: string; data: Report | null; error: string }>({
-    key: '',
-    data: null,
-    error: '',
-  })
-  const [tablets, setTablets] = useState<Report['tablets']>([])
-  const [scopeBusy, setScopeBusy] = useState(true)
-  const [scopeError, setScopeError] = useState('')
-  const [exportError, setExportError] = useState('')
-  const [exporting, setExporting] = useState(false)
-  const [scopeRevision, setScopeRevision] = useState(0)
-  const scope = scopes[Number(scopeIndex)]
+  const [settings, setSettings] = useState<DashboardSettings | null>(null),
+    [configError, setConfigError] = useState(''),
+    [configRevision, setConfigRevision] = useState(0)
+  const [filters, setFilters] = useState<Filters | null>(null),
+    [page, setPage] = useState(1),
+    [correctionPage, setCorrectionPage] = useState(1),
+    [revision, setRevision] = useState(0)
+  const [view, setView] = useState<View>('overview'),
+    [custom, setCustom] = useState({ from: '', to: '' }),
+    [refresh, setRefresh] = useState<number | null>(null)
+  const [result, setResult] = useState<{
+    filterKey: string
+    requestKey: string
+    data: Report | null
+    error: string
+  }>({ filterKey: '', requestKey: '', data: null, error: '' })
+  const [exportKind, setExportKind] = useState<ExportKind>('orders'),
+    [exporting, setExporting] = useState(false),
+    [exportError, setExportError] = useState('')
+  const [productSearch, setProductSearch] = useState(''),
+    [clock, setClock] = useState(() => Date.now())
+  const inFlight = useRef<AbortController | null>(null)
   useEffect(() => {
     const controller = new AbortController()
-    get<Scope[]>('/api/scopes', controller.signal)
-      .then((rows) => {
-        if (controller.signal.aborted) return
-        setScopes(rows)
-        setScopeIndex(rows.length ? '0' : '')
-        setScopeBusy(false)
-        setScopeError('')
-      })
-      .catch((e: unknown) => {
+    get<DashboardSettings>('/api/config', controller.signal)
+      .then((config) => {
         if (!controller.signal.aborted) {
-          setScopeError(e instanceof Error ? e.message : 'Connexion impossible.')
-          setScopeBusy(false)
+          setSettings(config)
+          setConfigError('')
         }
-      })
-    return () => controller.abort()
-  }, [scopeRevision])
-  const params = new URLSearchParams({
-    ...filters,
-    organizationId: scope?.organizationId ?? '',
-    festivalId: scope?.festivalId ?? '',
-    page: String(page),
-  }).toString()
-  const requestKey = `${params}&revision=${revision}`
-  const data = result.key === requestKey ? result.data : null
-  const busy = scopeBusy || Boolean(scope && result.key !== requestKey)
-  const error = scopeError || (result.key === requestKey ? result.error : '') || exportError
-  useEffect(() => {
-    if (!scope) return
-    const controller = new AbortController()
-    // Results are keyed to their filters; previous figures cannot appear under new filters.
-    get<Report>(`/api/report?${params}`, controller.signal)
-      .then((report) => {
-        if (controller.signal.aborted) return
-        setResult({ key: requestKey, data: report, error: '' })
-        setTablets(report.tablets)
       })
       .catch((e: unknown) => {
         if (!controller.signal.aborted)
-          setResult({
-            key: requestKey,
-            data: null,
-            error: e instanceof Error ? e.message : 'Données indisponibles.',
-          })
+          setConfigError(e instanceof Error ? e.message : 'Configuration indisponible.')
       })
     return () => controller.abort()
-  }, [params, requestKey, scope])
-  async function exportSales() {
+  }, [configRevision])
+  const active: Filters | null =
+    filters ??
+    (settings
+      ? {
+          ...settings.defaultPeriod,
+          terminal: '',
+          payment: '',
+          search: '',
+          productIds: '',
+          corrected: 'any',
+          compareFrom: '',
+          compareTo: '',
+        }
+      : null)
+  const params = active
+    ? new URLSearchParams({
+        ...active,
+        page: String(page),
+        correctionPage: String(correctionPage),
+      }).toString()
+    : ''
+  const requestKey = `${params}&request=${revision}`
+  const data = result.filterKey === params ? result.data : null
+  const busy = Boolean(active && result.requestKey !== requestKey)
+  const error = configError || (result.requestKey === requestKey ? result.error : '')
+  useEffect(() => {
+    if (!params) return
+    const controller = new AbortController()
+    inFlight.current = controller
+    get<Report>(`/api/report?${params}`, controller.signal)
+      .then((report) => {
+        if (!controller.signal.aborted) {
+          setResult({ filterKey: params, requestKey, data: report, error: '' })
+          setClock(Date.now())
+        }
+      })
+      .catch((e: unknown) => {
+        if (!controller.signal.aborted)
+          setResult((previous) => ({
+            filterKey: params,
+            requestKey,
+            data: previous.filterKey === params ? previous.data : null,
+            error: e instanceof Error ? e.message : 'Données indisponibles.',
+          }))
+      })
+      .finally(() => {
+        if (inFlight.current === controller) inFlight.current = null
+      })
+    return () => {
+      controller.abort()
+      if (inFlight.current === controller) inFlight.current = null
+    }
+  }, [params, requestKey])
+  const refreshSeconds = refresh ?? settings?.refreshSeconds ?? 60
+  useEffect(() => {
+    const update = () => {
+      if (!document.hidden && !inFlight.current) setRevision((v) => v + 1)
+    }
+    const interval = refreshSeconds ? setInterval(update, refreshSeconds * 1000) : undefined
+    const timer = setInterval(() => setClock(Date.now()), 15000)
+    if (refreshSeconds) document.addEventListener('visibilitychange', update)
+    return () => {
+      clearInterval(interval)
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', update)
+    }
+  }, [refreshSeconds])
+  function change(patch: Partial<Filters>) {
+    if (active) {
+      setFilters({ ...active, ...patch })
+      setPage(1)
+      setCorrectionPage(1)
+      setExportError('')
+    }
+  }
+  function selectPeriod(from: string, to = from) {
+    change({ from, to })
+    setCustom({ from, to })
+  }
+  async function download() {
     setExporting(true)
     setExportError('')
     try {
-      const response = await fetch(`/api/report?${params}&format=csv`, {
+      const response = await fetch(`/api/report?${params}&format=csv&export=${exportKind}`, {
         headers: { 'X-Samhain-Dashboard': '1' },
       })
-      if (!response.ok)
-        throw new Error('Export indisponible. Réessayez après avoir actualisé les données.')
-      const url = URL.createObjectURL(await response.blob())
-      const link = document.createElement('a')
+      if (!response.ok) {
+        const e = (await response.json()) as { message?: string }
+        throw new Error(e.message ?? 'Export indisponible.')
+      }
+      const url = URL.createObjectURL(await response.blob()),
+        link = document.createElement('a')
       link.href = url
-      link.download = 'ventes-samhain.csv'
+      link.download = `samhain-${exportKind}.csv`
       link.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (e) {
@@ -115,471 +169,357 @@ export default function App() {
       setExporting(false)
     }
   }
-  const update = (field: keyof Filters, value: string) =>
-    setDraft((f) => ({ ...f, [field]: value }))
+  const options = result.data?.productOptions ?? []
+  const selectedProducts: string[] = JSON.parse(active?.productIds || '[]')
+  const stale =
+    data && settings && clock - Date.parse(data.generatedAt) > settings.staleMinutes * 60000
   return (
     <>
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Samhain · Suivi des ventes">
-          SAMHAIN<span>Suivi des ventes</span>
+        <a className="brand" href="/" aria-label="Samhain · Pilotage">
+          SAMHAIN<span>Pilotage du festival</span>
         </a>
-        <span className="readonly">Consultation · lecture seule</span>
+        <span className="readonly">Consultation publique · lecture seule</span>
       </header>
       <main>
         <div className="heading">
           <div>
-            <p className="eyebrow">VUE D’ENSEMBLE</p>
-            <h1>Les ventes, en clair.</h1>
-            <p className="muted">Retrouvez l’activité du festival et de chaque tablette.</p>
+            <p className="eyebrow">ACTIVITÉ COMMERCIALE</p>
+            <h1>Le festival, en clair.</h1>
+            <p className="muted">Ventes synchronisées de toutes les caisses · heure de Paris.</p>
           </div>
           <button
             disabled={busy}
-            onClick={() =>
-              scopes.length ? setRevision((v) => v + 1) : setScopeRevision((v) => v + 1)
-            }
+            onClick={() => (settings ? setRevision((v) => v + 1) : setConfigRevision((v) => v + 1))}
           >
             Actualiser les données
           </button>
         </div>
         <aside className="notice">
-          <strong>Ce que vous voyez ici</strong>
+          <strong>Données reçues dans MongoDB</strong>
           <span>
-            Les données reçues dans MongoDB. Une tablette hors ligne peut avoir enregistré d’autres
-            ventes qui ne sont pas encore visibles ici. Les heures sont affichées à l’heure de
-            Paris.
+            Les tablettes peuvent conserver d’autres ventes hors ligne. La dernière réception ne
+            prouve pas une connexion actuelle. Cette consultation est publique, sans
+            authentification.
           </span>
         </aside>
-        <form
-          className="filters"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setPage(1)
-            setFilters({ ...draft })
-          }}
-        >
-          <label className="festival">
-            Festival
-            <select
-              aria-label="Festival"
-              value={scopeIndex}
-              disabled={!scopes.length || busy}
-              onChange={(e) => {
-                setScopeIndex(e.target.value)
-                setPage(1)
-                setFilters(initial)
-                setDraft(initial)
-                setTablets([])
-              }}
-            >
-              {!scopes.length && <option value="">Aucun festival disponible</option>}
-              {scopes.map((s, i) => (
-                <option key={`${s.organizationId}/${s.festivalId}`} value={i}>
-                  {s.festivalId}
-                  {!s.active ? ' (archivé)' : ''} · {s.organizationId}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Du
-            <input
-              type="date"
-              value={draft.from}
-              max={draft.to || undefined}
-              onChange={(e) => update('from', e.target.value)}
-            />
-          </label>
-          <label>
-            Au
-            <input
-              type="date"
-              value={draft.to}
-              min={draft.from || undefined}
-              onChange={(e) => update('to', e.target.value)}
-            />
-          </label>
-          <label>
-            Tablette
-            <select value={draft.terminal} onChange={(e) => update('terminal', e.target.value)}>
-              <option value="">Toutes les tablettes</option>
-              {tablets.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Paiement
-            <select value={draft.payment} onChange={(e) => update('payment', e.target.value)}>
-              <option value="">Tous les paiements</option>
-              <option value="cash">Espèces</option>
-              <option value="card">Carte bancaire</option>
-            </select>
-          </label>
-          <label>
-            Commande ou reçu
-            <input
-              type="search"
-              maxLength={120}
-              placeholder="Ex. A-0001"
-              value={draft.search}
-              onChange={(e) => update('search', e.target.value)}
-            />
-          </label>
-          <div className="filter-actions">
-            <button className="primary" disabled={!scope || busy}>
-              Afficher
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setDraft(initial)
-                setFilters(initial)
-                setPage(1)
-              }}
-            >
-              Tout voir
-            </button>
-          </div>
-        </form>
-        {error && (
-          <div role="alert" className="error">
-            <strong>Chargement impossible.</strong> {error}
-          </div>
-        )}
-        <div role="status" aria-live="polite" className="load-status">
-          {busy
-            ? 'Lecture de la base en cours…'
-            : data
-              ? `Dernière lecture : ${dateTime(data.generatedAt)} · ${data.saleCount.toLocaleString('fr-FR')} vente(s) correspondant aux filtres.`
-              : !error
-                ? 'Aucun festival à consulter dans cette base.'
-                : ''}
-        </div>
-        {data && (
+        {settings && active && (
           <>
-            <section className="metrics" aria-label="Chiffres de la sélection">
-              <Metric
-                label="Ventes enregistrées"
-                value={data.totals.count.toLocaleString('fr-FR')}
-                help="Commandes payées, avant corrections"
-              />
-              <Metric
-                label="Montant brut"
-                value={money(data.totals.gross)}
-                help="Total des ventes de la sélection"
-              />
-              <Metric
-                label="Corrections"
-                value={money(data.totals.corrections)}
-                help={`${data.totals.correctionCount} remboursement(s), annulation(s) ou ajustement(s)`}
-              />
-              <Metric
-                label="Montant net"
-                value={money(data.totals.net)}
-                help="Ventes + corrections de la période"
-                accent
-              />
-              <Metric
-                label="Panier moyen"
-                value={money(data.totals.average)}
-                help="Montant brut ÷ nombre de ventes"
-              />
-            </section>
-            {data.totals.legacyCount > 0 && (
-              <p className="muted">
-                La sélection comprend {data.totals.legacyCount} vente(s) importée(s) de
-                l’historique, sans date de réception disponible dans cette vue.
-              </p>
-            )}
-            <div className="grid-two">
-              <section className="section">
-                <SectionTitle
-                  title="Activité par jour"
-                  subtitle="Nombre de ventes · date du paiement à Paris"
-                />
-                {data.days.length ? (
-                  <div
-                    className="chart"
-                    role="img"
-                    aria-label={data.days
-                      .map((d) => `${dayLabel(d.day)} : ${d.totals.count} ventes`)
-                      .join(', ')}
+            <section className="periods" aria-label="Période des ventes">
+              <div className="quick-days">
+                {settings.days.map((d) => (
+                  <button
+                    key={d.date}
+                    aria-pressed={active.from === d.date && active.to === d.date}
+                    onClick={() => selectPeriod(d.date)}
                   >
-                    {data.days.map((d) => (
-                      <div className="chart-column" key={d.day}>
-                        <span>{d.totals.count}</span>
-                        <div className="bar-track">
-                          <div
-                            className="bar"
-                            style={{
-                              height: `${(d.totals.count / Math.max(1, ...data.days.map((v) => v.totals.count))) * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <small>{dayLabel(d.day)}</small>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <Empty text="Aucune activité sur cette période." />
-                )}
-              </section>
-              <section className="section">
-                <SectionTitle
-                  title="Moyens de paiement"
-                  subtitle="Ventes et corrections de la sélection"
-                />
-                <div className="payment-list">
-                  {data.payments.map((p) => (
-                    <div className="payment" key={p.name}>
-                      <div>
-                        <strong>{paymentName(p.name)}</strong>
-                        <span>{p.totals.count} vente(s)</span>
-                      </div>
-                      <div>
-                        <strong>{money(p.totals.net)}</strong>
-                        <span>
-                          Brut {money(p.totals.gross)} · corrections {money(p.totals.corrections)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            </div>
-            <section className="section">
-              <SectionTitle
-                title="Les tablettes"
-                subtitle="Touchez « Voir les ventes » pour isoler une tablette. La dernière réception ne prouve pas qu’elle est actuellement connectée."
-              />
-              {data.tablets.length ? (
-                <div className="table-scroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Tablette</th>
-                        <th>Ventes</th>
-                        <th>Brut</th>
-                        <th>Corrections</th>
-                        <th>Net</th>
-                        <th>Dernière vente reçue</th>
-                        <th>
-                          <span className="sr-only">Action</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.tablets.map((t) => (
-                        <tr key={t.id}>
-                          <td>
-                            <strong>{t.name}</strong>
-                            <small className="identifier">{t.id}</small>
-                          </td>
-                          <td>{t.totals.count}</td>
-                          <td>{money(t.totals.gross)}</td>
-                          <td>{money(t.totals.corrections)}</td>
-                          <td>
-                            <strong>{money(t.totals.net)}</strong>
-                          </td>
-                          <td>
-                            {t.lastReceivedAt ? dateTime(t.lastReceivedAt) : 'Non disponible'}
-                          </td>
-                          <td>
-                            <button
-                              aria-label={`Voir les ventes de ${t.name}`}
-                              onClick={() => {
-                                const f = { ...filters, terminal: t.id }
-                                setDraft(f)
-                                setFilters(f)
-                                setPage(1)
-                              }}
-                            >
-                              Voir les ventes<span className="sr-only"> de {t.name}</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <Empty text="Aucune tablette connue dans les ventes reçues." />
-              )}
-            </section>
-            <section className="section">
-              <div className="section-heading">
-                <SectionTitle
-                  title="Détail des ventes"
-                  subtitle="Ouvrez une commande pour voir les articles et leurs options."
-                />
-                <button disabled={exporting} onClick={() => void exportSales()}>
-                  {exporting ? 'Export en cours…' : 'Exporter les ventes (CSV)'}
+                    {d.label}
+                    <small>{d.date.split('-').reverse().slice(0, 2).join('/')}</small>
+                  </button>
+                ))}
+                <button
+                  aria-pressed={
+                    active.from === settings.days[0].date && active.to === settings.days[3].date
+                  }
+                  onClick={() => selectPeriod(settings.days[0].date, settings.days[3].date)}
+                >
+                  Toute la période
+                </button>
+                <button
+                  aria-pressed={active.from === parisDay(new Date()) && active.to === active.from}
+                  onClick={() => selectPeriod(parisDay(new Date()))}
+                >
+                  Aujourd’hui
+                </button>
+                <button
+                  aria-pressed={
+                    active.from === shiftDay(parisDay(new Date()), -1) && active.to === active.from
+                  }
+                  onClick={() => selectPeriod(shiftDay(parisDay(new Date()), -1))}
+                >
+                  Hier
                 </button>
               </div>
-              {!data.sales.length ? (
-                <Empty text="Aucune vente ne correspond aux filtres. Essayez une autre période ou « Tout voir »." />
-              ) : (
-                <div className="sales-list">
-                  {data.sales.map((s) => (
-                    <SaleDetails key={s.id} sale={s} />
-                  ))}
-                </div>
-              )}
-              <nav className="pagination" aria-label="Pages des ventes">
-                <span>{data.saleCount} vente(s) · 50 par page</span>
-                <div>
-                  <button disabled={data.page <= 1 || busy} onClick={() => setPage(data.page - 1)}>
-                    Précédent
-                  </button>
-                  <span>
-                    Page {data.page} / {data.pageCount}
-                  </span>
-                  <button
-                    disabled={data.page >= data.pageCount || busy}
-                    onClick={() => setPage(data.page + 1)}
-                  >
-                    Suivant
-                  </button>
-                </div>
-              </nav>
+              <form
+                className="custom-period"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  selectPeriod(custom.from, custom.to)
+                }}
+              >
+                <span>Personnalisé</span>
+                <label>
+                  Du
+                  <input
+                    aria-label="Du"
+                    type="date"
+                    required
+                    max={custom.to || undefined}
+                    value={custom.from}
+                    onChange={(e) => setCustom((v) => ({ ...v, from: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Au
+                  <input
+                    aria-label="Au"
+                    type="date"
+                    required
+                    min={custom.from || undefined}
+                    value={custom.to}
+                    onChange={(e) => setCustom((v) => ({ ...v, to: e.target.value }))}
+                  />
+                </label>
+                <button>Appliquer les dates</button>
+              </form>
+              <p className="period-label">
+                Période sélectionnée :{' '}
+                <strong>
+                  {active.from} → {active.to}
+                </strong>{' '}
+                · journées inclusives, Europe/Paris
+              </p>
             </section>
-            <div className="grid-two">
-              <section className="section">
-                <SectionTitle
-                  title="Produits les plus vendus"
-                  subtitle="10 premiers noms de produits · quantités brutes avant remboursements"
+            <nav className="view-tabs" aria-label="Vues du dashboard">
+              {(
+                [
+                  ['overview', 'Vue d’ensemble'],
+                  ['analysis', 'Analyse des ventes'],
+                  ['registers', 'Suivi des caisses'],
+                ] as [View, string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  aria-current={view === id ? 'page' : undefined}
+                  onClick={() => setView(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <div className="filters">
+              <label>
+                Tablette
+                <select
+                  value={active.terminal}
+                  onChange={(e) => change({ terminal: e.target.value })}
+                >
+                  <option value="">Toutes les tablettes</option>
+                  {result.data?.tablets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Paiement
+                <select
+                  value={active.payment}
+                  onChange={(e) => change({ payment: e.target.value })}
+                >
+                  <option value="">Tous les paiements</option>
+                  <option value="cash">Espèces</option>
+                  <option value="card">Carte bancaire</option>
+                </select>
+              </label>
+              <label>
+                Commande, reçu ou produit
+                <input
+                  type="search"
+                  maxLength={120}
+                  value={active.search}
+                  onChange={(e) => change({ search: e.target.value })}
+                  placeholder="Numéro ou nom historique"
                 />
-                {data.products.length ? (
-                  <ol className="products">
-                    {data.products.map((p) => (
-                      <li key={p.name}>
-                        <div>
-                          <strong>{p.name}</strong>
-                          <span>{p.quantity} article(s)</span>
-                        </div>
-                        <strong>{money(p.cents)}</strong>
-                      </li>
+              </label>
+              <label>
+                Corrections des commandes
+                <select
+                  value={active.corrected}
+                  onChange={(e) => change({ corrected: e.target.value })}
+                >
+                  <option value="any">Toutes</option>
+                  <option value="with">Avec corrections</option>
+                  <option value="without">Sans corrections</option>
+                </select>
+              </label>
+              <button
+                onClick={() =>
+                  change({
+                    terminal: '',
+                    payment: '',
+                    search: '',
+                    productIds: '',
+                    corrected: 'any',
+                  })
+                }
+              >
+                Effacer les filtres
+              </button>
+            </div>
+            <details className="product-picker">
+              <summary>
+                Filtrer les commandes par produit ·{' '}
+                {selectedProducts.length
+                  ? `${selectedProducts.length} sélectionné(s)`
+                  : 'Tous les produits'}
+              </summary>
+              <input
+                aria-label="Rechercher un produit à sélectionner"
+                type="search"
+                placeholder="Rechercher un produit"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+              />
+              <button onClick={() => change({ productIds: '' })}>Tous les produits</button>
+              <div>
+                {options
+                  .filter((p) =>
+                    p.name.toLocaleLowerCase('fr').includes(productSearch.toLocaleLowerCase('fr')),
+                  )
+                  .map((p) => (
+                    <label key={p.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedProducts.includes(p.id)}
+                        onChange={(e) =>
+                          change({
+                            productIds: JSON.stringify(
+                              e.target.checked
+                                ? [...selectedProducts, p.id]
+                                : selectedProducts.filter((id) => id !== p.id),
+                            ),
+                          })
+                        }
+                      />
+                      {p.name}
+                      <small>{p.id}</small>
+                    </label>
+                  ))}
+              </div>
+              <p className="muted">
+                Les KPI portent sur les commandes complètes contenant au moins un produit
+                sélectionné.
+              </p>
+            </details>
+            {view === 'analysis' && (
+              <div className="table-tools">
+                <label>
+                  Rechercher dans les statistiques produits
+                  <input
+                    type="search"
+                    maxLength={120}
+                    value={active.productQuery ?? ''}
+                    onChange={(e) => change({ productQuery: e.target.value })}
+                  />
+                </label>
+                <span className="muted">
+                  Recherche appliquée aux produits, choix et export des statistiques.
+                </span>
+              </div>
+            )}
+            <div className="update-bar">
+              <span role="status" aria-live="polite">
+                {busy ? 'Actualisation en cours… ' : ''}
+                {data
+                  ? `Dernière lecture réussie : ${dateTime(data.generatedAt)}`
+                  : !error
+                    ? 'Lecture de MongoDB…'
+                    : ''}
+              </span>
+              <label>
+                Actualisation
+                <select value={refreshSeconds} onChange={(e) => setRefresh(Number(e.target.value))}>
+                  {[...new Set([0, 30, 60, 120, settings.refreshSeconds])]
+                    .sort((a, b) => a - b)
+                    .map((s) => (
+                      <option key={s} value={s}>
+                        {s ? `${s} secondes` : 'Manuelle'}
+                      </option>
                     ))}
-                  </ol>
-                ) : (
-                  <Empty text="Aucun produit vendu dans la sélection." />
-                )}
-              </section>
-              <section className="section">
-                <SectionTitle
-                  title="Corrections de ventes"
-                  subtitle="50 dernières corrections · date de la correction à Paris, même si la vente est antérieure"
-                />
-                {data.corrections.length ? (
-                  <ul className="corrections">
-                    {data.corrections.map((c) => (
-                      <li key={c.id}>
-                        <div>
-                          <strong>
-                            {c.order} ·{' '}
-                            {(
-                              {
-                                refund: 'Remboursement',
-                                cancellation: 'Annulation',
-                                adjustment: 'Ajustement',
-                              } as Record<string, string>
-                            )[c.type] ?? c.type}
-                          </strong>
-                          <span>
-                            {c.tablet} · {dateTime(c.at)} · {paymentName(c.method)}
-                          </span>
-                          <p>{c.reason}</p>
-                        </div>
-                        <strong>{money(c.cents)}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <Empty text="Aucune correction dans la sélection." />
-                )}
-              </section>
+                </select>
+              </label>
             </div>
           </>
         )}
+        {error && (
+          <div className="error" role="alert">
+            <strong>Lecture impossible.</strong> {error}
+            {data && ' Les chiffres conservés correspondent à la dernière lecture réussie.'}
+          </div>
+        )}
+        {stale && (
+          <div className="error" role="status">
+            Les données affichées datent de plus de {settings!.staleMinutes} minutes. Actualisez
+            avant de les interpréter.
+          </div>
+        )}
+        {data && settings && active && (
+          <>
+            {data.warnings.map((w) => (
+              <p className="notice" key={w}>
+                {w}
+              </p>
+            ))}
+            {view === 'overview' && <Overview data={data} />}
+            {view === 'analysis' && (
+              <Analysis
+                data={data}
+                settings={settings}
+                onCompare={(date) => change({ compareFrom: date, compareTo: date })}
+              />
+            )}
+            {view === 'registers' && (
+              <Registers
+                data={data}
+                onTablet={(id) => change({ terminal: id })}
+                onPage={setPage}
+                onCorrectionPage={setCorrectionPage}
+                busy={busy}
+              />
+            )}
+            <section className="section export-bar">
+              <div>
+                <h2>Exporter la sélection</h2>
+                <p className="muted">
+                  Toutes les lignes filtrées, au-delà de la page visible · CSV pour Excel.
+                </p>
+              </div>
+              <label>
+                Type d’export
+                <select
+                  value={exportKind}
+                  onChange={(e) => setExportKind(e.target.value as ExportKind)}
+                >
+                  {exports.map(([id, label]) => (
+                    <option key={id} value={id}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button disabled={exporting || busy} onClick={() => void download()}>
+                {exporting ? 'Export en cours…' : 'Télécharger le CSV'}
+              </button>
+              {exportError && (
+                <p role="alert" className="error">
+                  {exportError}
+                </p>
+              )}
+            </section>
+            <p className="muted">
+              Net = ventes payées dans la période + corrections enregistrées dans la période. Une
+              correction peut concerner une vente antérieure. Brut sélectionné :{' '}
+              {money(data.totals.gross)}.
+            </p>
+          </>
+        )}
         <footer>
-          Samhain · Consultation MongoDB · Aucune modification de la caisse depuis cet écran.
+          Samhain · Consultation en ligne uniquement · Aucune écriture dans les ventes ou les
+          journaux.
         </footer>
       </main>
     </>
-  )
-}
-function Metric({
-  label,
-  value,
-  help,
-  accent = false,
-}: {
-  label: string
-  value: string
-  help: string
-  accent?: boolean
-}) {
-  return (
-    <div className={`metric${accent ? ' accent' : ''}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{help}</small>
-    </div>
-  )
-}
-function SectionTitle({ title, subtitle }: { title: string; subtitle: string }) {
-  return (
-    <div>
-      <h2>{title}</h2>
-      <p className="muted section-subtitle">{subtitle}</p>
-    </div>
-  )
-}
-function Empty({ text }: { text: string }) {
-  return <p className="empty">{text}</p>
-}
-function SaleDetails({ sale: s }: { sale: SaleRow }) {
-  return (
-    <details className="sale">
-      <summary>
-        <div>
-          <strong>{s.number}</strong>
-          <span>
-            {s.tablet} · {dateTime(s.at)}
-          </span>
-        </div>
-        <div>
-          <span>
-            {paymentName(s.method)}
-            {s.legacy ? ' · Historique' : ''}
-          </span>
-          <strong>{money(s.cents)}</strong>
-          <span className="detail-hint">Voir les articles</span>
-        </div>
-      </summary>
-      <div className="sale-body">
-        <p>
-          Reçu : <strong>{s.receipt}</strong> · Réception :{' '}
-          {s.receivedAt ? dateTime(s.receivedAt) : 'Non disponible (import historique)'}
-        </p>
-        <ul>
-          {s.lines.map((l, i) => (
-            <li key={i}>
-              <div>
-                <strong>
-                  {l.quantity} × {l.name}
-                </strong>
-                {l.details.length > 0 && <span>{l.details.join(' · ')}</span>}
-              </div>
-              <span>{money(l.unitPriceCents * l.quantity)}</span>
-            </li>
-          ))}
-        </ul>
-        <small>Identifiant de vente : {s.id}</small>
-      </div>
-    </details>
   )
 }

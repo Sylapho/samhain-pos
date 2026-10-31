@@ -37,6 +37,12 @@ try {
   })
   await client.connect()
   const db = client.db(database)
+  if (
+    !(await db
+      .collection('festivals')
+      .findOne(config.scope, { projection: { _id: 1 }, maxTimeMS: 5000 }))
+  )
+    throw new Error('Festival configuré introuvable.')
   const access = await db.command({ connectionStatus: 1, showPrivileges: true })
   const privileges: { actions: string[] }[] = access.authInfo?.authenticatedUserPrivileges ?? []
   if (
@@ -46,12 +52,11 @@ try {
     )
   )
     throw new Error('Utilisez un compte MongoDB en lecture seule, par exemple samhain_reader_v1.')
-  const app = await dashboardApp(
-    db,
-    config.port,
-    undefined,
-    config.publicOrigin ? { publicOrigin: config.publicOrigin } : {},
-  )
+  const app = await dashboardApp(db, config.port, undefined, {
+    scope: config.scope,
+    settings: config.settings,
+    ...(config.publicOrigin ? { publicOrigin: config.publicOrigin } : {}),
+  })
   app.addHook('onClose', async () => {
     await client?.close()
   })
