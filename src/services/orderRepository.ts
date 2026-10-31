@@ -26,7 +26,6 @@ import {
   type UpdateCashFloatRequest,
 } from '../types/salesLedger'
 import { canonicalJson, hashCanonicalValue } from '../utils/integrity'
-import { orderRequiresPreparation } from '../utils/preparation'
 import { validateCheckoutIntent, validateOrderDraft } from './orderValidation'
 import { normalizeOrderPrinting, unknownOrderPrinting } from '../printing/orderPrinting'
 import { refundLinesTotalCents, validateStructuredRefund } from './saleRefund'
@@ -754,10 +753,9 @@ export class IndexedDbOrderRepository
                 throw new Error('Le paiement doit être explicitement confirmé avant la vente.')
               }
               const paymentConfirmedAt = intent.paymentConfirmedAt
-              const preparationRequired = orderRequiresPreparation({ items: intent.cartSnapshot })
               const pickupTicket = 'not_requested'
               const customerReceipt = intent.printCustomerReceipt ? 'pending' : 'not_requested'
-              const preparationTicket = preparationRequired ? 'pending' : 'not_requested'
+              const preparationTicket = 'not_requested'
               const sequenceRequest = metadataStore.get(SEQUENCES_KEY)
               sequenceRequest.onsuccess = () => {
                 try {
@@ -779,11 +777,7 @@ export class IndexedDbOrderRepository
                       orderNumberPrefix: intent.orderNumberPrefix,
                       receiptNumberPrefix: intent.receiptNumberPrefix,
                       printing: {
-                        status:
-                          customerReceipt === 'pending' ||
-                          preparationTicket === 'pending'
-                            ? 'pending'
-                            : 'printed',
+                        status: customerReceipt === 'pending' ? 'pending' : 'printed',
                         pickupTicket,
                         customerReceipt,
                         preparationTicket,

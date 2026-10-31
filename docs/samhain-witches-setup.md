@@ -8,9 +8,9 @@ tous les taux de TVA y sont provisoirement fixés à **20 % à la demande du res
 Les informations administratives du reçu restent celles de Samhain POS ; son titre devient
 « Samhain Witches ». Aucune donnée ou vente de Samhain POS n'est importée.
 
-Chaque vente demande un ticket de préparation contenant tous ses articles. Le ticket de
-caisse reste facultatif (case décochée par défaut). Le bon de retrait n'est jamais proposé
-ni envoyé. La vente est enregistrée localement avant l'impression et reste valide si
+Le ticket de préparation n’est pas utilisé. Le ticket de caisse est facultatif : une vente
+peut être enregistrée sans imprimante lorsque ce ticket n’est pas demandé.
+La vente est enregistrée localement avant l'impression et reste valide si
 l'imprimante échoue. L'API MongoDB reste hors du chemin critique de l'encaissement.
 
 ## Identités réservées pour W

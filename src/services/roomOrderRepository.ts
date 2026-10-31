@@ -137,10 +137,19 @@ export class RoomOrderRepository
     update: (printing: OrderPrinting) => OrderPrinting,
   ): Promise<Order> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const current = (await this.getOrders()).find((order) => order.id === id)
-      if (!current) throw new Error(`Commande locale ${id} introuvable.`)
-      const printing = update(structuredClone(current.printing))
-      const result = await this.nativeStorage.compareAndSetPrinting(id, current.printing, printing)
+      const snapshot = await this.getSnapshot()
+      const stored = snapshot.orders.find((order) => order.id === id)
+      if (!stored) throw new Error(`Commande locale ${id} introuvable.`)
+      const technical = snapshot.technicalStates.find((state) => state.orderId === id)
+      if (!technical) throw new Error(`État d’impression local ${id} introuvable.`)
+      // La politique W masque les anciens tickets de préparation, mais Room compare l’état brut.
+      const current = normalizeOrderPrinting(technical.printing, stored.createdAt)
+      const printing = update(structuredClone(current))
+      const result = await this.nativeStorage.compareAndSetPrinting(
+        id,
+        technical.printing,
+        printing,
+      )
       if (result.updated && result.order) return result.order
     }
     throw new Error('L’état d’impression a été modifié simultanément. Réessayez l’opération.')

@@ -5,6 +5,8 @@ import { IndexedDbOrderRepository } from './orderRepository'
 import { createOrderDataRepository } from './orderRepositoryFactory'
 import { OrderService } from './orderService'
 import { RoomOrderRepository } from './roomOrderRepository'
+import { printPreviewOrder } from '../mocks/printOrder'
+import { toImmutableOrderSnapshot } from './orderRepository'
 import { createValidOrderItems } from '../test/orderFixtures'
 
 const terminal = {
@@ -58,6 +60,45 @@ function nativeStorage(initialStatus = false) {
 }
 
 describe('sélection et migration du repository Android Room', () => {
+  it('reprend un reçu ancien avec préparation en attente sans perdre le CAS Room', async () => {
+    const bridge = nativeStorage(true)
+    const oldPrinting = {
+      ...printPreviewOrder.printing,
+      pickupTicket: 'not_requested' as const,
+      customerReceipt: 'pending' as const,
+      preparationTicket: 'pending' as const,
+    }
+    bridge.getSnapshot.mockResolvedValue({
+      metadata: {
+        nextOrderSequence: 2,
+        nextReceiptSequence: 2,
+        nextJournalSequence: 2,
+        lastJournalHash: null,
+      },
+      orders: [toImmutableOrderSnapshot(printPreviewOrder)],
+      technicalStates: [{ orderId: printPreviewOrder.id, printing: oldPrinting }],
+      entries: [],
+    })
+    bridge.compareAndSetPrinting.mockImplementation(async (_id, expected, printing) => ({
+      updated: JSON.stringify(expected) === JSON.stringify(oldPrinting),
+      order: { ...printPreviewOrder, printing },
+    }))
+    const repository = new RoomOrderRepository(bridge, undefined)
+    const service = new OrderService(repository)
+    expect((await service.getRecoverableOrders()).map((order) => order.id)).toEqual([
+      printPreviewOrder.id,
+    ])
+
+    const started = await service.beginPrinting(printPreviewOrder.id, ['customerReceipt'])
+    expect(bridge.compareAndSetPrinting).toHaveBeenCalledOnce()
+    expect(bridge.compareAndSetPrinting.mock.calls[0]?.[1]).toEqual(oldPrinting)
+    expect(started.printing).toMatchObject({
+      status: 'unknown',
+      customerReceipt: 'unknown',
+      preparationTicket: 'not_requested',
+    })
+  })
+
   it('sélectionne Room uniquement pour une exécution Android native', () => {
     const indexedDb = new IDBFactory()
     const bridge = nativeStorage(true)
@@ -99,7 +140,7 @@ describe('sélection et migration du repository Android Room', () => {
       nextReceiptSequence: 2,
       nextJournalSequence: 2,
     })
-    expect(imported?.technicalStates[0]?.printing.status).toBe('pending')
+    expect(imported?.technicalStates[0]?.printing.status).toBe('printed')
     expect(imported?.entries[0]?.kind).toBe('sale')
   })
 

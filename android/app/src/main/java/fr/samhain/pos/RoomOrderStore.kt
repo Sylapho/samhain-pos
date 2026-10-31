@@ -91,11 +91,10 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                 "Le paiement doit être explicitement confirmé avant la vente."
             }
             val paidAt = intent.requireNonBlank("paymentConfirmedAt")
-            val preparationRequired = requiresPreparation(intent.getJSONArray("cartSnapshot"))
             val customerReceipt =
                 if (intent.getBoolean("printCustomerReceipt")) "pending" else "not_requested"
             val pickupTicket = "not_requested"
-            val preparationTicket = if (preparationRequired) "pending" else "not_requested"
+            val preparationTicket = "not_requested"
             val request =
                 JSONObject().apply {
                     put("id", intent.getString("id"))
@@ -117,8 +116,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                                 "status",
                                 if (
                                     pickupTicket == "pending" ||
-                                    customerReceipt == "pending" ||
-                                    preparationTicket == "pending"
+                                    customerReceipt == "pending"
                                 ) {
                                     "pending"
                                 } else {
@@ -1205,7 +1203,7 @@ class RoomOrderStore(private val database: SamhainPosDatabase) {
                         .put("status", "pending")
                         .put("pickupTicket", "not_requested")
                         .put("customerReceipt", "pending")
-                        .put("preparationTicket", "pending")
+                        .put("preparationTicket", "not_requested")
                         .put("attempts", 0)
                         .put("updatedAt", createdAt),
                 )

@@ -5,8 +5,6 @@ import { getResponsibleModeService } from '../services/responsibleModeService'
 import { CapacitorReceiptPrinter } from './capacitorReceiptPrinter'
 import { renderCustomerReceipt } from './customerReceiptRenderer'
 import { bytesToBase64 } from './escPos'
-import { orderRequiresPreparation } from '../utils/preparation'
-import { renderPreparationTicket } from './preparationTicketRenderer'
 import { getRetryableDocuments, uniquePrintSelection } from './orderPrinting'
 import { OrderPrintError } from './types'
 import type {
@@ -75,10 +73,6 @@ export function buildOrderPrintJob(
     }
     documents.push(renderCustomerReceipt(order))
   }
-  const preparationRequired = orderRequiresPreparation(order)
-  if (selection.includes('preparationTicket') && preparationRequired) {
-    documents.push(renderPreparationTicket(order))
-  }
 
   const steps: PrintJobStep[] = documents.flatMap((document) => [
     {
@@ -94,13 +88,7 @@ export function buildOrderPrintJob(
     },
   ])
 
-  const onlyInapplicableOperationalDocuments =
-    selection.length > 0 &&
-    selection.every(
-      (document) =>
-        document === 'preparationTicket' && !preparationRequired,
-    )
-  if (!steps.length && !onlyInapplicableOperationalDocuments) {
+  if (!steps.length) {
     throw new OrderPrintError(
       'Aucun ticket n’a été sélectionné pour cette impression.',
       'configuration',

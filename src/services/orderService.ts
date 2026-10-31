@@ -13,7 +13,6 @@ import type { OrderRepository } from './orderRepository'
 import { getOrderDataRepository } from './orderRepositoryFactory'
 import { createLedgerSource } from './ledgerSource'
 import { getRequiredTerminalConfiguration } from './terminalConfigurationService'
-import { orderRequiresPreparation } from '../utils/preparation'
 import {
   derivePrintStatus,
   normalizeOrderPrinting,
@@ -72,16 +71,12 @@ function selectedDocuments(selection: PrintSelection): PrintDocumentType[] {
   return uniquePrintSelection(selection)
 }
 
-function initialPrinting(
-  items: CartItem[],
-  printCustomerReceipt: boolean,
-  updatedAt: string,
-): OrderPrinting {
+function initialPrinting(printCustomerReceipt: boolean, updatedAt: string): OrderPrinting {
   const printing: OrderPrinting = {
     status: 'pending',
     pickupTicket: 'not_requested',
     customerReceipt: printCustomerReceipt ? 'pending' : 'not_requested',
-    preparationTicket: orderRequiresPreparation({ items }) ? 'pending' : 'not_requested',
+    preparationTicket: 'not_requested',
     attempts: 0,
     updatedAt,
   }
@@ -123,7 +118,7 @@ export class OrderService {
         orderNumberPrefix: validated.terminal.terminalCode,
         receiptNumberPrefix: receiptNumberPrefix(validated.terminal.terminalCode, createdAt),
         items: persistedItems,
-        printing: initialPrinting(persistedItems, printCustomerReceipt, createdAtIso),
+        printing: initialPrinting(printCustomerReceipt, createdAtIso),
       },
       this.buildLedgerSource(validated.terminal),
     )

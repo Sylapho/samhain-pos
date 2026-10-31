@@ -154,15 +154,15 @@ export function UsbPrinterPanel() {
     setBusy(true)
     setMessage({
       kind: 'info',
-      text: 'Envoi du ticket client, coupe, préparation et seconde coupe…',
+      text: 'Envoi du ticket client et coupe…',
     })
     try {
       const result = await printOrderTickets(printPreviewOrder, { deviceId: selected.deviceId })
       setMessage({
         kind: result.warnings.length ? 'info' : 'success',
         text: result.warnings.length
-          ? `Deux tickets envoyés. ${result.warnings.join(' ')}`
-          : `Deux tickets envoyés en une séquence (${result.bytesWritten} octets).`,
+          ? `Ticket client envoyé. ${result.warnings.join(' ')}`
+          : `Ticket client envoyé (${result.bytesWritten} octets).`,
       })
       await refresh(true)
     } catch (error) {

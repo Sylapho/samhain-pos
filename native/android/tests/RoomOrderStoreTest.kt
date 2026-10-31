@@ -339,13 +339,13 @@ class RoomOrderStoreTest {
                     val order = store.finalizeCheckoutIntent(id, "2026-09-01T12:03:00.000Z")
                     val state = order.getJSONObject("printing")
                     assertEquals("not_requested", state.getString("pickupTicket"))
-                    assertEquals("pending", state.getString("preparationTicket"))
+                    assertEquals("not_requested", state.getString("preparationTicket"))
                     assertEquals(
                         if (receiptRequested) "pending" else "not_requested",
                         state.getString("customerReceipt"),
                     )
                     assertEquals(
-                        "pending",
+                        if (receiptRequested) "pending" else "printed",
                         state.getString("status"),
                     )
                     assertEquals(
@@ -371,9 +371,9 @@ class RoomOrderStoreTest {
         val order =
             store.finalizeCheckoutIntent("no-preparation", "2026-09-01T12:03:00.000Z")
         val state = order.getJSONObject("printing")
-        assertEquals("pending", state.getString("status"))
+        assertEquals("printed", state.getString("status"))
         assertEquals("not_requested", state.getString("customerReceipt"))
-        assertEquals("pending", state.getString("preparationTicket"))
+        assertEquals("not_requested", state.getString("preparationTicket"))
     }
 
     @Test

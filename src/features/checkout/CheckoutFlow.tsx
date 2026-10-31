@@ -77,7 +77,6 @@ export function CheckoutFlow({
     initialOrder?.printing.status === 'printed',
   )
   const [manualReprintMode, setManualReprintMode] = useState(false)
-  const [deferConfirmationOpen, setDeferConfirmationOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const printingRef = useRef(false)
@@ -406,16 +405,11 @@ export function CheckoutFlow({
   const continueWithNextOrder = () => {
     if (busy || deferringRef.current || !order || order.printing.status === 'printed') return
     deferringRef.current = true
-    setDeferConfirmationOpen(false)
     onNewOrder()
   }
 
   const deferPrintingAndStartNewOrder = () => {
     if (busy || deferringRef.current || !order || order.printing.status === 'printed') return
-    if (!['printed', 'not_requested'].includes(order.printing.preparationTicket)) {
-      setDeferConfirmationOpen(true)
-      return
-    }
     continueWithNextOrder()
   }
 
@@ -517,7 +511,6 @@ export function CheckoutFlow({
                 </p>
                 <p className="mt-1 text-sm">Paiement enregistré · {printStatusLabel(order)}</p>
                 <DocumentStatuses order={order} />
-                <PreparationWarning order={order} />
               </div>
             ) : null}
 
@@ -625,7 +618,6 @@ export function CheckoutFlow({
               {order ? (
                 <>
                   <DocumentStatuses order={order} />
-                  <PreparationWarning order={order} />
                 </>
               ) : null}
               <p className="mt-4 mb-3 text-sm font-black text-stone-600">
@@ -633,7 +625,6 @@ export function CheckoutFlow({
               </p>
               {order ? (
                 <ReprintButtons
-                  order={order}
                   busy={busy}
                   printing={null}
                   onReprint={(selection) => void reprint(selection)}
@@ -670,7 +661,6 @@ export function CheckoutFlow({
               </p>
               {order ? (
                 <ReprintButtons
-                  order={order}
                   busy={busy}
                   printing={null}
                   onReprint={(selection) => void reprint(selection)}
@@ -690,37 +680,6 @@ export function CheckoutFlow({
           </div>
         )}
       </section>
-
-      {deferConfirmationOpen && order ? (
-        <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-stone-950/70 p-5"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="defer-printing-title"
-          onClick={() => setDeferConfirmationOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg rounded-[12px] border border-amber-300 bg-[#fffdf8] p-6"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="defer-printing-title" className="text-2xl font-black">
-              Mettre l’impression en attente ?
-            </h2>
-            <p className="mt-3 font-bold text-stone-800">
-              La commande {order.orderNumber} est payée et enregistrée, mais le ticket de
-              préparation n’est pas terminé. Elle restera dans les impressions à reprendre.
-            </p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <Button disabled={busy} onClick={() => setDeferConfirmationOpen(false)}>
-                Continuer l’impression
-              </Button>
-              <Button variant="primary" disabled={busy} onClick={continueWithNextOrder}>
-                Mettre en attente
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -880,62 +839,23 @@ function DocumentStatuses({ order }: { order: Order }) {
   return (
     <div className="mt-2 text-sm text-stone-800" aria-live="polite">
       <p>Reçu de caisse : {labels[order.printing.customerReceipt]}</p>
-      <p>Ticket de préparation : {labels[order.printing.preparationTicket]}</p>
-    </div>
-  )
-}
-
-function PreparationWarning({ order }: { order: Order }) {
-  if (['printed', 'not_requested'].includes(order.printing.preparationTicket)) return null
-  return (
-    <div
-      className="mt-4 border-2 border-amber-500 bg-amber-100 p-3 font-black text-amber-950"
-      role="alert"
-    >
-      Attention : le ticket de préparation n’a pas été imprimé. L’équipe de préparation peut ne
-      pas avoir reçu cette commande.
     </div>
   )
 }
 
 function ReprintButtons({
-  order,
   busy,
   printing,
   onReprint,
 }: {
-  order: Order
   busy: boolean
   printing: PrintSelection | null
   onReprint: (selection: PrintSelection) => void
 }) {
-  const available = [
-    'customerReceipt' as const,
-    ...(order.printing.preparationTicket !== 'not_requested'
-      ? (['preparationTicket'] as const)
-      : []),
-  ]
-  const hasPreparationTicket = order.printing.preparationTicket !== 'not_requested'
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <Button
-        variant={hasPreparationTicket ? 'secondary' : 'primary'}
-        disabled={busy}
-        onClick={() => onReprint(['customerReceipt'])}
-      >
-        {printing?.includes('customerReceipt') ? 'Impression en cours…' : 'Reçu de caisse'}
-      </Button>
-      {hasPreparationTicket ? (
-        <Button disabled={busy} onClick={() => onReprint(['preparationTicket'])}>
-          {printing?.includes('preparationTicket') ? 'Impression en cours…' : 'Préparation'}
-        </Button>
-      ) : null}
-      {available.length > 1 ? (
-        <Button variant="primary" disabled={busy} onClick={() => onReprint(available)}>
-          Tous les documents
-        </Button>
-      ) : null}
-    </div>
+    <Button disabled={busy} onClick={() => onReprint(['customerReceipt'])}>
+      {printing?.includes('customerReceipt') ? 'Impression en cours…' : 'Reçu de caisse'}
+    </Button>
   )
 }
 

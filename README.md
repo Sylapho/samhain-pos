@@ -25,7 +25,7 @@ La [distribution versionnée du catalogue MongoDB (#135)](docs/catalog-distribut
 - historique local des commandes et réimpression avec les numéros d'origine ;
 - mode responsable local pour les opérations administratives et les duplications de ticket client ;
 - clôture et sauvegarde JSON vérifiée hors du stockage privé via le sélecteur Android ;
-- suivi indépendant du ticket client et du ticket de préparation, y compris en cas d'échec partiel ;
+- ticket de caisse facultatif et reprise sûre en cas d'échec d’impression ;
 - reprise prudente des impressions incomplètes après redémarrage ;
 - transport USB Android natif, permission USB et contrôle de l'état ESC/POS de l'imprimante.
 

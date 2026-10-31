@@ -1,6 +1,6 @@
 import type { PrinterStatus } from '../../types/system'
 const printerLabels: Record<PrinterStatus, string> = {
-  unknown: 'Vérification…',
+  unknown: 'Connexion sur demande',
   unavailable: 'Non disponible sur cet appareil',
   'permission-required': 'Connexion à autoriser',
   ready: 'Connectée',

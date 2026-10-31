@@ -179,7 +179,7 @@ export function App({
     status: realPrinterStatus,
     isStale: printerStatusStale,
     refresh: refreshPrinterStatus,
-  } = usePrinterStatus(probePrinterStatus)
+  } = usePrinterStatus(probePrinterStatus, printerConfigurationOpen)
   const devPanelEnabled = shouldEnableDevPanel(import.meta.env)
   const printer = devPanelEnabled && printerOverride ? printerOverride : realPrinterStatus
   const feedbackTimer = useRef<number | null>(null)

@@ -31,6 +31,20 @@ describe('surveillance de l’imprimante', () => {
     vi.useRealTimers()
   })
 
+  it('ne sonde pas l’imprimante tant que la configuration est fermée', async () => {
+    const probe = vi.fn().mockResolvedValue('ready')
+    const { rerender, result } = renderHook(({ enabled }) => usePrinterStatus(probe, enabled), {
+      initialProps: { enabled: false },
+    })
+    await act(() => vi.advanceTimersByTimeAsync(180_000))
+    expect(probe).not.toHaveBeenCalled()
+    expect(result.current.status).toBe('unknown')
+    rerender({ enabled: true })
+    await flush()
+    expect(probe).toHaveBeenCalledOnce()
+    expect(result.current.status).toBe('ready')
+  })
+
   it('contrôle immédiatement, puis seulement après 60 secondes', async () => {
     const probe = vi.fn().mockResolvedValue('ready')
     const { result } = renderHook(() => usePrinterStatus(probe))

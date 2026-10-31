@@ -18,7 +18,10 @@ function probeOnce(probe: PrinterStatusProbe) {
   return result
 }
 
-export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): {
+export function usePrinterStatus(
+  probe: PrinterStatusProbe = getPrinterStatus,
+  enabled = true,
+): {
   status: PrinterStatus
   isStale: boolean
   refresh: () => void
@@ -32,6 +35,10 @@ export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): 
   const refresh = useCallback(() => requestCheck.current(), [])
 
   useEffect(() => {
+    if (!enabled) {
+      requestCheck.current = () => undefined
+      return
+    }
     let active = true
     let checking = false
     let pending = false
@@ -109,7 +116,7 @@ export function usePrinterStatus(probe: PrinterStatusProbe = getPrinterStatus): 
       unsubscribePrinting()
       document.removeEventListener('visibilitychange', visibilityChanged)
     }
-  }, [probe])
+  }, [probe, enabled])
 
   return {
     status: printing
