@@ -6,6 +6,7 @@ test('strict parser keeps v1 integer, escape, Unicode, duplicate and depth rules
   for (const raw of [
     '{"é":"a\\/b","n":9007199254740991}',
     '{"n":1e2}',
+    '{"vatRate":5.5}',
     '[0,-0,null,true,false,"\\ud83c\\udf83"]',
   ])
     assert.deepEqual(parseStrictJson(raw), JSON.parse(raw))

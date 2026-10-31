@@ -78,6 +78,11 @@ export function parseStrictJson(raw: string): unknown {
     )?.[0]
     if (!token) return invalid()
     if (/^-?\d/.test(token)) {
+      // The only non-integer business number in the v1 ledger is the 5.5% VAT rate.
+      if (token === '5.5') {
+        at += token.length
+        return
+      }
       if (!Number.isSafeInteger(Number(token))) invalid()
       // A fractional suffix can round to an integer near MAX_SAFE_INTEGER in JS.
       // Inspect decimal digits too; SQL independently uses exact numeric arithmetic.
