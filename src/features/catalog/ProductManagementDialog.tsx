@@ -5,6 +5,7 @@ import {
   type Category,
   type Product,
   type ProductIngredient,
+  type ProductOptionGroup,
   type ProductVariant,
   type VatRate,
 } from '../../types/catalog'
@@ -13,6 +14,7 @@ import { formatMoney } from '../../utils/money'
 import { CategoryManagement } from './CategoryManagement'
 import { CatalogSynchronization } from './CatalogSynchronization'
 import { SynchronizationStatus } from '../responsible/SynchronizationStatus'
+import { MenuCompositionEditor } from './MenuCompositionEditor'
 import type { ResponsibleMode } from '../../services/responsibleModeService'
 
 type Props = {
@@ -31,6 +33,7 @@ type EditorState = {
   product: Product
   price: string
   variantPrices: Record<string, string>
+  optionPrices: Record<string, string>
   ingredientNames: string
   isNew: boolean
 }
@@ -59,6 +62,14 @@ function editableProduct(product: Product, isNew = false): EditorState {
     price: centsToInput(product.priceCents),
     variantPrices: Object.fromEntries(
       (product.variants ?? []).map((variant) => [variant.id, centsToInput(variant.priceCents)]),
+    ),
+    optionPrices: Object.fromEntries(
+      (product.optionGroups ?? []).flatMap((group) =>
+        group.options.map((option) => [
+          `${group.id}:${option.id}`,
+          centsToInput(option.priceDeltaCents ?? 0),
+        ]),
+      ),
     ),
     ingredientNames: (product.ingredients ?? []).map(({ name }) => name).join('\n'),
     isNew,
@@ -145,6 +156,16 @@ export function ProductManagementDialog({
             editor.variantPrices[variant.id] ?? '',
             `Le prix de « ${variant.name || 'la variante'} »`,
           ),
+        })),
+        optionGroups: editor.product.optionGroups?.map((group) => ({
+          ...group,
+          options: group.options.map((option) => ({
+            ...option,
+            priceDeltaCents: inputToCents(
+              editor.optionPrices[`${group.id}:${option.id}`] ?? '',
+              `Le supplément de « ${option.name || 'ce choix'} »`,
+            ),
+          })),
         })),
         ingredients: ingredientsFromInput(editor.ingredientNames, editor.product.ingredients ?? []),
       }
@@ -635,12 +656,21 @@ function ProductEditor({
               </Button>
             </div>
           ))}
-          {editor.product.optionGroups?.length ? (
-            <p className="mt-3 bg-stone-100 p-3 text-sm font-semibold text-stone-700">
-              {editor.product.optionGroups.length} groupe(s) de choix existant(s) seront conservés.
-            </p>
-          ) : null}
         </section>
+
+        <fieldset disabled={busy}>
+          <MenuCompositionEditor
+            groups={editor.product.optionGroups ?? []}
+            optionPrices={editor.optionPrices}
+            onChange={(groups: ProductOptionGroup[], optionPrices) =>
+              onChange({
+                ...editor,
+                optionPrices,
+                product: { ...editor.product, optionGroups: groups.length ? groups : undefined },
+              })
+            }
+          />
+        </fieldset>
 
         <label className="mt-5 block border-t border-stone-300 pt-4 font-bold">
           Ingrédients modifiables — un par ligne

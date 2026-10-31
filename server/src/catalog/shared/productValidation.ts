@@ -43,6 +43,10 @@ function validateOptionGroups(
     const id = requireId(group.id, 'L’identifiant du groupe de choix')
     if (groupIds.has(id)) throw new Error(`Le groupe « ${id} » est présent plusieurs fois.`)
     groupIds.add(id)
+    if (group.type !== 'single' && group.type !== 'multiple')
+      throw new Error(`Le type du groupe « ${group.name} » est invalide.`)
+    if (typeof group.required !== 'boolean')
+      throw new Error(`Le caractère obligatoire du groupe « ${group.name} » est invalide.`)
     if (!group.options.length)
       throw new Error(`Le groupe « ${group.name} » doit contenir un choix.`)
     const optionIds = new Set<string>()
@@ -61,6 +65,8 @@ function validateOptionGroups(
         priceDeltaCents: validatePrice(option.priceDeltaCents ?? 0, 'Le supplément'),
       }
     })
+    if (group.type === 'single' && options.filter((option) => option.default).length > 1)
+      throw new Error(`Le groupe « ${group.name} » ne peut avoir qu’un choix par défaut.`)
     return { ...group, id, name: requireText(group.name, 'Le nom du groupe de choix'), options }
   })
 }
