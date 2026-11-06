@@ -129,7 +129,7 @@ sur le VPS avant le démarrage. Le dashboard et l'API se déploient depuis
 `/opt/samhain-witches-deploy`.
 
 L'export du dashboard Witches télécharge un fichier Excel avec la feuille
-`Détail comptable` : ventes et corrections, montants signés, TVA et HT par ligne.
+`Détail comptable` : ventes et corrections, montants des opérations, TVA et HT par ligne.
 Les corrections sans ventilation par produit gardent la TVA vide.
 
 ## Préparer l'APK W puis l'installer ensemble

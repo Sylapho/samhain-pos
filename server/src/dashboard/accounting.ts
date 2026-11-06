@@ -35,8 +35,8 @@ export async function accountingXlsx(
     'Vente\nPoint de vente', 'Achat\nDate Europe/Paris', 'Achat\nDate UTC',
     'Achat\nMode paiement', 'Produit\nNom historique',
     'Produit\nVariante', 'Produit\nOptions et notes', 'Quantité signée',
-    'Prix unitaire\nTTC EUR', 'Montant signé\nTTC EUR', 'Taux TVA',
-    'Montant signé\nTVA EUR', 'Montant signé\nHT EUR', 'Données\nStatut',
+    'Prix unitaire\nTTC EUR', 'Montant de l’opération\nTTC EUR', 'Taux TVA',
+    'TVA de l’opération\nEUR', 'Montant de l’opération\nHT EUR', 'Données\nStatut',
   ].map((header, index) => ({ header, key: String(index), width: index === 7 || index === 9 ? 28 : 19 }))
   const header = sheet.getRow(1)
   header.height = 38

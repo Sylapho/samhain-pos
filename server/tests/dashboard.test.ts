@@ -53,6 +53,7 @@ test('exports only the accounting detail sheet with signed amounts and 5.5% VAT'
   assert.deepEqual(book.worksheets.map((sheet) => sheet.name), ['Détail comptable'])
   const sheet = book.worksheets[0]!
   assert.equal(sheet.getRow(1).cellCount, 17)
+  assert.equal(sheet.getRow(1).getCell(13).value, 'Montant de l’opération\nTTC EUR')
   assert.equal(sheet.getRow(2).getCell(14).value, 0.055)
   assert.equal(sheet.getRow(2).getCell(13).value, 2.02)
   assert.equal(sheet.getRow(3).getCell(13).value, -1.01)
