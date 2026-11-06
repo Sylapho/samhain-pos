@@ -52,10 +52,10 @@ test('exports only the accounting detail sheet with signed amounts and 5.5% VAT'
   await book.xlsx.load(await accountingXlsx([sale, c], [], dataset([sale, c], []), filters))
   assert.deepEqual(book.worksheets.map((sheet) => sheet.name), ['Détail comptable'])
   const sheet = book.worksheets[0]!
-  assert.equal(sheet.getRow(1).cellCount, 19)
-  assert.equal(sheet.getRow(2).getCell(16).value, 0.055)
-  assert.equal(sheet.getRow(2).getCell(15).value, 2.02)
-  assert.equal(sheet.getRow(3).getCell(15).value, -1.01)
+  assert.equal(sheet.getRow(1).cellCount, 17)
+  assert.equal(sheet.getRow(2).getCell(14).value, 0.055)
+  assert.equal(sheet.getRow(2).getCell(13).value, 2.02)
+  assert.equal(sheet.getRow(3).getCell(13).value, -1.01)
 })
 
 test('accounting cancellation reverses each original line and its VAT', async () => {
@@ -64,9 +64,9 @@ test('accounting cancellation reverses each original line and its VAT', async ()
   const book = new ExcelJS.Workbook()
   await book.xlsx.load(await accountingXlsx([sale, c], [], dataset([sale, c], []), filters))
   const sheet = book.worksheets[0]!
-  assert.equal(sheet.getRow(3).getCell(2).value, 'Annulation')
-  assert.equal(sheet.getRow(3).getCell(15).value, -2.02)
-  assert.equal(sheet.getRow(3).getCell(17).value, -0.18)
+  assert.equal(sheet.getRow(3).getCell(1).value, 'Annulation')
+  assert.equal(sheet.getRow(3).getCell(13).value, -2.02)
+  assert.equal(sheet.getRow(3).getCell(15).value, -0.18)
 })
 
 test('counts sealed sales once, includes legacy, keeps signed corrections and exact cents', () => {

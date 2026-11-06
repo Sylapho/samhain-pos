@@ -31,23 +31,23 @@ export async function accountingXlsx(
   const book = new ExcelJS.Workbook()
   const sheet = book.addWorksheet('Détail comptable', { views: [{ state: 'frozen', ySplit: 1 }] })
   sheet.columns = [
-    'Opération\nRéférence', 'Opération\nType', 'Commande\nNum.', 'Reçu\nNum.',
+    'Opération\nType', 'Commande\nNum.', 'Reçu\nNum.',
     'Vente\nPoint de vente', 'Achat\nDate Europe/Paris', 'Achat\nDate UTC',
-    'Achat\nMode paiement', 'Commande\nRéférence d’origine', 'Produit\nNom historique',
+    'Achat\nMode paiement', 'Produit\nNom historique',
     'Produit\nVariante', 'Produit\nOptions et notes', 'Quantité signée',
     'Prix unitaire\nTTC EUR', 'Montant signé\nTTC EUR', 'Taux TVA',
     'Montant signé\nTVA EUR', 'Montant signé\nHT EUR', 'Données\nStatut',
-  ].map((header, index) => ({ header, key: String(index), width: index === 0 || index === 8 ? 30 : index === 9 || index === 11 ? 28 : 19 }))
+  ].map((header, index) => ({ header, key: String(index), width: index === 7 || index === 9 ? 28 : 19 }))
   const header = sheet.getRow(1)
   header.height = 38
   header.font = { bold: true, color: { argb: 'FFFFFFFF' } }
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF263238' } }
   header.alignment = { vertical: 'middle', wrapText: true }
-  sheet.autoFilter = 'A1:S1'
+  sheet.autoFilter = 'A1:Q1'
   const add = (values: (string | number | null)[]) => {
     const row = sheet.addRow(values)
-    for (const col of [14, 15, 17, 18]) row.getCell(col).numFmt = '#,##0.00;[Red]-#,##0.00'
-    row.getCell(16).numFmt = '0.0%'
+    for (const col of [12, 13, 15, 16]) row.getCell(col).numFmt = '#,##0.00;[Red]-#,##0.00'
+    row.getCell(14).numFmt = '0.0%'
   }
   const saleById = new Map(selected.sales.map((sale) => [sale.id, sale]))
   for (const event of events) {
@@ -63,8 +63,8 @@ export async function accountingXlsx(
       const gross = integer(line.unitPriceCents, 0) * quantity
       const rate = Number(line.vatRate)
       const tax = vat(gross, rate)
-      add([event.eventId, 'Vente', sale.number, sale.receipt, sale.tablet,
-        paris(sale.at), sale.at, method(sale.method), id, text(line.name),
+      add(['Vente', sale.number, sale.receipt, sale.tablet,
+        paris(sale.at), sale.at, method(sale.method), text(line.name),
         line.variant ? text(object(line.variant).name) : '', detail(line), quantity,
         euro(integer(line.unitPriceCents, 0)), euro(gross), rate / 100,
         euro(tax), euro(gross - tax), line.dataConfidence === 'confirmed' ? 'Confirmées' : 'Temporaires'])
@@ -81,8 +81,8 @@ export async function accountingXlsx(
       const gross = integer(line.unitPriceCents, 0) * quantity
       const rate = Number(line.vatRate)
       const tax = vat(gross, rate)
-      add([entry.orderId, 'Vente historique', sale.number, sale.receipt, sale.tablet,
-        paris(sale.at), sale.at, method(sale.method), id, text(line.name),
+      add(['Vente historique', sale.number, sale.receipt, sale.tablet,
+        paris(sale.at), sale.at, method(sale.method), text(line.name),
         line.variant ? text(object(line.variant).name) : '', detail(line), quantity,
         euro(integer(line.unitPriceCents, 0)), euro(gross), rate / 100,
         euro(tax), euro(gross - tax), line.dataConfidence === 'confirmed' ? 'Confirmées' : 'Temporaires'])
@@ -109,8 +109,8 @@ export async function accountingXlsx(
         const line = object(value)
         const gross = -integer(line.grossCents, 0)
         const tax = -integer(line.vatCents, 0)
-        add([event.eventId, 'Remboursement', summary.order, summary.receipt, summary.tablet,
-          paris(summary.at), summary.at, method(summary.method), text(correction.originalOrderId),
+        add(['Remboursement', summary.order, summary.receipt, summary.tablet,
+          paris(summary.at), summary.at, method(summary.method),
           text(line.productName), '', text(correction.reason), -integer(line.quantity, 1),
           euro(integer(line.unitPriceCents, 0)), euro(gross), Number(line.vatRate) / 100,
           euro(tax), euro(gross - tax), 'Confirmées'])
@@ -123,15 +123,15 @@ export async function accountingXlsx(
         const gross = integer(line.unitPriceCents, 0) * quantity
         const rate = Number(line.vatRate)
         const tax = vat(gross, rate)
-        add([event.eventId, 'Annulation', summary.order, summary.receipt, summary.tablet,
-          paris(summary.at), summary.at, method(summary.method), text(correction.originalOrderId),
+        add(['Annulation', summary.order, summary.receipt, summary.tablet,
+          paris(summary.at), summary.at, method(summary.method),
           text(line.name), line.variant ? text(object(line.variant).name) : '', detail(line),
           -quantity, euro(integer(line.unitPriceCents, 0)), -euro(gross), rate / 100,
           -euro(tax), -euro(gross - tax), 'Confirmées'])
       }
     } else {
-      add([event.eventId, text(correction.type), summary.order, summary.receipt, summary.tablet,
-        paris(summary.at), summary.at, method(summary.method), text(correction.originalOrderId),
+      add([text(correction.type), summary.order, summary.receipt, summary.tablet,
+        paris(summary.at), summary.at, method(summary.method),
         '', '', text(correction.reason), null, null, euro(summary.cents), null, null, null,
         'TVA non ventilée'])
     }
