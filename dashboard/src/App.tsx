@@ -98,7 +98,7 @@ export default function App() {
     setExporting(true)
     setExportError('')
     try {
-      const response = await fetch(`/api/report?${params}&format=csv`, {
+      const response = await fetch(`/api/report?${params}&format=xlsx`, {
         headers: { 'X-Samhain-Dashboard': '1' },
       })
       if (!response.ok)
@@ -106,7 +106,7 @@ export default function App() {
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement('a')
       link.href = url
-      link.download = 'ventes-samhain.csv'
+      link.download = 'samhain-witches-detail-comptable.xlsx'
       link.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (e) {
@@ -416,7 +416,7 @@ export default function App() {
                   subtitle="Ouvrez une commande pour voir les articles et leurs options."
                 />
                 <button disabled={exporting} onClick={() => void exportSales()}>
-                  {exporting ? 'Export en cours…' : 'Exporter les ventes (CSV)'}
+                  {exporting ? 'Export en cours…' : 'Exporter le détail comptable (Excel)'}
                 </button>
               </div>
               {!data.sales.length ? (

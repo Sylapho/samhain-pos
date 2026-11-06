@@ -7,6 +7,8 @@ import { dashboardApp, queryFilters } from '../src/dashboard/server.ts'
 import type { LedgerEvent, Sale } from '../src/persistence/model.ts'
 import { correction, ledger, order } from './ledger-fixtures.ts'
 import { dashboardConfig } from '../src/dashboard/config.ts'
+import { accountingXlsx } from '../src/dashboard/accounting.ts'
+import ExcelJS from 'exceljs'
 import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,6 +42,32 @@ const legacy: Sale = {
   transportFingerprint: 'test',
   protocolVersion: 1,
 }
+
+test('exports only the accounting detail sheet with signed amounts and 5.5% VAT', async () => {
+  const saleOrder = order()
+  saleOrder.items[0]!.vatRate = 5.5
+  const sale = event('sale', saleOrder)
+  const c = event('correction', correction(sale))
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(await accountingXlsx([sale, c], [], dataset([sale, c], []), filters))
+  assert.deepEqual(book.worksheets.map((sheet) => sheet.name), ['Détail comptable'])
+  const sheet = book.worksheets[0]!
+  assert.equal(sheet.getRow(1).cellCount, 19)
+  assert.equal(sheet.getRow(2).getCell(16).value, 0.055)
+  assert.equal(sheet.getRow(2).getCell(15).value, 2.02)
+  assert.equal(sheet.getRow(3).getCell(15).value, -1.01)
+})
+
+test('accounting cancellation reverses each original line and its VAT', async () => {
+  const sale = event()
+  const c = event('correction', correction(sale, { type: 'cancellation', amountDeltaCents: -202 }))
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(await accountingXlsx([sale, c], [], dataset([sale, c], []), filters))
+  const sheet = book.worksheets[0]!
+  assert.equal(sheet.getRow(3).getCell(2).value, 'Annulation')
+  assert.equal(sheet.getRow(3).getCell(15).value, -2.02)
+  assert.equal(sheet.getRow(3).getCell(17).value, -0.18)
+})
 
 test('counts sealed sales once, includes legacy, keeps signed corrections and exact cents', () => {
   const sale = event()

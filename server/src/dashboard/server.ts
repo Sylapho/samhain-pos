@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import type { Db, Document, FindCursor } from 'mongodb'
 import type { Festival, LedgerEvent, Sale } from '../persistence/model.ts'
 import { dataset, report, salesCsv } from './report.ts'
+import { accountingXlsx } from './accounting.ts'
 import type { Filters } from './report.ts'
 import type { Dataset } from './types.ts'
 
@@ -151,12 +152,12 @@ export async function dashboardApp(
         !uuid.test(q.organizationId ?? '') ||
         !uuid.test(q.festivalId ?? '') ||
         (q.page && !/^[1-9]\d{0,5}$/.test(q.page)) ||
-        (q.format && q.format !== 'csv')
+        (q.format && !['csv', 'xlsx'].includes(q.format))
       )
         throw new Error('FILTER')
       const scope = { organizationId: q.organizationId!, festivalId: q.festivalId! }
       const cacheKey = `${scope.organizationId}/${scope.festivalId}`
-      if (publicOrigin && cached?.scope === cacheKey && Date.now() - cached.at < 15000) {
+      if (q.format !== 'xlsx' && publicOrigin && cached?.scope === cacheKey && Date.now() - cached.at < 15000) {
         if (q.format === 'csv')
           return reply
             .header('Content-Disposition', 'attachment; filename="ventes-samhain.csv"')
@@ -197,6 +198,11 @@ export async function dashboardApp(
         )
         const data = dataset(events, legacy)
         if (publicOrigin) cached = { scope: cacheKey, at: Date.now(), data }
+        if (q.format === 'xlsx')
+          return reply
+            .header('Content-Disposition', 'attachment; filename="samhain-witches-detail-comptable.xlsx"')
+            .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            .send(await accountingXlsx(events, legacy, data, filters))
         if (q.format === 'csv')
           return reply
             .header('Content-Disposition', 'attachment; filename="ventes-samhain.csv"')

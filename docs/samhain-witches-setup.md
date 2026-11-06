@@ -115,7 +115,7 @@ export WITCHES_ENCRYPTION_KEY_FILE=/opt/samhain-witches-deploy/api-encryption.ke
 docker compose -f server/compose.witches.yaml config --quiet
 docker compose -f server/compose.witches.yaml up -d --build api
 
-cd /opt/samhain-witches-dashboard
+cd /opt/samhain-witches-api
 export DASHBOARD_ENV_FILE=/opt/samhain-witches-deploy/dashboard.env
 export WITCHES_DASHBOARD_ORIGIN=https://DOMAINE_DASHBOARD_W
 docker compose -f dashboard/compose.yaml config --quiet
@@ -124,9 +124,13 @@ docker compose -f dashboard/compose.yaml up -d --build dashboard
 
 Ces commandes sont **préparées, non exécutées**. Les chemins, domaines, DNS, droits
 de fichiers, certificats et résultats de `verify-runtime` doivent être confirmés
-sur le VPS avant le démarrage. Le dashboard et l'API se déploient dans des dossiers
-sources séparés sous `/opt`, avec les variables protégées dans
+sur le VPS avant le démarrage. Le dashboard et l'API se déploient depuis
+`/opt/samhain-witches-api`, avec les variables protégées dans
 `/opt/samhain-witches-deploy`.
+
+L'export du dashboard Witches télécharge un fichier Excel avec la feuille
+`Détail comptable` : ventes et corrections, montants signés, TVA et HT par ligne.
+Les corrections sans ventilation par produit gardent la TVA vide.
 
 ## Préparer l'APK W puis l'installer ensemble
 
