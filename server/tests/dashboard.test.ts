@@ -69,6 +69,21 @@ test('accounting cancellation reverses each original line and its VAT', async ()
   assert.equal(sheet.getRow(3).getCell(15).value, -0.18)
 })
 
+test('accounting detail follows sale time even when MongoDB returns a different order', async () => {
+  const late = order('late')
+  late.orderNumber = 'W-0002'
+  late.paidAt = '2026-10-24T12:00:00Z'
+  const early = order('early')
+  early.orderNumber = 'W-0001'
+  early.paidAt = '2026-10-24T09:00:00Z'
+  const events = [event('sale', late), event('sale', early)]
+  const book = new ExcelJS.Workbook()
+  await book.xlsx.load(await accountingXlsx(events, [], dataset(events, []), filters))
+  const sheet = book.worksheets[0]!
+  assert.equal(sheet.getRow(2).getCell(2).value, 'W-0001')
+  assert.equal(sheet.getRow(3).getCell(2).value, 'W-0002')
+})
+
 test('counts sealed sales once, includes legacy, keeps signed corrections and exact cents', () => {
   const sale = event()
   const c = event('correction', correction(sale))

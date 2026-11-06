@@ -44,7 +44,9 @@ export async function accountingXlsx(
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF263238' } }
   header.alignment = { vertical: 'middle', wrapText: true }
   sheet.autoFilter = 'A1:Q1'
-  const add = (values: (string | number | null)[]) => {
+  const rows: (string | number | null)[][] = []
+  const add = (values: (string | number | null)[]) => rows.push(values)
+  const append = (values: (string | number | null)[]) => {
     const row = sheet.addRow(values)
     for (const col of [12, 13, 15, 16]) row.getCell(col).numFmt = '#,##0.00;[Red]-#,##0.00'
     row.getCell(14).numFmt = '0.0%'
@@ -136,6 +138,9 @@ export async function accountingXlsx(
         'TVA non ventilée'])
     }
   }
+  // Keep product lines together and order operations by their actual timestamp.
+  rows.sort((a, b) => String(a[5]).localeCompare(String(b[5])))
+  rows.forEach(append)
   const bytes = await book.xlsx.writeBuffer()
   return Buffer.from(bytes)
 }
